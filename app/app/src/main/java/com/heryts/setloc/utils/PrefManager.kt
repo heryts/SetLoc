@@ -27,6 +27,9 @@ object PrefManager   {
     private const val MAP_TYPE = "map_type"
     private const val DARK_THEME = "dark_theme"
     private const val DISABLE_UPDATE = "disable_update"
+    private const val ROUTE_SPEED = "route_speed"
+    private const val ROUTE_MODE = "route_mode"
+    private const val ROUTE_WAIT = "route_wait_start"
 
 
     private val pref: SharedPreferences by lazy {
@@ -81,6 +84,33 @@ object PrefManager   {
         set(value) = pref.edit().putBoolean(DISABLE_UPDATE, value).apply()
 
 
+
+    /** Mode rute: 0 jalan kaki, 1 sepeda, 2 motor, 3 mobil. */
+    var routeMode: Int
+        get() = pref.getInt(ROUTE_MODE, 3)
+        set(value) { pref.edit().putInt(ROUTE_MODE, value).apply() }
+
+    /** Kecepatan simulasi rute (km/jam). */
+    var routeSpeed: Float
+        get() = pref.getFloat(ROUTE_SPEED, 50f)
+        set(value) { pref.edit().putFloat(ROUTE_SPEED, value).apply() }
+
+    /** Lama diam di titik awal sebelum jalan (menit). */
+    var routeWaitStart: Float
+        get() = pref.getFloat(ROUTE_WAIT, 0f)
+        set(value) { pref.edit().putFloat(ROUTE_WAIT, value).apply() }
+
+    /**
+     * Seperti [update] tapi langsung di thread pemanggil (apply() sudah menjaga urutan di memori).
+     * Dipakai simulasi rute supaya tulisan terakhir tidak bisa "menyalip" tombol Stop.
+     */
+    fun updateNow(start: Boolean, la: Double, ln: Double) {
+        pref.edit()
+            .putFloat(LATITUDE, la.toFloat())
+            .putFloat(LONGITUDE, ln.toFloat())
+            .putBoolean(START, start)
+            .apply()
+    }
 
     fun update(start:Boolean, la: Double, ln: Double) {
         runInBackground {

@@ -7,6 +7,7 @@ import android.app.ProgressDialog
 import android.content.Intent
 import android.location.Address
 import android.location.Geocoder
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.Menu
@@ -21,6 +22,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.AppCompatButton
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
+import androidx.core.widget.doAfterTextChanged
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -31,6 +34,10 @@ import com.heryts.setloc.BuildConfig
 import com.heryts.setloc.R
 import com.heryts.setloc.adapter.FavListAdapter
 import com.heryts.setloc.databinding.ActivityMapBinding
+import com.heryts.setloc.route.RouteClient
+import com.heryts.setloc.route.RouteRunner
+import com.heryts.setloc.route.RouteService
+import com.heryts.setloc.utils.PrefManager
 import com.heryts.setloc.utils.NotificationsChannel
 import com.heryts.setloc.utils.ext.*
 import com.heryts.setloc.viewmodel.MainViewModel
@@ -40,8 +47,13 @@ import com.google.android.gms.maps.OnMapReadyCallback
 import com.google.android.gms.maps.SupportMapFragment
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.LatLngBounds
 import com.google.android.gms.maps.model.Marker
 import com.google.android.gms.maps.model.MarkerOptions
+import com.google.android.gms.maps.model.Polyline
+import com.google.android.gms.maps.model.PolylineOptions
+import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.chip.ChipGroup
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import dagger.hilt.android.AndroidEntryPoint
@@ -57,7 +69,8 @@ import java.util.regex.Pattern
 import kotlin.properties.Delegates
 
 @AndroidEntryPoint
-class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClickListener {
+class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClickListener,
+    GoogleMap.OnMapLongClickListener {
 
     private val binding by lazy { ActivityMapBinding.inflate(layoutInflater) }
     private lateinit var mMap: GoogleMap
@@ -72,6 +85,17 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     private lateinit var alertDialog: MaterialAlertDialogBuilder
     private lateinit var dialog: AlertDialog
 
+    // --- rute (long press 2x di peta: titik awal & tujuan) ---
+    private var routeStart: LatLng? = null
+    private var routeEnd: LatLng? = null
+    private var routeStartMarker: Marker? = null
+    private var routeEndMarker: Marker? = null
+    private var routeLine: Polyline? = null
+    private var routePoints: List<LatLng> = emptyList()
+    private var routeJob: Job? = null
+    private var wasRouteRunning = false
+    private val routeReady get() = routePoints.size >= 2
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -80,6 +104,8 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         setSupportActionBar(binding.toolbar)
         initializeMap()
         setFloatActionButton()
+        setRouteButton()
+        observeRoute()
         updateChecker()
 
     }
@@ -101,6 +127,10 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
                 showToast("Map belum siap")
                 return@setOnClickListener
             }
+            if (routeReady) {
+                startRoute()
+                return@setOnClickListener
+            }
             viewModel.update(true, lat, lon)
             mLatLng.let {
                 mMarker?.position = it!!
@@ -118,6 +148,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
            showToast(getString(R.string.location_set))
         }
         binding.stop.setOnClickListener {
+            RouteRunner.stop()
             mLatLng.let {
                 viewModel.update(false, it!!.latitude, it.longitude)
             }
@@ -126,6 +157,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             binding.start.visibility = View.VISIBLE
             cancelNotification()
             showToast(getString(R.string.location_unset))
+            updateRouteFab()
         }
     }
 
@@ -159,6 +191,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             }
             setPadding(0,0,0,170)
             setOnMapClickListener(this@MapActivity)
+            setOnMapLongClickListener(this@MapActivity)
             if (viewModel.isStarted){
                 mMarker?.let {
                     it.isVisible = true
@@ -169,6 +202,8 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     }
 
     override fun onMapClick(latLng: LatLng) {
+        if (RouteRunner.isRunning) return
+        if (routeStart != null) clearRoute()   // tap biasa = kembali ke mode satu titik
         mLatLng = latLng
         mMarker?.let { marker ->
             mLatLng.let {
@@ -181,6 +216,247 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         }
     }
 
+
+    // ------------------------------------------------------------------ rute
+
+    override fun onMapLongClick(latLng: LatLng) {
+        if (RouteRunner.isRunning) {
+            showToast(getString(R.string.route_stop_first))
+            return
+        }
+        if (routeStart == null || routeEnd != null) {
+            clearRoute()
+            routeStart = latLng
+            routeStartMarker = mMap.addMarker(
+                MarkerOptions().position(latLng)
+                    .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN))
+            )
+            showToast(getString(R.string.route_pick_start))
+            updateRouteFab()
+        } else {
+            routeEnd = latLng
+            routeEndMarker = mMap.addMarker(
+                MarkerOptions().position(latLng)
+                    .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE))
+            )
+            fetchRoute()
+        }
+    }
+
+    private fun clearRoute() {
+        routeJob?.cancel()
+        routeJob = null
+        routeStartMarker?.remove()
+        routeEndMarker?.remove()
+        routeLine?.remove()
+        routeStartMarker = null
+        routeEndMarker = null
+        routeLine = null
+        routeStart = null
+        routeEnd = null
+        routePoints = emptyList()
+        updateRouteFab()
+    }
+
+    /** Gagal cari rute: titik awal dipertahankan, titik tujuan dibuang supaya bisa dipilih ulang. */
+    private fun dropRouteEnd() {
+        routeEndMarker?.remove()
+        routeEndMarker = null
+        routeEnd = null
+        routeLine?.remove()
+        routeLine = null
+        routePoints = emptyList()
+        updateRouteFab()
+    }
+
+    private fun fetchRoute() {
+        val from = routeStart ?: return
+        val to = routeEnd ?: return
+        routeLine?.remove()
+        routeLine = null
+        routePoints = emptyList()
+        updateRouteFab()
+        if (!isNetworkConnected()) {
+            showToast(getString(R.string.no_internet))
+            dropRouteEnd()
+            return
+        }
+        showToast(getString(R.string.route_searching))
+        routeJob?.cancel()
+        routeJob = lifecycleScope.launch {
+            try {
+                val result = RouteClient.fetch(this@MapActivity, from, to, PrefManager.routeMode)
+                routePoints = result.points
+                routeLine = mMap.addPolyline(
+                    PolylineOptions()
+                        .addAll(result.points)
+                        .width(12f)
+                        .color(ContextCompat.getColor(this@MapActivity, R.color.primary))
+                        .zIndex(1f)
+                )
+                try {
+                    val bounds = LatLngBounds.Builder()
+                    result.points.forEach { bounds.include(it) }
+                    mMap.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds.build(), 140))
+                } catch (_: Exception) {
+                    // layout peta belum siap: abaikan, rute tetap tergambar
+                }
+                updateRouteFab()
+            } catch (c: CancellationException) {
+                throw c
+            } catch (e: Exception) {
+                showToast(e.message ?: getString(R.string.address_not_found))
+                dropRouteEnd()
+            }
+        }
+    }
+
+    private fun setRouteButton() {
+        binding.route.setOnClickListener { if (routeReady) showRouteOptions() }
+        binding.routeDelete.setOnClickListener { clearRoute() }
+    }
+
+    /** Tombol centang hanya tampil bila rute siap, belum jalan, dan Play sedang tampil. */
+    private fun updateRouteFab() {
+        val idle = !RouteRunner.isRunning && binding.start.visibility == View.VISIBLE
+        binding.route.visibility = if (routeReady && idle) View.VISIBLE else View.GONE
+        // hapus: tampil begitu titik awal dipilih (juga saat rute gagal / belum selesai dicari)
+        binding.routeDelete.visibility = if (routeStart != null && idle) View.VISIBLE else View.GONE
+    }
+
+    private fun startRoute() {
+        if (!routeReady) return
+        val first = routePoints.first()
+        mLatLng = first
+        lat = first.latitude
+        lon = first.longitude
+        mMarker?.apply {
+            position = first
+            isVisible = true
+        }
+        if (Build.VERSION.SDK_INT >= 33 &&
+            !checkSinglePermission(Manifest.permission.POST_NOTIFICATIONS)
+        ) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
+        }
+        RouteRunner.start(routePoints, PrefManager.routeSpeed, PrefManager.routeWaitStart)
+        ContextCompat.startForegroundService(this, Intent(this, RouteService::class.java))
+        binding.start.visibility = View.GONE
+        binding.stop.visibility = View.VISIBLE
+        updateRouteFab()
+        mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(first, 16f))
+    }
+
+    private fun observeRoute() {
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                RouteRunner.state.collect { s ->
+                    if (s.running) wasRouteRunning = true
+                    val pos = s.position
+                    if (pos != null && (s.running || s.finished)) {
+                        mLatLng = pos
+                        lat = pos.latitude
+                        lon = pos.longitude
+                        if (::mMap.isInitialized) {
+                            mMarker?.apply {
+                                position = pos
+                                isVisible = true
+                            }
+                            mMap.animateCamera(CameraUpdateFactory.newLatLng(pos))
+                        }
+                        binding.start.visibility = View.GONE
+                        binding.stop.visibility = View.VISIBLE
+                    }
+                    if (s.finished && wasRouteRunning) {
+                        wasRouteRunning = false
+                        showToast(getString(R.string.route_arrived))
+                    } else if (!s.running && !s.finished && wasRouteRunning) {
+                        // dihentikan dari tombol Stop di notifikasi
+                        wasRouteRunning = false
+                        mMarker?.isVisible = false
+                        binding.stop.visibility = View.GONE
+                        binding.start.visibility = View.VISIBLE
+                    }
+                    updateRouteFab()
+                }
+            }
+        }
+    }
+
+    private fun showRouteOptions() {
+        val sheet = BottomSheetDialog(this)
+        val view = layoutInflater.inflate(R.layout.route_options, null)
+        val summary = view.findViewById<TextView>(R.id.route_summary)
+        val chips = view.findViewById<ChipGroup>(R.id.route_mode)
+        val speedEt = view.findViewById<EditText>(R.id.route_speed)
+        val waitEt = view.findViewById<EditText>(R.id.route_wait)
+
+        val modeIds = intArrayOf(R.id.mode_walk, R.id.mode_bike, R.id.mode_motor, R.id.mode_car)
+        val defaultSpeeds = floatArrayOf(5f, 15f, 40f, 50f)
+        val oldMode = PrefManager.routeMode.coerceIn(0, modeIds.size - 1)
+        val distance = RouteRunner.routeLength(routePoints)
+
+        fun num(f: Float) = if (f % 1f == 0f) f.toInt().toString() else f.toString()
+
+        fun refreshSummary() {
+            val sp = speedEt.text.toString().toFloatOrNull()
+            summary.text = if (sp != null && sp > 0f) {
+                getString(
+                    R.string.route_summary,
+                    formatDistance(distance),
+                    formatDuration(distance / (sp / 3.6))
+                )
+            } else formatDistance(distance)
+        }
+
+        chips.check(modeIds[oldMode])
+        speedEt.setText(num(PrefManager.routeSpeed))
+        waitEt.setText(num(PrefManager.routeWaitStart))
+        refreshSummary()
+
+        speedEt.doAfterTextChanged { refreshSummary() }
+        chips.setOnCheckedStateChangeListener { _, checkedIds ->
+            val idx = checkedIds.firstOrNull()?.let { modeIds.indexOf(it) } ?: -1
+            if (idx >= 0) speedEt.setText(num(defaultSpeeds[idx]))
+        }
+
+        view.findViewById<View>(R.id.route_clear).setOnClickListener {
+            clearRoute()
+            sheet.dismiss()
+        }
+        view.findViewById<View>(R.id.route_save).setOnClickListener {
+            val sp = speedEt.text.toString().toFloatOrNull()
+            if (sp == null || sp < 1f || sp > 300f) {
+                showToast(getString(R.string.route_invalid_speed))
+                return@setOnClickListener
+            }
+            val wait = (waitEt.text.toString().toFloatOrNull() ?: 0f).coerceIn(0f, 600f)
+            val newMode = modeIds.indexOf(chips.checkedChipId).let { if (it < 0) oldMode else it }
+            PrefManager.routeSpeed = sp
+            PrefManager.routeWaitStart = wait
+            sheet.dismiss()
+            if (newMode != oldMode) {
+                PrefManager.routeMode = newMode
+                fetchRoute()   // jenis kendaraan beda -> rute bisa beda
+            }
+        }
+        sheet.setContentView(view)
+        sheet.show()
+    }
+
+    private fun formatDistance(m: Double): String =
+        if (m < 1000) "${m.toInt()} m" else String.format(Locale.US, "%.1f km", m / 1000.0)
+
+    private fun formatDuration(sec: Double): String {
+        val s = sec.toLong()
+        return when {
+            s < 60 -> "$s s"
+            s < 3600 -> "${(s + 30) / 60} min"
+            else -> "${s / 3600} h ${(s % 3600) / 60} min"
+        }
+    }
+
+    // ------------------------------------------------------------------ /rute
 
     private fun moveMapToNewLocation(moveNewLocation: Boolean) {
         if (moveNewLocation) {

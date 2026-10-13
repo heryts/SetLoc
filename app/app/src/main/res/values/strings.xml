@@ -60,4 +60,24 @@
     <string name="title_activity_settings">Settings</string>
 
 
+    <!-- Route -->
+    <string name="route_options">Route options</string>
+    <string name="route_channel_name">Route simulation</string>
+    <string name="route_running">Following route…</string>
+    <string name="route_stop">Stop</string>
+    <string name="route_pick_start">Start point set. Long press the destination.</string>
+    <string name="route_searching">Finding route…</string>
+    <string name="route_stop_first">Stop the current route first</string>
+    <string name="route_arrived">Arrived at destination</string>
+    <string name="route_summary">%1$s · about %2$s</string>
+    <string name="mode_walk">Walk</string>
+    <string name="mode_bike">Bike</string>
+    <string name="mode_motor">Motorbike</string>
+    <string name="mode_car">Car</string>
+    <string name="route_speed">Speed (km/h)</string>
+    <string name="route_wait_start">Wait at start point (minutes)</string>
+    <string name="route_clear">Clear route</string>
+    <string name="route_save">Save</string>
+    <string name="route_invalid_speed">Enter a speed between 1 and 300 km/h</string>
+
 </resources>

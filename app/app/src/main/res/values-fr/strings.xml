@@ -60,4 +60,24 @@
     <string name="title_activity_settings">Réglges</string>
 
 
+    <!-- Route -->
+    <string name="route_options">Options de l\’itinéraire</string>
+    <string name="route_channel_name">Simulation d\’itinéraire</string>
+    <string name="route_running">Itinéraire en cours…</string>
+    <string name="route_stop">Arrêter</string>
+    <string name="route_pick_start">Départ défini. Appuyez longuement sur la destination.</string>
+    <string name="route_searching">Recherche de l\’itinéraire…</string>
+    <string name="route_stop_first">Arrêtez d\’abord l\’itinéraire en cours</string>
+    <string name="route_arrived">Arrivé à destination</string>
+    <string name="route_summary">%1$s · environ %2$s</string>
+    <string name="mode_walk">À pied</string>
+    <string name="mode_bike">Vélo</string>
+    <string name="mode_motor">Moto</string>
+    <string name="mode_car">Voiture</string>
+    <string name="route_speed">Vitesse (km/h)</string>
+    <string name="route_wait_start">Attente au départ (minutes)</string>
+    <string name="route_clear">Effacer l\’itinéraire</string>
+    <string name="route_save">Enregistrer</string>
+    <string name="route_invalid_speed">Entrez une vitesse entre 1 et 300 km/h</string>
+
 </resources>
