@@ -1,0 +1,95 @@
+name: Build SetLoc
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: |
+            17
+            21
+
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: "platform-tools platforms;android-33 platforms;android-37.0 build-tools;33.0.0"
+
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle', '**/*.gradle.kts', '**/gradle-wrapper.properties', '**/libs.versions.toml') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Keystore tetap (supaya SHA-1 sama dengan yang didaftarkan di Maps key)
+        env:
+          KS: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KS" ]; then
+            mkdir -p ~/.android && echo "$KS" | base64 -d > ~/.android/debug.keystore
+          else
+            echo "::warning::DEBUG_KEYSTORE_B64 belum diisi, APK ditandatangani key acak"
+          fi
+
+      - name: local.properties
+        env:
+          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > app/local.properties
+          echo "sdk.dir=$ANDROID_HOME" > module/local.properties
+          echo "MAPS_API_KEY=${MAPS_API_KEY:-dummy}" >> app/local.properties
+
+      - name: Build app
+        run: |
+          export JAVA_HOME="$JAVA_HOME_17_X64"
+          cd app && chmod +x gradlew && ./gradlew assembleRelease --no-daemon
+          cd ..
+          mkdir -p module/zygote/src/main/assets/apk
+          cp app/app/build/outputs/apk/release/*.apk module/zygote/src/main/assets/apk/SetLoc.apk
+          cp module/zygote/src/main/assets/apk/SetLoc.apk SetLoc.apk
+
+      - name: Build modul Zygisk
+        run: |
+          export JAVA_HOME="$JAVA_HOME_21_X64"
+          cd module
+          sh setup.sh
+          chmod +x gradlew
+          ./gradlew :zygote:assembleRelease --no-daemon
+
+      - name: Kumpulkan zip
+        id: zip
+        run: |
+          ZIP=$(find module/zygote/build/outputs -name '*.zip' | head -1)
+          test -n "$ZIP"
+          VER=$(grep -m1 versionName module/zygote/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
+          cp "$ZIP" "SetLocZygisk-v$VER.zip"
+          echo "file=SetLocZygisk-v$VER.zip" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: SetLoc
+          path: |
+            ${{ steps.zip.outputs.file }}
+            SetLoc.apk
+
+      - name: Release (saat tag v*)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            ${{ steps.zip.outputs.file }}
+            SetLoc.apk
