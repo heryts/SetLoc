@@ -23,7 +23,7 @@ log() {
 }
 
 
-# Cari file pref app di semua lokasi yang mungkin (LSPosed/LSPatch/multi-user mengalihkan
+# Cari file pref app di semua lokasi yang mungkin (multi-user bisa mengalihkan
 # prefs, jadi /data/data/... bisa kosong/basi). Ambil yang paling baru diubah.
 find_pref() {
   [ -n "$GPSZ_PREF" ] && { echo "$GPSZ_PREF"; return; }

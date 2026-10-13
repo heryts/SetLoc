@@ -23,11 +23,11 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
 /**
- * system_server hooks (counterpart of the LSPosed "system_hooked" path in jqssun's LocationHook.kt).
+ * system_server hooks for LocationManagerService / LocationProviderManager.
  *
  * v0.1.3 fixes (the "spoof works for a second, then the real location comes back" bug):
  *  1. LocationResult.map / size / get / wrap and LocationProviderManager.getName are hidden-API members.
- *     Under LSPosed the hidden-API checks are already lifted, under Zygisk they are not, so the plain
+ *     Hidden-API checks are not lifted under Zygisk, so the plain
  *     getDeclaredMethod() threw NoSuchMethodException, resultMap stayed null and
  *     LocationProviderManager.onReportLocation (= every real gps/network/fused fix) was NEVER hooked.
  *     Only getLastLocation was hooked, which is why Maps showed the fake point once and then the real one.

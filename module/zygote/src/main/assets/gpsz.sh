@@ -2,7 +2,7 @@
 # Run as root:  su -c "sh /data/adb/modules/setloc_zygisk/gpsz.sh <cmd>"
 #   on | off | toggle   (juga mengubah tombol Start/Stop di app SetLoc) | set <lat> <lng> [acc] | random 0|1 | show
 #   pkg add <package> | pkg rm <package> | pkg list | pkg all on|off
-#   system on|off|status   (hook system_server/LocationManagerService; wajib REBOOT; UJI COBA)
+#   system on|off|status   (hook system_server/LocationManagerService; wajib REBOOT)
 #   sync | status | check <package>   (diagnosa)
 MODDIR=$(cd "$(dirname "$0")" && pwd)
 PKGDIR="$MODDIR/packages"

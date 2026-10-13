@@ -494,7 +494,7 @@ function renderBanners() {
   const b = [];
   if (!hasKsu) b.push('<div class="banner">Mode pratinjau: WebUI dibuka di luar KernelSU / APatch / manager WebUI, jadi data di bawah hanya contoh dan tidak mengubah apa pun.</div>');
   if (S.all) b.push('<div class="banner danger"><b>Mode semua app aktif.</b> Hook masuk ke semua app kecuali yang dimatikan di daftar. Matikan di Pengaturan bila tidak sengaja.</div>');
-  if (S.sys) b.push('<div class="banner danger"><b>System-wide aktif (eksperimental).</b> Modul di-inject ke system_server dan mengubah lokasi untuk semua app. Perubahan saklar ini baru berlaku setelah reboot. Bila bootloop, buat file ini lewat recovery/adb:<span class="mono block">' + esc(MODDIR) + '/disable</span><button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');
+  if (S.sys) b.push('<div class="banner danger"><b>System-wide aktif.</b> Berlaku untuk semua app setelah reboot.<button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');
   if (S.daemon === false) b.push('<div class="banner danger">Daemon sinkronisasi (app SetLoc → modul) tidak berjalan, jadi tombol Start/Stop di app belum terbaca modul. Tekan muat ulang; bila tetap gagal, lihat <span class="mono">' + esc(MODDIR) + '/bridge.log</span>.</div>');
   if (S.missing) b.push('<div class="banner danger">Folder modul tidak ditemukan di ' + esc(MODDIR) + '. Pastikan id modul = <b>' + MODID + '</b> dan sudah reboot setelah flash.</div>');
   $('#banners').innerHTML = b.join('');
@@ -614,7 +614,7 @@ async function setSysMode(on) {
   try {
     await B.setSys(on);
     S.sys = on;
-    toast(on ? 'System-wide diaktifkan. Reboot untuk menerapkan' : 'System-wide dimatikan. Reboot untuk menerapkan');
+    toast(on ? 'System-wide aktif. Reboot untuk menerapkan' : 'System-wide mati. Reboot untuk menerapkan');
   } catch (e) { toast('Gagal: ' + e.message, true); }
   renderBanners(); openSheet();
 }
@@ -643,14 +643,14 @@ function openSheet() {
     <div class="set">
       <div class="grow">
         <div>Hook semua app</div>
-        <div class="d">Berisiko. Semua app ikut di-hook; saklar di daftar berubah jadi "kecualikan". Perlu reboot / buka ulang app.</div>
+        <div class="d">Semua app ikut di-hook. Saklar di daftar jadi "kecualikan".</div>
       </div>
       <button class="switch" id="swAll" role="switch" aria-checked="${S.all}"></button>
     </div>
     <div class="set">
       <div class="grow">
-        <div>System-wide (system_server)</div>
-        <div class="d">Eksperimental. Hook langsung di LocationManagerService seperti versi LSPosed, jadi semua app ikut tanpa di-inject satu per satu. Wajib reboot.</div>
+        <div>System-wide</div>
+        <div class="d">Semua app ikut tanpa dipilih satu per satu. Perlu reboot.</div>
       </div>
       <button class="switch" id="swSys" role="switch" aria-checked="${S.sys}"></button>
     </div>
@@ -663,9 +663,8 @@ function confirmAll() {
   showSheet(`
     <h2>Hook semua app?</h2>
     <p style="color:var(--text2);font-size:14px">
-      Modul akan di-inject ke <b>semua</b> app, termasuk app sistem. Ini bisa membuat app bermasalah
-      atau memicu bootloop pada beberapa perangkat. App yang sudah ada di daftar "di-hook" sekarang
-      akan menjadi <b>dikecualikan</b>.
+      Semua app, termasuk app sistem, akan di-hook. App di daftar "di-hook" sekarang
+      jadi <b>dikecualikan</b>.
     </p>
     <div class="dialog-actions">
       <button class="btn" id="cNo">Batal</button>
@@ -677,10 +676,8 @@ function confirmSys() {
   showSheet(`
     <h2>Aktifkan system-wide?</h2>
     <p style="color:var(--text2);font-size:14px">
-      Modul akan di-inject ke <b>system_server</b>. Fitur ini belum teruji di semua perangkat dan bisa
-      menyebabkan <b>bootloop</b>. Komponen sistem (mis. zona waktu otomatis) ikut menerima lokasi palsu.
-      Reboot diperlukan. Bila bootloop, buat file <span class="mono">${esc(MODDIR)}/disable</span> lewat recovery/adb
-      atau boot ke safe mode.
+      Lokasi palsu berlaku untuk semua app dan sistem. Perlu reboot.
+      Bila bootloop, buat file <span class="mono">${esc(MODDIR)}/disable</span> lewat recovery/adb.
     </p>
     <div class="dialog-actions">
       <button class="btn" id="sNo">Batal</button>

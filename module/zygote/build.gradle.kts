@@ -43,7 +43,7 @@ zygisk {
     id = "setloc_zygisk"
     name = "SetLoc Zygisk"
     author = "heryts"
-    description = "Per-app + system-wide location spoof via Zygisk, no LSPosed. Control: gpsz.sh"
+    description = "Per-app + system-wide location spoof via Zygisk. Control: gpsz.sh"
     entrypoint = "io.gpsz.zygote.ZygoteEntry"
     archiveName = "SetLocZygisk"
     isAddVariantToArchiveName = true
