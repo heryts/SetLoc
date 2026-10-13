@@ -3,10 +3,10 @@ package com.heryts.setloc
 import android.app.Application
 import androidx.appcompat.app.AppCompatDelegate
 import com.heryts.setloc.utils.PrefManager
-import com.kieronquinn.monetcompat.core.MonetCompat
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import rikka.material.app.DayNightDelegate
 import timber.log.Timber
 
 lateinit var gsApp: App
@@ -28,7 +28,6 @@ class App : Application() {
         super.onCreate()
         gsApp = this
         commonInit()
-        MonetCompat.enablePaletteCompat()
         AppCompatDelegate.setDefaultNightMode(PrefManager.darkTheme)
 
     }

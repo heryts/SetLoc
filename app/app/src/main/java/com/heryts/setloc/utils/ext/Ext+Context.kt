@@ -1,13 +1,17 @@
 package com.heryts.setloc.utils.ext
 
 
+import android.Manifest
+import android.annotation.TargetApi
+import android.app.Activity
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.widget.Toast
-
-
-
+import androidx.core.app.ActivityCompat.requestPermissions
+import androidx.core.content.ContextCompat
+import com.heryts.setloc.ui.MapActivity
 
 fun Context.showToast(msg : String){
     Toast.makeText(this,msg, Toast.LENGTH_LONG).show()
@@ -29,5 +33,7 @@ fun Context.isNetworkConnected(): Boolean {
 }
 
 
-
+ fun Context.checkSinglePermission(permission: String) : Boolean {
+    return ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+}
 

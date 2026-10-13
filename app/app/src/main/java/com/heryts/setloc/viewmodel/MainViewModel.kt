@@ -1,4 +1,4 @@
-package com.heryts.setloc.ui.viewmodel
+package com.heryts.setloc.viewmodel
 
 
 import android.app.DownloadManager
@@ -24,7 +24,6 @@ import com.heryts.setloc.repository.FavouriteRepository
 import com.heryts.setloc.utils.PrefManager
 import com.heryts.setloc.room.Favourite
 import com.heryts.setloc.update.UpdateChecker
-import com.heryts.setloc.utils.ext.showToast
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -203,7 +202,6 @@ class MainViewModel @Inject constructor(
             }
         }.onFailure {
             it.printStackTrace()
-            context.showToast(context.getString(R.string.app_update_failed))
         }
 
     }
@@ -246,9 +244,6 @@ class MainViewModel @Inject constructor(
         }
          insertNewFavourite(Favourite(id = slot.toLong(), address = address, lat = lat, lng = lon))
     }
-
-
-
 
 
 }

@@ -7,7 +7,7 @@ plugins {
     id 'kotlin-parcelize'
 }
 
-def tagName = '1.0'
+def tagName = '1.2'
 
 android {
     compileSdk 33
@@ -15,7 +15,7 @@ android {
         applicationId "com.heryts.setloc"
         minSdk 27
         targetSdk 33
-        versionCode 1
+        versionCode 12
         versionName tagName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "TAG_NAME", "\"${tagName}\"")
@@ -54,9 +54,6 @@ dependencies {
     implementation 'androidx.constraintlayout:constraintlayout:2.2.0-alpha05'
     implementation 'androidx.preference:preference:1.2.0'
     implementation 'androidx.datastore:datastore-preferences:1.0.0'
-    implementation "androidx.drawerlayout:drawerlayout:1.2.0-alpha01"
-    implementation 'com.google.android.gms:play-services-location:21.0.1'
-
 
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
@@ -70,7 +67,7 @@ dependencies {
     implementation "com.google.dagger:hilt-android:2.44.2"
     kapt "com.google.dagger:hilt-compiler:2.44.2"
 
-   //Timber
+    //Timber
     implementation 'com.jakewharton.timber:timber:5.0.1'
 
     //Room
@@ -78,31 +75,11 @@ dependencies {
     implementation 'androidx.room:room-ktx:2.5.0'
     kapt 'androidx.room:room-compiler:2.5.0'
 
-    //HiddenApiBypass
-    implementation 'org.lsposed.hiddenapibypass:hiddenapibypass:4.3'
-
     // Retrofit
     implementation 'com.squareup.retrofit2:retrofit:2.9.0'
     implementation 'com.squareup.retrofit2:converter-gson:2.9.0'
 
     implementation ("dev.rikka.rikkax.material:material-preference:2.0.0") {
         exclude group: "dev.rikka.rikkax.appcompat", module: "appcompat"
-        //exclude group: "androidx.lifecycle", module: "lifecycle-viewmodel-ktx"
     }
-
-    implementation 'com.facebook.shimmer:shimmer:0.5.0'
-    implementation 'com.github.KieronQuinn:MonetCompat:0.4.1'
-    implementation 'androidx.palette:palette:1.0.0'
-
-
-    implementation 'com.github.controlwear:virtual-joystick-android:fda1c91'
-
-
-
-
-
-
-
-
-
 }

@@ -9,8 +9,7 @@ import javax.inject.Inject
 
 class FavouriteRepository @Inject constructor(private val favouriteDao: FavouriteDao) {
 
-        val getAllFavourites: Flow<List<Favourite>>
-        get() =  favouriteDao.getAllFavourites()
+    val getAllFavourites: Flow<List<Favourite>> get() =  favouriteDao.getAllFavourites()
 
         @Suppress("RedundantSuspendModifier")
         @WorkerThread

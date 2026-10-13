@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
+
     <!-- MapType Preference -->
 
     <string-array name="map_type">
@@ -17,7 +18,6 @@
         <item>4</item>
     </string-array>
 
-    <!-- DarkTheme Preference -->
 
     <string-array name="theme_texts" translatable="false">
         <item>Always off</item>

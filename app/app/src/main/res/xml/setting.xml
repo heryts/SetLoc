@@ -23,27 +23,12 @@
             android:entryValues="@array/map_value"
             android:defaultValue="1"/>
 
-        <rikka.material.preference.MaterialSwitchPreference
-            android:title="@string/check_update"
-            android:summary="@string/check_update_summary"
-            android:icon="@drawable/ic_update"
-            android:key="disable_update"
-            android:defaultValue="false"/>
-
-
-        <Preference
-            android:title="Add Joystick"
-            android:key="isJoyStickEnable"
-            android:icon="@drawable/outline_joystick"
-            android:summary="%s"
-            android:defaultValue="false"/>
-
 
 
     </PreferenceCategory>
 
 
-    <PreferenceCategory app:title="@string/xposed">
+    <PreferenceCategory app:title="@string/settings_location">
 
         <EditTextPreference
             android:defaultValue="10"
@@ -53,9 +38,9 @@
             android:icon="@drawable/ic_accuracy"
             android:summary="10 m."/>
 
-        <rikka.material.preference.MaterialSwitchPreference
-            android:title="@string/random_position"
-            android:summary="@string/random_position_summary"
+        <SwitchPreference
+            android:title="Random position"
+            android:summary="Location position will be random around set location"
             android:icon="@drawable/ic_random_position"
             android:key="random_position"/>
 

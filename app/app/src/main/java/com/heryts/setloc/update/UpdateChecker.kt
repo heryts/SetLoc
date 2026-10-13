@@ -16,7 +16,7 @@ import javax.inject.Inject
 class UpdateChecker @Inject constructor(private val apiResponse : GitHubService) {
 
 
-    // SetLoc is a standalone fork: never ask the upstream GitHub repo for "updates" (its tags are unrelated to our versions).
+    // SetLoc is a standalone fork: never ask an upstream repo for "updates" (its tags are unrelated to our versions).
     fun getLatestRelease() = callbackFlow<Update?> {
         trySend(null).isSuccess
         awaitClose { }

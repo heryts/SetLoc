@@ -1,12 +1,7 @@
 package com.heryts.setloc.ui
 
 
-import android.app.ActivityManager
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
-import android.provider.Settings
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
@@ -15,24 +10,18 @@ import android.view.MenuItem
 import android.widget.EditText
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
+import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
-import androidx.core.content.ContextCompat.getSystemService
 import androidx.preference.EditTextPreference
-import androidx.preference.Preference
-import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.PreferenceDataStore
+import androidx.preference.PreferenceFragmentCompat
 import com.heryts.setloc.R
 import com.heryts.setloc.databinding.SettingsActivityBinding
-import com.heryts.setloc.utils.JoystickService
 import com.heryts.setloc.utils.PrefManager
-import com.heryts.setloc.utils.ext.showToast
-import com.kieronquinn.monetcompat.app.MonetCompatActivity
 import rikka.preference.SimpleMenuPreference
 
 
-class SettingsActivity : MonetCompatActivity() {
-
-
+class SettingsActivity : AppCompatActivity() {
 
     private val binding by lazy {
         SettingsActivityBinding.inflate(layoutInflater)
@@ -44,7 +33,6 @@ class SettingsActivity : MonetCompatActivity() {
                 "isHookedSystem" -> PrefManager.isHookSystem
                 "random_position" -> PrefManager.isRandomPosition
                 "disable_update" -> PrefManager.disableUpdate
-                "isJoyStickEnable" -> PrefManager.isJoyStickEnable
                 else -> throw IllegalArgumentException("Invalid key $key")
             }
         }
@@ -54,7 +42,6 @@ class SettingsActivity : MonetCompatActivity() {
                 "isHookedSystem" -> PrefManager.isHookSystem = value
                 "random_position" -> PrefManager.isRandomPosition = value
                 "disable_update" -> PrefManager.disableUpdate = value
-                "isJoyStickEnable" -> PrefManager.isJoyStickEnable = value
                 else -> throw IllegalArgumentException("Invalid key $key")
             }
         }
@@ -79,14 +66,9 @@ class SettingsActivity : MonetCompatActivity() {
     }
 
 
-
-
-
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
-        theme.applyStyle(rikka.material.preference.R.style.ThemeOverlay_Rikka_Material3_Preference, true);
         setSupportActionBar(binding.toolbar)
         if (savedInstanceState == null) {
             supportFragmentManager
@@ -95,7 +77,6 @@ class SettingsActivity : MonetCompatActivity() {
                 .commit()
         }
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
-
 
         onBackPressedDispatcher.addCallback(
             this,
@@ -118,12 +99,9 @@ class SettingsActivity : MonetCompatActivity() {
 
     class SettingsPreferenceFragment : PreferenceFragmentCompat() {
 
-
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
             preferenceManager?.preferenceDataStore = SettingPreferenceDataStore()
             setPreferencesFromResource(R.xml.setting, rootKey)
-
-
 
             findPreference<EditTextPreference>("accuracy_settings")?.let {
                 it.summary = "${PrefManager.accuracy} m."
@@ -158,49 +136,9 @@ class SettingsActivity : MonetCompatActivity() {
                 true
             }
 
-            findPreference<Preference>("isJoyStickEnable")?.let {
-                it.setOnPreferenceClickListener {
-                    if (askOverlayPermission()){
-                        if (isJoystickRunning()){
-                            requireContext().stopService(Intent(context,JoystickService::class.java))
-                            it.summary = "Joystick running"
-                        }else if (PrefManager.isStarted){
-                            requireContext().startService(Intent(context,JoystickService::class.java))
-                            it.summary = "Joystick not running"
-                        }else {
-                            requireContext().showToast(requireContext().getString(R.string.location_not_select))
-                        }
-                    }
-                    true
-                }
-
-            }
-
 
 
         }
-
-        private fun isJoystickRunning(): Boolean {
-            var isRunning = false
-            val manager = requireContext().getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager? ?: return false
-            for (service in manager.getRunningServices(Int.MAX_VALUE)) {
-                if ("com.heryts.setloc.utils.JoystickService" == service.service.className) {
-                    isRunning = true
-                }
-            }
-            return isRunning
-        }
-
-
-        private fun askOverlayPermission() : Boolean {
-            if (Settings.canDrawOverlays(context)){
-                return true
-            }
-            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context?.applicationContext?.packageName}" ))
-            requireContext().startActivity(intent)
-            return false
-        }
-
 
         private fun getCommaReplacerTextWatcher(editText: EditText): TextWatcher {
             return object : TextWatcher {
