@@ -115,6 +115,11 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
   box-shadow: 0 2px 6px rgba(239,68,68,.35);
 }
 .banner .btn-reboot:active { filter: brightness(.9); }
+.banner.ok { display: flex; align-items: center; gap: 12px; background: rgba(34,197,94,.12); color: #15803d; border-color: rgba(34,197,94,.35); }
+.dark .banner.ok { color: #86efac; }
+.banner.ok .grow { flex: 1; font-weight: 600; }
+.banner.ok .btn-off { flex: none; padding: 7px 14px; border-radius: 12px; background: rgba(148,163,184,.22); color: inherit; font-weight: 600; font-size: 13px; }
+.banner.ok .btn-off:active { filter: brightness(.9); }
 
 /* ---------- Toolbar ---------- */
 .toolbar { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
@@ -321,15 +326,22 @@ const Real = {
     return { all: files.includes('.all'), files: files.filter(f => f[0] !== '.' && f !== 'android') };
   },
   async readSys() {
-    // system-wide aktif bila file packages/android ada DAN gpsz_sys=1
+    // 'live'       = aktif & sudah termuat di system_server (file dibuat sebelum boot terakhir)
+    // 'pending'    = dinyalakan, belum reboot
+    // 'offpending' = dimatikan saat sedang live, belum reboot
+    // 'off'        = mati
     try {
-      const out = await sh(`[ -e '${PKGDIR}/android' ] && echo f=1; echo s=$(settings get global gpsz_sys 2>/dev/null)`);
-      return /f=1/.test(out) && /s=1/.test(out);
-    } catch (e) { return false; }
+      const out = await sh(`F='${PKGDIR}/android'; O='${PKGDIR}/.sysoff'; boot=$(( $(date +%s) - $(cut -d. -f1 /proc/uptime) )); ` +
+        `if [ -e "$F" ] && [ "$(settings get global gpsz_sys 2>/dev/null)" = 1 ]; then mt=$(stat -c %Y "$F" 2>/dev/null || echo 0); if [ "$mt" -lt "$boot" ]; then echo live; else echo pending; fi; ` +
+        `elif [ -e "$O" ]; then mt=$(stat -c %Y "$O" 2>/dev/null || echo 0); if [ "$mt" -ge "$boot" ]; then echo offpending; else echo off; fi; else echo off; fi`);
+      const m = /(live|pending|offpending|off)/.exec(out || '');
+      return m ? m[1] : 'off';
+    } catch (e) { return 'off'; }
   },
   async setSys(on) {
-    if (on) await sh(`mkdir -p '${PKGDIR}' && : > '${PKGDIR}/android' && settings put global gpsz_sys 1`);
-    else await sh(`rm -f '${PKGDIR}/android'; settings put global gpsz_sys 0`);
+    if (on) await sh(`mkdir -p '${PKGDIR}' && rm -f '${PKGDIR}/.sysoff' && : > '${PKGDIR}/android' && settings put global gpsz_sys 1`);
+    else await sh(`F='${PKGDIR}/android'; live=0; if [ -e "$F" ]; then mt=$(stat -c %Y "$F" 2>/dev/null || echo 0); boot=$(( $(date +%s) - $(cut -d. -f1 /proc/uptime) )); [ "$mt" -lt "$boot" ] && live=1; fi; ` +
+      `rm -f "$F" '${PKGDIR}/.sysoff'; [ "$live" = 1 ] && : > '${PKGDIR}/.sysoff'; settings put global gpsz_sys 0`);
   },
   async reboot() { await exec('svc power reboot || reboot'); },
   async setSpoof(on) {
@@ -395,7 +407,7 @@ const Mock = (() => {
     ['org.mozilla.firefox', 'Firefox'], ['com.discord', 'Discord']
   ];
   const sys = [['com.android.settings', 'Settings'], ['com.google.android.gms', 'Google Play services'], ['com.android.vending', 'Google Play Store']];
-  let files = ['com.google.android.apps.maps', 'com.gojek.app'], all = false, appOn = false, sys_ = false, cfgOn = true;
+  let files = ['com.google.android.apps.maps', 'com.gojek.app'], all = false, appOn = false, sys_ = 'off', cfgOn = true;
   const wait = ms => new Promise(r => setTimeout(r, ms));
   return {
     async readState() { await wait(350); return { all, files: files.slice() }; },
@@ -406,7 +418,7 @@ const Mock = (() => {
     async setFile(p, present) { await wait(150); files = files.filter(x => x !== p); if (present) files.push(p); },
     async setAll(on) { await wait(150); all = on; },
     async readSys() { return sys_; },
-    async setSys(on) { await wait(150); sys_ = on; },
+    async setSys(on) { await wait(150); sys_ = on ? 'pending' : 'offpending'; },
     async reboot() { await wait(200); },
     async setSpoof(on) { await wait(200); cfgOn = on; },
     async stop() {},
@@ -423,7 +435,8 @@ const S = {
   apps: [],            // {pkg,label,system,installed}
   files: new Set(),
   all: false,
-  sys: false,          // hook system_server (system-wide)
+  sys: false,          // system-wide dinyalakan (live atau pending)
+  sysMode: 'off',      // off | pending | live | offpending
   tab: 'all',
   showSys: false,
   q: '',
@@ -494,7 +507,9 @@ function renderBanners() {
   const b = [];
   if (!hasKsu) b.push('<div class="banner">Mode pratinjau: WebUI dibuka di luar KernelSU / APatch / manager WebUI, jadi data di bawah hanya contoh dan tidak mengubah apa pun.</div>');
   if (S.all) b.push('<div class="banner danger"><b>Mode semua app aktif.</b> Hook masuk ke semua app kecuali yang dimatikan di daftar. Matikan di Pengaturan bila tidak sengaja.</div>');
-  if (S.sys) b.push('<div class="banner danger"><b>System-wide aktif.</b> Berlaku untuk semua app setelah reboot.<button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');
+  if (S.sysMode === 'live') b.push('<div class="banner ok"><span class="dot on"></span><span class="grow">System-wide aktif</span><button class="btn-off" id="btnSysOff">Matikan</button></div>');
+  else if (S.sysMode === 'pending') b.push('<div class="banner danger"><b>System-wide dinyalakan.</b> Perlu reboot.<button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');
+  else if (S.sysMode === 'offpending') b.push('<div class="banner danger"><b>System-wide dimatikan.</b> Perlu reboot.<button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');
   if (S.daemon === false) b.push('<div class="banner danger">Daemon sinkronisasi (app SetLoc → modul) tidak berjalan, jadi tombol Start/Stop di app belum terbaca modul. Tekan muat ulang; bila tetap gagal, lihat <span class="mono">' + esc(MODDIR) + '/bridge.log</span>.</div>');
   if (S.missing) b.push('<div class="banner danger">Folder modul tidak ditemukan di ' + esc(MODDIR) + '. Pastikan id modul = <b>' + MODID + '</b> dan sudah reboot setelah flash.</div>');
   $('#banners').innerHTML = b.join('');
@@ -535,9 +550,9 @@ async function load() {
     const [st, cfg, user, sys, sysOn] = await Promise.all([
       B.readState(), B.readCfg(),
       B.listPkgs('user').catch(() => []), B.listPkgs('system').catch(() => []),
-      B.readSys().catch(() => false)
+      B.readSys().catch(() => 'off')
     ]);
-    S.all = st.all; S.sys = sysOn; S.files = new Set(st.files);
+    S.all = st.all; S.sysMode = sysOn; S.sys = sysOn === 'live' || sysOn === 'pending'; S.files = new Set(st.files);
     renderStatus(cfg);
     S.appOn = await B.appInstalled().catch(() => null);
     renderApp();
@@ -613,8 +628,9 @@ async function setAllMode(on) {
 async function setSysMode(on) {
   try {
     await B.setSys(on);
-    S.sys = on;
-    toast(on ? 'System-wide aktif. Reboot untuk menerapkan' : 'System-wide mati. Reboot untuk menerapkan');
+    S.sysMode = await B.readSys();
+    S.sys = S.sysMode === 'live' || S.sysMode === 'pending';
+    toast(S.sysMode === 'off' ? 'System-wide mati' : 'Reboot untuk menerapkan');
   } catch (e) { toast('Gagal: ' + e.message, true); }
   renderBanners(); openSheet();
 }
@@ -698,7 +714,10 @@ $('#chipSys').addEventListener('click', () => {
 });
 $('#q').addEventListener('input', e => { S.q = e.target.value; render(); });
 $('#btnReload').addEventListener('click', load);
-$('#banners').addEventListener('click', e => { if (e.target.closest('#btnReboot')) B.reboot().catch(err => toast('Gagal reboot: ' + err.message, true)); });
+$('#banners').addEventListener('click', e => {
+  if (e.target.closest('#btnReboot')) B.reboot().catch(err => toast('Gagal reboot: ' + err.message, true));
+  else if (e.target.closest('#btnSysOff')) setSysMode(false);
+});
 $('#btnApp').addEventListener('click', appAction);
 $('#btnSpoof').addEventListener('click', async () => {
   if (S.spoofBusy || !S.spoofHas) return;

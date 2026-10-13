@@ -32,7 +32,7 @@ case "$1" in
   random) RND=$2; save ;;
   show)   echo "enabled=$E lat=$LAT lng=$LNG acc=$ACC random=$RND"
           [ -e "$PKGDIR/.all" ] && echo "packages: ALL apps (listed ones below are EXCLUDED)"
-          ls -1A "$PKGDIR" 2>/dev/null | grep -v '^\.all$' | sed 's/^/  pkg: /' ;;
+          ls -1A "$PKGDIR" 2>/dev/null | grep -v '^\.\(all\|sysoff\)$' | sed 's/^/  pkg: /' ;;
   pkg)
     # ZygoteLoader reads $MODDIR/packages/<name> at every app start; no rebuild needed.
     # NOTE: it enables a package when (file <name> exists) XOR (file .all exists):
@@ -54,12 +54,23 @@ case "$1" in
     # Hook system_server: modul harus di-inject ke "android" (file packages/android) -> perlu reboot.
     # Jika bootloop: dari recovery/adb buat file /data/adb/modules/setloc_zygisk/disable
     case "$2" in
-      on)  mkdir -p "$PKGDIR" && : > "$PKGDIR/android" && settings put global gpsz_sys 1
+      on)  mkdir -p "$PKGDIR" && rm -f "$PKGDIR/.sysoff" && : > "$PKGDIR/android" && settings put global gpsz_sys 1
            echo "system hook ON. REBOOT dibutuhkan. Bootloop? buat file $MODDIR/disable dari recovery." ;;
-      off) rm -f "$PKGDIR/android"; settings put global gpsz_sys 0
+      off) live=0
+           if [ -e "$PKGDIR/android" ]; then
+             mt=$(stat -c %Y "$PKGDIR/android" 2>/dev/null || echo 0); boot=$(( $(date +%s) - $(cut -d. -f1 /proc/uptime) ))
+             [ "$mt" -lt "$boot" ] && live=1
+           fi
+           rm -f "$PKGDIR/android" "$PKGDIR/.sysoff"; [ "$live" = 1 ] && : > "$PKGDIR/.sysoff"
+           settings put global gpsz_sys 0
            echo "system hook OFF. Reboot agar system_server tidak lagi di-inject." ;;
       status) [ -e "$PKGDIR/android" ] && F=ya || F=tidak
-           echo "packages/android: $F   gpsz_sys=$(settings get global gpsz_sys 2>/dev/null)"
+           ST=off
+           if [ "$F" = ya ] && [ "$(settings get global gpsz_sys 2>/dev/null)" = 1 ]; then
+             mt=$(stat -c %Y "$PKGDIR/android" 2>/dev/null || echo 0); boot=$(( $(date +%s) - $(cut -d. -f1 /proc/uptime) ))
+             [ "$mt" -lt "$boot" ] && ST=live || ST=pending
+           fi
+           echo "packages/android: $F   gpsz_sys=$(settings get global gpsz_sys 2>/dev/null)   state=$ST"
            echo "log system hook (logcat -s GpsZ):"
            logcat -d -s GpsZ:I 2>/dev/null | grep -i "system hook" | tail -12 | sed 's/^/  /' ;;
       *)   echo "system on|off|status" ;;
