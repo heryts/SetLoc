@@ -185,6 +185,16 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 
 .foot { margin: 18px 6px 0; font-size: 12px; color: var(--text2); text-align: center; }
 
+/* ---------- Pencarian nama tempat ---------- */
+.geo-res { margin-top: 8px; border-radius: 12px; overflow: hidden; background: var(--chip); }
+.geo-res:empty { display: none; }
+.geo-it { display: block; width: 100%; text-align: left; padding: 10px 12px; border-top: 1px solid var(--border); }
+.geo-it:first-child { border-top: 0; }
+.geo-it .t { font-size: 14px; font-weight: 500; }
+.geo-it .s { font-size: 12px; color: var(--text2); margin-top: 2px; }
+.geo-it .c { font-size: 11.5px; color: var(--text2); font-family: ui-monospace, Menlo, Consolas, monospace; }
+.geo-msg { padding: 10px 12px; font-size: 13px; color: var(--text2); }
+
 /* ---------- Sheet & toast ---------- */
 .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.45); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 20; }
 .scrim.show { opacity: 1; pointer-events: auto; }
@@ -717,12 +727,69 @@ function editCoords() {
   }
   coordSheet(S.lat && S.lng ? `${S.lat}, ${S.lng}` : '', '');
 }
+/* ---- Cari nama tempat (Photon/OSM, fallback Nominatim) ---- */
+let geoTimer = 0, geoSeq = 0;
+async function jfetch(url) {
+  const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 8000);
+  try { const r = await fetch(url, { signal: ac.signal }); if (!r.ok) throw new Error('HTTP ' + r.status); return await r.json(); }
+  finally { clearTimeout(t); }
+}
+function fmtPlace(a) {
+  return { lat: String(Number(a.lat.toFixed(6))), lng: String(Number(a.lng.toFixed(6))), name: a.name, sub: a.sub };
+}
+async function geocode(q, nominatimOnly) {
+  q = q.trim();
+  if (!nominatimOnly) {
+    try {
+      const j = await jfetch('https://photon.komoot.io/api/?limit=5&q=' + encodeURIComponent(q));
+      const out = (j.features || []).map(f => {
+        const p = f.properties || {}, c = f.geometry.coordinates;
+        const sub = [p.city || p.county, p.state, p.country].filter((v, i, arr) => v && v !== p.name && arr.indexOf(v) === i).join(', ');
+        return fmtPlace({ lat: c[1], lng: c[0], name: p.name || q, sub });
+      });
+      if (out.length) return out;
+    } catch (e) { /* lanjut ke Nominatim */ }
+  }
+  const j = await jfetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&q=' + encodeURIComponent(q));
+  return (j || []).map(r => {
+    const parts = String(r.display_name).split(', ');
+    return fmtPlace({ lat: Number(r.lat), lng: Number(r.lon), name: parts[0], sub: parts.slice(1).join(', ') });
+  });
+}
+function showGeo(html) { const b = $('#geoRes'); if (b) b.innerHTML = html; }
+async function liveSearch(q) {
+  const my = ++geoSeq;
+  showGeo('<div class="geo-msg">Mencari…</div>');
+  try {
+    const res = await geocode(q);
+    if (my !== geoSeq) return;
+    window.__geo = res;
+    showGeo(res.length ? res.map((r, i) => `<button class="geo-it" data-geo="${i}"><div class="t">${esc(r.name)}</div>${r.sub ? `<div class="s">${esc(r.sub)}</div>` : ''}<div class="c">${esc(r.lat)}, ${esc(r.lng)}</div></button>`).join('')
+                           : '<div class="geo-msg">Tidak ditemukan. Coba nama lain.</div>');
+  } catch (e) {
+    if (my === geoSeq) showGeo('<div class="geo-msg">Gagal mencari (cek koneksi internet).</div>');
+  }
+}
+function onCoordInput(e) {
+  const v = e.target.value.trim();
+  clearTimeout(geoTimer); geoSeq++;
+  if (v.length < 3 || parseCoords(v)) { showGeo(''); return; }
+  geoTimer = setTimeout(() => liveSearch(v), 600);
+}
+function pickGeo(i) {
+  const r = (window.__geo || [])[i]; if (!r) return;
+  geoSeq++;
+  const inp = $('#coordIn'); inp.value = `${r.lat}, ${r.lng}`;
+  showGeo('');
+  const h = document.querySelector('#sheet .hint'); if (h) { h.classList.remove('err'); h.textContent = '📍 ' + r.name + (r.sub ? ', ' + r.sub : '') + ' — tekan Simpan.'; }
+}
 function coordSheet(val, err) {
   showSheet(`
     <h2>Ubah titik lokasi</h2>
-    <input class="field${err ? ' bad' : ''}" id="coordIn" type="text" value="${esc(val)}" placeholder="-7.804541, 110.48315"
-      autocomplete="off" autocapitalize="off" spellcheck="false">
-    <div class="hint${err ? ' err' : ''}">${err ? esc(err) : 'Format: lintang, bujur. Bisa tempel langsung dari Google Maps. Setelah disimpan, tekan Start untuk memulai spoof.'}</div>
+    <input class="field${err ? ' bad' : ''}" id="coordIn" type="text" value="${esc(val)}" placeholder="Nama kota, atau -7.804541, 110.48315"
+      autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
+    <div id="geoRes" class="geo-res"></div>
+    <div class="hint${err ? ' err' : ''}">${err ? esc(err) : 'Ketik nama kota/tempat lalu pilih hasilnya, atau isi koordinat (lintang, bujur — bisa tempel dari Google Maps). Setelah disimpan, tekan Start untuk memulai spoof.'}</div>
     <div class="dialog-actions">
       <button class="btn" id="cdNo">Batal</button>
       <button class="btn primary" id="cdYes">Simpan</button>
@@ -731,9 +798,19 @@ function coordSheet(val, err) {
 }
 async function saveCoords() {
   const raw = $('#coordIn').value;
-  const p = parseCoords(raw);
-  if (!p) return coordSheet(raw, 'Koordinat tidak valid. Contoh: -7.804541, 110.48315 (lintang -90..90, bujur -180..180).');
-  const btn = $('#cdYes'); btn.disabled = true; btn.textContent = '…';
+  let p = parseCoords(raw);
+  const btn = $('#cdYes'); 
+  if (!p) {
+    const q = raw.trim();
+    if (q.length < 2 || /^[-\d\s.,;()]+$/.test(q)) return coordSheet(raw, 'Koordinat tidak valid. Contoh: -7.804541, 110.48315 (lintang -90..90, bujur -180..180).');
+    btn.disabled = true; btn.textContent = '…';
+    try {
+      const res = await geocode(q);
+      if (!res.length) return coordSheet(raw, 'Tempat "' + q + '" tidak ditemukan.');
+      p = [res[0].lat, res[0].lng];
+    } catch (e) { return coordSheet(raw, 'Gagal mencari tempat (cek koneksi internet).'); }
+  }
+  btn.disabled = true; btn.textContent = '…';
   try {
     await B.setPos(p[0], p[1]);
     closeSheet();
@@ -830,10 +907,12 @@ $('#sheet').addEventListener('click', e => {
   if (e.target.closest('#sYes')) { setSysMode(true); return; }
   if (e.target.closest('#pNo') || e.target.closest('#cdNo')) { closeSheet(); return; }
   if (e.target.closest('#pYes')) { stopThenEdit(); return; }
+  const gi = e.target.closest('[data-geo]'); if (gi) { pickGeo(Number(gi.dataset.geo)); return; }
   if (e.target.closest('#cdYes')) { saveCoords(); return; }
   if (e.target.closest('#cNo')) { openSheet(); return; }
   if (e.target.closest('#cYes')) { setAllMode(true); }
 });
+$('#sheet').addEventListener('input', e => { if (e.target.id === 'coordIn') onCoordInput(e); });
 $('#sheet').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'coordIn') { e.preventDefault(); saveCoords(); } });
 try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => applyTheme(theme())); } catch (e) {}
 applyTheme(theme());
