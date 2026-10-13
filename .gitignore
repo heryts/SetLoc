@@ -8,3 +8,8 @@ build/
 .idea/
 external/
 *.iml
+*.pem
+*.jks
+*.keystore
+*.p12
+keystore.properties

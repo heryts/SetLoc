@@ -7,7 +7,7 @@ plugins {
     id 'kotlin-parcelize'
 }
 
-def tagName = '1.3'
+def tagName = '1.5'
 
 android {
     compileSdk 33
@@ -15,16 +15,34 @@ android {
         applicationId "com.heryts.setloc"
         minSdk 27
         targetSdk 33
-        versionCode 13
+        versionCode 15
         versionName tagName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "TAG_NAME", "\"${tagName}\"")
     }
 
 
+    // Key rilis dibaca dari app/keystore.properties (di-ignore Git). Kalau tidak ada, pakai key debug
+    // supaya orang lain tetap bisa build sendiri.
+    def ksFile = rootProject.file('keystore.properties')
+    def ksProps = new Properties()
+    if (ksFile.exists()) ksFile.withInputStream { ksProps.load(it) }
+
+    signingConfigs {
+        if (ksFile.exists()) {
+            release {
+                storeFile rootProject.file(ksProps['storeFile'])
+                storePassword ksProps['storePassword']
+                keyAlias ksProps['keyAlias']
+                keyPassword ksProps['keyPassword']
+                storeType 'pkcs12'
+            }
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig signingConfigs.debug   // APK release langsung bisa dipasang (key debug otomatis dibuat Gradle)
+            signingConfig ksFile.exists() ? signingConfigs.release : signingConfigs.debug
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }

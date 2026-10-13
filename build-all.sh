@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build app SetLoc (tanpa Xposed) -> taruh ke modul -> build zip modul Zygisk.
+# Build app SetLoc -> taruh ke modul -> build zip modul Zygisk.
 # Syarat: JDK 21 (modul) / JDK 17 (app), Android SDK 36 + build-tools 33.0.0 + platform 33, git, jaringan.
 # Peta Google: export MAPS_API_KEY=xxxx   (atau isi app/local.properties: MAPS_API_KEY=xxxx)
 set -e
