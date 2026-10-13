@@ -1,1 +1,1 @@
-Zygisk version of gps spoofer.
+Zygisk version of location spoofer
