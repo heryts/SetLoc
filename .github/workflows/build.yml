@@ -60,7 +60,6 @@ jobs:
           cd ..
           mkdir -p module/zygote/src/main/assets/apk
           cp app/app/build/outputs/apk/release/*.apk module/zygote/src/main/assets/apk/SetLoc.apk
-          cp module/zygote/src/main/assets/apk/SetLoc.apk SetLoc.apk
 
       - name: Build modul Zygisk
         run: |
@@ -79,17 +78,13 @@ jobs:
           cp "$ZIP" "SetLocZygisk-v$VER.zip"
           echo "file=SetLocZygisk-v$VER.zip" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
-          name: SetLoc
-          path: |
-            ${{ steps.zip.outputs.file }}
-            SetLoc.apk
+          path: ${{ steps.zip.outputs.file }}
+          archive: false
 
       - name: Release (saat tag v*)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v3
         with:
-          files: |
-            ${{ steps.zip.outputs.file }}
-            SetLoc.apk
+          files: ${{ steps.zip.outputs.file }}
