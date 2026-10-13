@@ -1,0 +1,12 @@
+[versions]
+agp = "8.13.2"
+zygoteloader = "2a2160f"
+r8_annotations = "v1.0.1"
+
+[plugins]
+agp-app = { id = "com.android.application", version.ref = "agp" }
+zygoteloader = { id = "com.github.aerath-stuff.ZygoteLoader", version.ref = "zygoteloader" }
+
+[libraries]
+androidx-annotation-jvm = { group = "androidx.annotation", name = "annotation-jvm", version = "1.10.0" }
+r8annotations = { group = "io.github.vova7878", name = "R8Annotations", version.ref = "r8_annotations" }
