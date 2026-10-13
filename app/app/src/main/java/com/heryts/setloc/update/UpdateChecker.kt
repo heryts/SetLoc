@@ -4,7 +4,7 @@ import android.content.Context
 import android.os.Parcelable
 import com.heryts.setloc.BuildConfig
 import com.heryts.setloc.utils.PrefManager
-import kotlinx.android.parcel.Parcelize
+import kotlinx.parcelize.Parcelize
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.callbackFlow

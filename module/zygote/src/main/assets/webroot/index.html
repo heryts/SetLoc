@@ -115,11 +115,10 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
   box-shadow: 0 2px 6px rgba(239,68,68,.35);
 }
 .banner .btn-reboot:active { filter: brightness(.9); }
-.banner.ok { display: flex; align-items: center; gap: 12px; background: rgba(34,197,94,.12); color: #15803d; border-color: rgba(34,197,94,.35); }
-.dark .banner.ok { color: #86efac; }
-.banner.ok .grow { flex: 1; font-weight: 600; }
-.banner.ok .btn-off { flex: none; padding: 7px 14px; border-radius: 12px; background: rgba(148,163,184,.22); color: inherit; font-weight: 600; font-size: 13px; }
-.banner.ok .btn-off:active { filter: brightness(.9); }
+.syscard { margin-top: 10px; padding: 14px 16px; display: flex; gap: 12px; align-items: center; }
+.syscard .t { font-weight: 600; }
+.syscard .grow { flex: 1; min-width: 0; }
+.syscard .btn { flex: none; min-width: 74px; }
 
 /* ---------- Toolbar ---------- */
 .toolbar { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
@@ -243,6 +242,8 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
     <button class="btn primary" id="btnSpoof" disabled>Start</button>
   </div>
 
+  <div id="banners"></div>
+
   <div class="card appcard">
     <div class="grow" style="min-width:0">
       <div class="t">App SetLoc</div>
@@ -250,8 +251,6 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
     </div>
     <button class="btn primary" id="btnApp" disabled>…</button>
   </div>
-
-  <div id="banners"></div>
 
   <div class="toolbar">
     <label class="search">
@@ -507,7 +506,7 @@ function renderBanners() {
   const b = [];
   if (!hasKsu) b.push('<div class="banner">Mode pratinjau: WebUI dibuka di luar KernelSU / APatch / manager WebUI, jadi data di bawah hanya contoh dan tidak mengubah apa pun.</div>');
   if (S.all) b.push('<div class="banner danger"><b>Mode semua app aktif.</b> Hook masuk ke semua app kecuali yang dimatikan di daftar. Matikan di Pengaturan bila tidak sengaja.</div>');
-  if (S.sysMode === 'live') b.push('<div class="banner ok"><span class="dot on"></span><span class="grow">System-wide aktif</span><button class="btn-off" id="btnSysOff">Matikan</button></div>');
+  if (S.sysMode === 'live') b.push('<div class="card syscard"><div class="dot on"></div><div class="grow"><div class="t">System-wide aktif</div></div><button class="btn stop" id="btnSysOff">Matikan</button></div>');
   else if (S.sysMode === 'pending') b.push('<div class="banner danger"><b>System-wide dinyalakan.</b> Perlu reboot.<button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');
   else if (S.sysMode === 'offpending') b.push('<div class="banner danger"><b>System-wide dimatikan.</b> Perlu reboot.<button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');
   if (S.daemon === false) b.push('<div class="banner danger">Daemon sinkronisasi (app SetLoc → modul) tidak berjalan, jadi tombol Start/Stop di app belum terbaca modul. Tekan muat ulang; bila tetap gagal, lihat <span class="mono">' + esc(MODDIR) + '/bridge.log</span>.</div>');

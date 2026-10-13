@@ -85,7 +85,7 @@ class MainViewModel @Inject constructor(
         favouriteRepository.deleteFavourite(favourite)
     }
 
-    private fun getFavouriteSingle(i : Int) : Favourite {
+    private fun getFavouriteSingle(i : Int) : Favourite? {
         return favouriteRepository.getSingleFavourite(i.toLong())
     }
 

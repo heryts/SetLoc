@@ -25,7 +25,7 @@ interface FavouriteDao {
         //get single favourite inserted to room database
         @Transaction
         @Query("SELECT * FROM favourite WHERE id = :id ORDER BY id DESC")
-        fun getSingleFavourite(id: Long) : Favourite
+        fun getSingleFavourite(id: Long) : Favourite?
 
 
 

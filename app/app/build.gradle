@@ -7,7 +7,7 @@ plugins {
     id 'kotlin-parcelize'
 }
 
-def tagName = '1.6'
+def tagName = '1.7'
 
 android {
     compileSdk 33
@@ -15,7 +15,7 @@ android {
         applicationId "com.heryts.setloc"
         minSdk 27
         targetSdk 33
-        versionCode 16
+        versionCode 17
         versionName tagName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "TAG_NAME", "\"${tagName}\"")
@@ -100,4 +100,9 @@ dependencies {
     implementation ("dev.rikka.rikkax.material:material-preference:2.0.0") {
         exclude group: "dev.rikka.rikkax.appcompat", module: "appcompat"
     }
+}
+
+// Kotlin 1.8.0: task kaptGenerateStubs tidak ikut kotlinOptions di atas (target 1.8 vs Java 11) -> samakan semua task Kotlin.
+tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+    kotlinOptions.jvmTarget = '11'
 }

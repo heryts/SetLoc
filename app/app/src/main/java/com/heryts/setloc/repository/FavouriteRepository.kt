@@ -22,7 +22,7 @@ class FavouriteRepository @Inject constructor(private val favouriteDao: Favourit
        }
 
 
-       fun getSingleFavourite(id: Long) : Favourite {
+       fun getSingleFavourite(id: Long) : Favourite? {
        return favouriteDao.getSingleFavourite(id)
 
     }
