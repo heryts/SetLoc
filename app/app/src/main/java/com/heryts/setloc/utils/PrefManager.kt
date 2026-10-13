@@ -31,6 +31,7 @@ object PrefManager   {
     private const val ROUTE_MODE = "route_mode"
     private const val ROUTE_WAIT = "route_wait_start"
     private const val ROUTE_SPEED_VAR = "route_speed_var"
+    private const val SPEED_UNIT_MPH = "speed_unit_mph"
     private const val ROUTE_WAIT_END = "route_wait_end"
     // dibaca bridge.sh dari file pref -> gpsz_cfg (spd / brg / alt)
     private const val SPEED_MS = "speed_ms"
@@ -103,6 +104,11 @@ object PrefManager   {
     var routeSpeed: Float
         get() = pref.getFloat(ROUTE_SPEED, 50f)
         set(value) { pref.edit().putFloat(ROUTE_SPEED, value).apply() }
+
+    /** Satuan kecepatan di opsi rute: false = km/h, true = MPH. Nilai tersimpan tetap km/h. */
+    var speedUnitMph: Boolean
+        get() = pref.getBoolean(SPEED_UNIT_MPH, false)
+        set(value) { pref.edit().putBoolean(SPEED_UNIT_MPH, value).apply() }
 
     /** Variasi kecepatan +- km/jam. Negatif = otomatis (+-8% dari kecepatan), 0 = konstan. */
     var routeSpeedVar: Float

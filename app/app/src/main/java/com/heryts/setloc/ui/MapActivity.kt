@@ -474,6 +474,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         val chips = view.findViewById<ChipGroup>(R.id.route_mode)
         val speedEt = view.findViewById<EditText>(R.id.route_speed)
         val speedVarEt = view.findViewById<EditText>(R.id.route_speed_var)
+        val unitSp = view.findViewById<android.widget.Spinner>(R.id.route_speed_unit)
         val waitEt = view.findViewById<EditText>(R.id.route_wait)
         val waitEndEt = view.findViewById<EditText>(R.id.route_wait_end)
         val altEt = view.findViewById<EditText>(R.id.route_altitude)
@@ -487,8 +488,15 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
 
         fun num(f: Float) = if (f % 1f == 0f) f.toInt().toString() else f.toString()
 
+        // satuan kecepatan: tampilan km/h atau MPH; nilai tersimpan & dipakai runner selalu km/h
+        val kmPerMile = 1.609344f
+        var mph = PrefManager.speedUnitMph
+        fun toUnit(kmh: Float) = if (mph) kmh / kmPerMile else kmh
+        fun toKmh(v: Float) = if (mph) v * kmPerMile else v
+        fun numU(f: Float) = num(Math.round(f * 10f) / 10f)
+
         fun refreshSummary() {
-            val sp = speedEt.text.toString().toFloatOrNull()
+            val sp = speedEt.text.toString().toFloatOrNull()?.let { toKmh(it) }
             summary.text = if (sp != null && sp > 0f) {
                 getString(
                     R.string.route_summary,
@@ -499,8 +507,29 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         }
 
         chips.check(modeIds[oldMode])
-        speedEt.setText(num(PrefManager.routeSpeed))
-        PrefManager.routeSpeedVar.let { if (it >= 0f) speedVarEt.setText(num(it)) }   // kosong = otomatis 8%
+        speedEt.setText(numU(toUnit(PrefManager.routeSpeed)))
+        PrefManager.routeSpeedVar.let { if (it >= 0f) speedVarEt.setText(numU(toUnit(it))) }   // kosong = otomatis 8%
+        unitSp.adapter = android.widget.ArrayAdapter(
+            this, android.R.layout.simple_spinner_dropdown_item, arrayOf("km/h", "MPH")
+        )
+        unitSp.setSelection(if (mph) 1 else 0)
+        unitSp.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: android.widget.AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                val newMph = pos == 1
+                if (newMph == mph) return
+                val oldMph = mph
+                mph = newMph
+                // ubah angka yang sedang tampil ke satuan baru
+                for (et in listOf(speedEt, speedVarEt)) {
+                    et.text.toString().toFloatOrNull()?.let {
+                        val kmh = if (oldMph) it * kmPerMile else it
+                        et.setText(numU(toUnit(kmh)))
+                    }
+                }
+                refreshSummary()
+            }
+            override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
+        }
         waitEt.setText(num(PrefManager.routeWaitStart))
         waitEndEt.setText(num(PrefManager.routeWaitEnd))
         altEt.setText(num(PrefManager.altitudeManual))
@@ -511,7 +540,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         speedEt.doAfterTextChanged { refreshSummary() }
         chips.setOnCheckedStateChangeListener { _, checkedIds ->
             val idx = checkedIds.firstOrNull()?.let { modeIds.indexOf(it) } ?: -1
-            if (idx >= 0) speedEt.setText(num(defaultSpeeds[idx]))
+            if (idx >= 0) speedEt.setText(numU(toUnit(defaultSpeeds[idx])))
         }
 
         view.findViewById<View>(R.id.route_clear).setOnClickListener {
@@ -519,7 +548,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             sheet.dismiss()
         }
         view.findViewById<View>(R.id.route_save).setOnClickListener {
-            val sp = speedEt.text.toString().toFloatOrNull()
+            val sp = speedEt.text.toString().toFloatOrNull()?.let { toKmh(it) }
             if (sp == null || sp < 1f || sp > 300f) {
                 showToast(getString(R.string.route_invalid_speed))
                 return@setOnClickListener
@@ -527,7 +556,9 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             val wait = (waitEt.text.toString().toFloatOrNull() ?: 0f).coerceIn(0f, 600f)
             val newMode = modeIds.indexOf(chips.checkedChipId).let { if (it < 0) oldMode else it }
             PrefManager.routeSpeed = sp
-            PrefManager.routeSpeedVar = speedVarEt.text.toString().toFloatOrNull()?.coerceIn(0f, sp) ?: -1f
+            PrefManager.routeSpeedVar =
+                speedVarEt.text.toString().toFloatOrNull()?.let { toKmh(it) }?.coerceIn(0f, sp) ?: -1f
+            PrefManager.speedUnitMph = mph
             PrefManager.routeWaitStart = wait
             PrefManager.routeWaitEnd = (waitEndEt.text.toString().toFloatOrNull() ?: 0f).coerceIn(0f, 600f)
             val alt = (altEt.text.toString().toFloatOrNull() ?: 0f).coerceIn(-500f, 9000f)

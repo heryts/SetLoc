@@ -97,6 +97,13 @@
                 android:inputType="numberDecimal"
                 android:maxLength="5" />
         </com.google.android.material.textfield.TextInputLayout>
+
+        <Spinner
+            android:id="@+id/route_speed_unit"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_vertical"
+            android:layout_marginStart="8dp" />
     </LinearLayout>
 
     <com.google.android.material.textfield.TextInputLayout

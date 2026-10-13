@@ -74,14 +74,14 @@
     <string name="mode_bike">Bike</string>
     <string name="mode_motor">Motorbike</string>
     <string name="mode_car">Car</string>
-    <string name="route_speed">Speed (km/h)</string>
+    <string name="route_speed">Speed</string>
     <string name="route_wait_start">Wait at start point (minutes)</string>
     <string name="route_wait_end">Wait at end point (minutes, 0 = stay until Stop)</string>
     <string name="route_clear">Clear route</string>
     <string name="route_save">Save</string>
     <string name="route_invalid_speed">Enter a speed between 1 and 300 km/h</string>
     <string name="route_max_points">Maximum %1$d points per route</string>
-    <string name="route_speed_var">± (km/h, empty = 8%)</string>
+    <string name="route_speed_var">± (auto 8%)</string>
     <string name="route_altitude">Altitude (m)</string>
     <string name="route_altitude_var">± (m)</string>
     <string name="route_altitude_server">Get altitude from server (Altitude above is the fallback)</string>
