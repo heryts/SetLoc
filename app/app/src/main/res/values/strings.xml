@@ -25,7 +25,7 @@
 
     <string name="about">About</string>
     <string name="about_tittle">SetLoc</string>
-    <string name="about_info">A module which will set your location where you want without enable mock location.</string>
+    <string name="about_info">Anywhere location as you go</string>
 
     <!-- Update -->
 
