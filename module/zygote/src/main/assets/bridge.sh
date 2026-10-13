@@ -70,7 +70,14 @@ derive() {
   case "$ACC" in ''|*[!0-9.]*) ACC=10 ;; esac
   E=0; [ "$START" = true ] && E=1
   R=0; [ "$RND" = true ] && R=1
-  echo "enabled=$E;lat=$LAT;lng=$LNG;acc=$ACC;random=$R"
+  # gerak: kecepatan (m/s), arah (derajat; negatif/kosong = tanpa arah), ketinggian (m)
+  SPD=$(pval float speed_ms); BRG=$(pval float bearing); ALT=$(pval float altitude)
+  numok "$SPD" || SPD=0
+  numok "$ALT" || ALT=0
+  ALTV=$(pval float altitude_var); numok "$ALTV" || ALTV=0
+  X=";spd=$SPD;alt=$ALT;altv=$ALTV"
+  numok "$BRG" && X="$X;brg=$BRG"
+  echo "enabled=$E;lat=$LAT;lng=$LNG;acc=$ACC;random=$R$X"
 }
 
 # $1 = force|""   Menimpa gpsz_cfg HANYA bila isi turunan dari app berubah
@@ -132,7 +139,7 @@ set_app_pos() {
   if [ -z "$PREF" ] || [ ! -f "$PREF" ]; then log "setpos: pref app tidak ditemukan"; return 1; fi
   am force-stop "$APP" >/dev/null 2>&1
   TMP="$MODDIR/.pref.tmp"
-  for KV in "latitude $1" "longitude $2"; do
+  for KV in "latitude $1" "longitude $2" "speed_ms 0" "bearing -1"; do
     K=${KV% *}; V=${KV#* }
     if grep -q "<float name=\"$K\"" "$PREF"; then
       sed "s|<float name=\"$K\" value=\"[^\"]*\"|<float name=\"$K\" value=\"$V\"|" "$PREF" > "$TMP"

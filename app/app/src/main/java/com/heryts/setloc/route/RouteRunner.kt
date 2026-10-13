@@ -17,6 +17,7 @@ import kotlinx.coroutines.launch
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.min
+import kotlin.random.Random
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -30,7 +31,9 @@ object RouteRunner {
         val running: Boolean = false,
         val finished: Boolean = false,
         val position: LatLng? = null,
-        val progressPercent: Int = 0
+        val progressPercent: Int = 0,
+        /** true bila perjalanan selesai dan spoof otomatis dimatikan (setelah diam di tujuan). */
+        val spoofOff: Boolean = false
     )
 
     private val _state = MutableStateFlow(State())
@@ -44,16 +47,38 @@ object RouteRunner {
     private var active = false   // dijaga lock: hanya bila true, tick boleh menulis ke pref
 
     private const val TICK_MS = 1000L
+    /** Variasi kecepatan +-8% (seperti GPS asli), dihaluskan supaya tidak melompat. */
+    private const val SPEED_VARIATION = 0.08
 
-    fun start(points: List<LatLng>, speedKmh: Float, waitAtStartMin: Float) {
+    /**
+     * Ketinggian (m) berjarak sama di sepanjang rute, diisi MapActivity dari [ElevationClient].
+     * Boleh diisi saat perjalanan sudah berjalan; null = pakai [PrefManager.altitudeManual].
+     */
+    @Volatile var elevations: FloatArray? = null
+
+    private var lastBearing = -1f   // dijaga lock
+
+    fun start(
+        points: List<LatLng>, speedKmh: Float, waitAtStartMin: Float, waitAtEndMin: Float = 0f,
+        speedVarKmh: Float = -1f
+    ) {
         if (points.size < 2) return
         synchronized(lock) {
             job?.cancel()
             active = true
-            // titik awal ditulis sinkron: pref langsung start=true di posisi awal
-            PrefManager.updateNow(true, points.first().latitude, points.first().longitude)
+            // titik awal ditulis sinkron: pref langsung start=true di posisi awal (diam, menghadap arah rute)
+            lastBearing = bearing(points[0], points[1])
+            PrefManager.updateNow(
+                true, points.first().latitude, points.first().longitude,
+                0f, lastBearing, altitudeAt(0.0)
+            )
             _state.value = State(running = true, position = points.first())
-            job = scope.launch { run(points, speedKmh.coerceAtLeast(0.5f), waitAtStartMin.coerceAtLeast(0f)) }
+            job = scope.launch {
+                run(
+                    points, speedKmh.coerceAtLeast(0.5f), waitAtStartMin.coerceAtLeast(0f),
+                    waitAtEndMin.coerceAtLeast(0f), speedVarKmh
+                )
+            }
         }
     }
 
@@ -67,11 +92,15 @@ object RouteRunner {
         }
     }
 
-    private suspend fun run(points: List<LatLng>, speedKmh: Float, waitAtStartMin: Float) {
+    private suspend fun run(
+        points: List<LatLng>, speedKmh: Float, waitAtStartMin: Float, waitAtEndMin: Float, speedVarKmh: Float
+    ) {
         val cum = DoubleArray(points.size)
         for (i in 1 until points.size) cum[i] = cum[i - 1] + meters(points[i - 1], points[i])
         val total = cum.last()
         val speedMs = speedKmh / 3.6
+        // variasi +- (m/s): negatif = otomatis 8% dari kecepatan
+        val varMs = if (speedVarKmh < 0f) speedMs * SPEED_VARIATION else speedVarKmh / 3.6
 
         // diam dulu di titik awal
         var waitMs = (waitAtStartMin * 60_000f).toLong()
@@ -83,11 +112,14 @@ object RouteRunner {
 
         var travelled = 0.0
         var seg = 1
+        var cur = 0.0   // kecepatan sesaat (m/s)
         var last = SystemClock.elapsedRealtime()
         while (currentCoroutineContext().isActive && travelled < total) {
             delay(TICK_MS)
             val now = SystemClock.elapsedRealtime()
-            travelled = min(total, travelled + speedMs * (now - last) / 1000.0)
+            val target = (speedMs + (Random.nextDouble() * 2.0 - 1.0) * varMs).coerceAtLeast(0.3)
+            cur = if (cur <= 0.0) target else cur + (target - cur) * 0.3
+            travelled = min(total, travelled + cur * (now - last) / 1000.0)
             last = now
 
             while (seg < cum.size - 1 && cum[seg] < travelled) seg++
@@ -100,25 +132,75 @@ object RouteRunner {
                 a.longitude + (b.longitude - a.longitude) * f
             )
             val pct = if (total > 0) (travelled / total * 100).toInt() else 100
-            if (!write(pos, pct)) return
+            val brg = if (segLen > 0.5) bearing(a, b) else -2f   // -2 = pertahankan arah terakhir
+            val frac = if (total > 0) travelled / total else 1.0
+            if (!write(pos, pct, cur.toFloat(), brg, altitudeAt(frac))) return
         }
-        finish(points.last())
+        if (!currentCoroutineContext().isActive) return
+
+        // sudah sampai: kecepatan kembali 0 (arah tetap), baik sedang diam di tujuan maupun menunggu Stop
+        if (!arrive(points.last(), altitudeAt(1.0))) return
+
+        // diam di tujuan; lalu spoof otomatis mati. 0 = tetap aktif sampai user menekan Stop.
+        var endWaitMs = (waitAtEndMin * 60_000f).toLong()
+        if (endWaitMs > 0) {
+            while (endWaitMs > 0 && currentCoroutineContext().isActive) {
+                val step = min(TICK_MS, endWaitMs)
+                delay(step)
+                endWaitMs -= step
+            }
+            finish(points.last(), spoofOff = true)
+        } else {
+            finish(points.last(), spoofOff = false)
+        }
     }
 
-    private fun write(p: LatLng, pct: Int): Boolean = synchronized(lock) {
+    private fun write(p: LatLng, pct: Int, speedMs: Float, brg: Float, alt: Float?): Boolean = synchronized(lock) {
         if (!active) return false
-        PrefManager.updateNow(true, p.latitude, p.longitude)
+        if (brg >= 0f) lastBearing = brg
+        PrefManager.updateNow(true, p.latitude, p.longitude, speedMs, lastBearing, alt)
         _state.value = State(running = true, position = p, progressPercent = pct)
         true
     }
 
-    private fun finish(end: LatLng) = synchronized(lock) {
+    private fun arrive(end: LatLng, alt: Float?): Boolean = synchronized(lock) {
+        if (!active) return false
+        PrefManager.updateNow(true, end.latitude, end.longitude, 0f, lastBearing, alt)
+        true
+    }
+
+    /** Ketinggian di posisi [fraction] (0..1) sepanjang rute; elevasi server, atau cadangan manual. */
+    private fun altitudeAt(fraction: Double): Float {
+        val e = elevations
+        if (e == null || e.isEmpty()) return PrefManager.altitudeManual
+        if (e.size == 1) return e[0]
+        val x = fraction.coerceIn(0.0, 1.0) * (e.size - 1)
+        val i = x.toInt().coerceAtMost(e.size - 2)
+        val f = (x - i).toFloat()
+        return e[i] + (e[i + 1] - e[i]) * f
+    }
+
+    /** Arah (derajat 0..360, utara = 0, searah jarum jam) dari a ke b. */
+    fun bearing(a: LatLng, b: LatLng): Float {
+        val la1 = Math.toRadians(a.latitude)
+        val la2 = Math.toRadians(b.latitude)
+        val dLng = Math.toRadians(b.longitude - a.longitude)
+        val y = sin(dLng) * cos(la2)
+        val x = cos(la1) * sin(la2) - sin(la1) * cos(la2) * cos(dLng)
+        val deg = Math.toDegrees(atan2(y, x))
+        return (((deg % 360.0) + 360.0) % 360.0).toFloat()
+    }
+
+    private fun finish(end: LatLng, spoofOff: Boolean) = synchronized(lock) {
         if (active) {
             active = false
             job = null
-            PrefManager.updateNow(true, end.latitude, end.longitude)
-            // posisi tetap di tujuan dan spoof tetap aktif sampai user menekan Stop
-            _state.value = State(running = false, finished = true, position = end, progressPercent = 100)
+            // spoofOff=false: posisi tetap di tujuan dan spoof tetap aktif sampai user menekan Stop
+            PrefManager.updateNow(!spoofOff, end.latitude, end.longitude, 0f, lastBearing, altitudeAt(1.0))
+            _state.value = State(
+                running = false, finished = true, position = end,
+                progressPercent = 100, spoofOff = spoofOff
+            )
         }
     }
 

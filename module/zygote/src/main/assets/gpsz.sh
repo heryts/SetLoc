@@ -16,7 +16,16 @@ LAT=$(get lat);    [ -z "$LAT" ] && LAT=-6.2088
 LNG=$(get lng);    [ -z "$LNG" ] && LNG=106.8456
 ACC=$(get acc);    [ -z "$ACC" ] && ACC=10
 RND=$(get random); [ -z "$RND" ] && RND=0
-save() { settings put global $KEY "enabled=$E;lat=$LAT;lng=$LNG;acc=$ACC;random=$RND"; }
+# kecepatan/arah/ketinggian dari app; ikut dibawa saat save supaya tidak hilang
+SPD=$(get spd); BRG=$(get brg); ALT=$(get alt); ALTV=$(get altv)
+save() {
+  X=""
+  [ -n "$SPD" ] && X="$X;spd=$SPD"
+  [ -n "$ALT" ] && X="$X;alt=$ALT"
+  [ -n "$ALTV" ] && X="$X;altv=$ALTV"
+  [ -n "$BRG" ] && X="$X;brg=$BRG"
+  settings put global $KEY "enabled=$E;lat=$LAT;lng=$LNG;acc=$ACC;random=$RND$X"
+}
 isnum() { case "$1" in ''|*[!0-9.-]*) return 1 ;; *) return 0 ;; esac; }
 validpkg() { case "$1" in ''|.*|*[!A-Za-z0-9._]*) return 1 ;; *) return 0 ;; esac; }
 
@@ -26,11 +35,11 @@ case "$1" in
   toggle) [ "$E" = 1 ] && E=0 || E=1; save; sh "$MODDIR/bridge.sh" setstart $E >/dev/null 2>&1 ;;
   set)
     isnum "$2" && isnum "$3" || { echo "usage: set <lat> <lng> [acc]"; exit 1; }
-    LAT=$2; LNG=$3
+    LAT=$2; LNG=$3; SPD=0; BRG=""   # titik manual = diam
     if [ -n "$4" ]; then isnum "$4" || { echo "acc must be a number"; exit 1; }; ACC=$4; fi
     save ;;
   random) RND=$2; save ;;
-  show)   echo "enabled=$E lat=$LAT lng=$LNG acc=$ACC random=$RND"
+  show)   echo "enabled=$E lat=$LAT lng=$LNG acc=$ACC random=$RND spd=${SPD:-0} brg=${BRG:--} alt=${ALT:-0} altv=${ALTV:-0}"
           [ -e "$PKGDIR/.all" ] && echo "packages: ALL apps (listed ones below are EXCLUDED)"
           ls -1A "$PKGDIR" 2>/dev/null | grep -v '^\.\(all\|sysoff\)$' | sed 's/^/  pkg: /' ;;
   pkg)

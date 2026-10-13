@@ -17,6 +17,7 @@ import java.util.Random;
 /** Hooks android.location.Location getters and LocationManager.getLastKnownLocation in the app process. */
 final class LocationHooks {
     private static final int K_LAT = 0, K_LNG = 1, K_ACC = 2, K_MOCK = 3, K_LAST_KNOWN = 4;
+    private static final int K_SPD = 5, K_BRG = 6, K_ALT = 7, K_HAS_SPD = 8, K_HAS_BRG = 9, K_HAS_ALT = 10;
     private static final Random RND = new Random();
     private static boolean crashed = false;
 
@@ -34,6 +35,12 @@ final class LocationHooks {
         hook(Location.class, "getLatitude", K_LAT);
         hook(Location.class, "getLongitude", K_LNG);
         hook(Location.class, "getAccuracy", K_ACC);
+        hook(Location.class, "getSpeed", K_SPD);
+        hook(Location.class, "getBearing", K_BRG);
+        hook(Location.class, "getAltitude", K_ALT);
+        hook(Location.class, "hasSpeed", K_HAS_SPD);     // app sering cek hasX() sebelum membaca nilainya
+        hook(Location.class, "hasBearing", K_HAS_BRG);
+        hook(Location.class, "hasAltitude", K_HAS_ALT);
         hook(Location.class, "isFromMockProvider", K_MOCK); // present on all supported versions
         hook(Location.class, "isMock", K_MOCK);             // API 31+
         hook(LocationManager.class, "getLastKnownLocation", K_LAST_KNOWN, String.class);
@@ -98,6 +105,19 @@ final class LocationHooks {
                 return Double.valueOf(snapLng);
             case K_ACC:
                 return Float.valueOf(Config.acc);
+            case K_SPD:
+                return Float.valueOf(Config.spd);
+            case K_BRG: {
+                float b = Config.brg;
+                return Float.valueOf(Float.isNaN(b) ? 0f : b);
+            }
+            case K_ALT:
+                return Double.valueOf(Config.altitudeNow());
+            case K_HAS_SPD:
+            case K_HAS_ALT:
+                return Boolean.TRUE;
+            case K_HAS_BRG:
+                return Boolean.valueOf(!Float.isNaN(Config.brg));
             default:
                 return Boolean.FALSE;
         }
@@ -111,8 +131,9 @@ final class LocationHooks {
         l.setLatitude(Config.lat);     // setters are not hooked; getters will return the (jittered) config values
         l.setLongitude(Config.lng);
         l.setAccuracy(Config.acc);
-        l.setAltitude(0.0);
-        l.setSpeed(0f);
+        l.setAltitude(Config.altitudeNow());
+        l.setSpeed(Config.spd);
+        if (!Float.isNaN(Config.brg)) l.setBearing(Config.brg);
         l.setTime(System.currentTimeMillis() - 300);
         l.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
         return l;

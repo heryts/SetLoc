@@ -34,6 +34,7 @@ import com.heryts.setloc.BuildConfig
 import com.heryts.setloc.R
 import com.heryts.setloc.adapter.FavListAdapter
 import com.heryts.setloc.databinding.ActivityMapBinding
+import com.heryts.setloc.route.ElevationClient
 import com.heryts.setloc.route.RouteClient
 import com.heryts.setloc.route.RouteRunner
 import com.heryts.setloc.route.RouteService
@@ -85,16 +86,16 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     private lateinit var alertDialog: MaterialAlertDialogBuilder
     private lateinit var dialog: AlertDialog
 
-    // --- rute (long press 2x di peta: titik awal & tujuan) ---
-    private var routeStart: LatLng? = null
-    private var routeEnd: LatLng? = null
-    private var routeStartMarker: Marker? = null
-    private var routeEndMarker: Marker? = null
+    // --- rute (long press di peta: titik awal, perantara..., tujuan; maks RouteClient.MAX_POINTS) ---
+    private val routeWaypoints = mutableListOf<LatLng>()
+    private val routeMarkers = mutableListOf<Marker>()
     private var routeLine: Polyline? = null
     private var routePoints: List<LatLng> = emptyList()
+    private var routeLoading = false
     private var routeJob: Job? = null
+    private var elevationJob: Job? = null
     private var wasRouteRunning = false
-    private val routeReady get() = routePoints.size >= 2
+    private val routeReady get() = routePoints.size >= 2 && !routeLoading
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -131,7 +132,21 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
                 startRoute()
                 return@setOnClickListener
             }
+            if (routeWaypoints.size >= 2) {
+                // rute sedang dicari, atau pencarian sebelumnya gagal -> coba lagi
+                if (!routeLoading) fetchRoute(dropLastOnFail = false)
+                return@setOnClickListener
+            }
             viewModel.update(true, lat, lon)
+            // ketinggian: cadangan manual dulu, lalu diganti hasil Elevation API bila berhasil
+            PrefManager.altitudeM = PrefManager.altitudeManual
+            if (PrefManager.altitudeFromServer) {
+                val here = LatLng(lat, lon)
+                lifecycleScope.launch {
+                    ElevationClient.fetch(this@MapActivity, listOf(here))?.firstOrNull()
+                        ?.let { PrefManager.altitudeM = it }
+                }
+            }
             mLatLng.let {
                 mMarker?.position = it!!
             }
@@ -203,7 +218,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
 
     override fun onMapClick(latLng: LatLng) {
         if (RouteRunner.isRunning) return
-        if (routeStart != null) clearRoute()   // tap biasa = kembali ke mode satu titik
+        if (routeWaypoints.isNotEmpty()) clearRoute()   // tap biasa = kembali ke mode satu titik
         mLatLng = latLng
         mMarker?.let { marker ->
             mLatLng.let {
@@ -224,68 +239,93 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             showToast(getString(R.string.route_stop_first))
             return
         }
-        if (routeStart == null || routeEnd != null) {
-            clearRoute()
-            routeStart = latLng
-            routeStartMarker = mMap.addMarker(
-                MarkerOptions().position(latLng)
-                    .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN))
-            )
+        if (routeWaypoints.size >= RouteClient.MAX_POINTS) {
+            showToast(getString(R.string.route_max_points, RouteClient.MAX_POINTS))
+            return
+        }
+        // titik baru DITAMBAHKAN di akhir; titik-titik sebelumnya tetap ada
+        val marker = mMap.addMarker(MarkerOptions().position(latLng)) ?: return
+        routeWaypoints.add(latLng)
+        routeMarkers.add(marker)
+        refreshRouteMarkers()
+        if (routeWaypoints.size == 1) {
             showToast(getString(R.string.route_pick_start))
             updateRouteFab()
         } else {
-            routeEnd = latLng
-            routeEndMarker = mMap.addMarker(
-                MarkerOptions().position(latLng)
-                    .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE))
-            )
-            fetchRoute()
+            fetchRoute(dropLastOnFail = true)
+        }
+    }
+
+    /** Hijau = awal, biru = tujuan (titik terakhir), kuning = titik perantara. */
+    private fun refreshRouteMarkers() {
+        val last = routeMarkers.size - 1
+        routeMarkers.forEachIndexed { i, m ->
+            val hue = when (i) {
+                0 -> BitmapDescriptorFactory.HUE_GREEN
+                last -> BitmapDescriptorFactory.HUE_AZURE
+                else -> BitmapDescriptorFactory.HUE_YELLOW
+            }
+            m.setIcon(BitmapDescriptorFactory.defaultMarker(hue))
+            m.title = (i + 1).toString()
         }
     }
 
     private fun clearRoute() {
         routeJob?.cancel()
         routeJob = null
-        routeStartMarker?.remove()
-        routeEndMarker?.remove()
+        elevationJob?.cancel()
+        elevationJob = null
+        routeLoading = false
+        routeMarkers.forEach { it.remove() }
+        routeMarkers.clear()
+        routeWaypoints.clear()
         routeLine?.remove()
-        routeStartMarker = null
-        routeEndMarker = null
         routeLine = null
-        routeStart = null
-        routeEnd = null
         routePoints = emptyList()
+        RouteRunner.elevations = null
         updateRouteFab()
     }
 
-    /** Gagal cari rute: titik awal dipertahankan, titik tujuan dibuang supaya bisa dipilih ulang. */
-    private fun dropRouteEnd() {
-        routeEndMarker?.remove()
-        routeEndMarker = null
-        routeEnd = null
+    /** Hapus titik terakhir saja (undo); rute dihitung ulang dari titik yang tersisa. */
+    private fun removeLastWaypoint() {
+        if (routeWaypoints.isEmpty() || RouteRunner.isRunning) return
+        routeJob?.cancel()
+        routeJob = null
+        elevationJob?.cancel()
+        elevationJob = null
+        routeLoading = false
+        routeWaypoints.removeAt(routeWaypoints.size - 1)
+        routeMarkers.removeAt(routeMarkers.size - 1).remove()
         routeLine?.remove()
         routeLine = null
         routePoints = emptyList()
-        updateRouteFab()
+        RouteRunner.elevations = null
+        refreshRouteMarkers()
+        if (routeWaypoints.size >= 2) fetchRoute(dropLastOnFail = false) else updateRouteFab()
     }
 
-    private fun fetchRoute() {
-        val from = routeStart ?: return
-        val to = routeEnd ?: return
-        routeLine?.remove()
-        routeLine = null
-        routePoints = emptyList()
+    /**
+     * Hitung rute dari semua titik (awal, perantara, tujuan). Garis lama dipertahankan sampai
+     * garis baru berhasil didapat. Bila gagal: [dropLastOnFail] membuang titik yang baru ditambah.
+     */
+    private fun fetchRoute(dropLastOnFail: Boolean) {
+        if (routeWaypoints.size < 2) return
+        val stops = routeWaypoints.toList()
+        routeLoading = true
+        elevationJob?.cancel()
+        RouteRunner.elevations = null
         updateRouteFab()
         if (!isNetworkConnected()) {
             showToast(getString(R.string.no_internet))
-            dropRouteEnd()
+            routeFetchFailed(dropLastOnFail)
             return
         }
         showToast(getString(R.string.route_searching))
         routeJob?.cancel()
         routeJob = lifecycleScope.launch {
             try {
-                val result = RouteClient.fetch(this@MapActivity, from, to, PrefManager.routeMode)
+                val result = RouteClient.fetch(this@MapActivity, stops, PrefManager.routeMode)
+                routeLine?.remove()
                 routePoints = result.points
                 routeLine = mMap.addPolyline(
                     PolylineOptions()
@@ -294,6 +334,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
                         .color(ContextCompat.getColor(this@MapActivity, R.color.primary))
                         .zIndex(1f)
                 )
+                routeLoading = false
                 try {
                     val bounds = LatLngBounds.Builder()
                     result.points.forEach { bounds.include(it) }
@@ -302,18 +343,52 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
                     // layout peta belum siap: abaikan, rute tetap tergambar
                 }
                 updateRouteFab()
+                fetchElevations(result.points)
             } catch (c: CancellationException) {
                 throw c
             } catch (e: Exception) {
                 showToast(e.message ?: getString(R.string.address_not_found))
-                dropRouteEnd()
+                routeFetchFailed(dropLastOnFail)
             }
+        }
+    }
+
+    private fun routeFetchFailed(dropLast: Boolean) {
+        routeLoading = false
+        if (dropLast && routeWaypoints.size > 1) {
+            routeWaypoints.removeAt(routeWaypoints.size - 1)
+            routeMarkers.removeAt(routeMarkers.size - 1).remove()
+            refreshRouteMarkers()
+        }
+        // garis lama (bila ada) cocok dengan titik yang tersisa; kalau titiknya tinggal satu, buang garisnya
+        if (routeWaypoints.size < 2) {
+            routeLine?.remove()
+            routeLine = null
+            routePoints = emptyList()
+        } else if (routePoints.size >= 2) {
+            fetchElevations(routePoints)   // elevasi garis lama dibatalkan di awal fetchRoute
+        }
+        updateRouteFab()
+    }
+
+    /** Ketinggian sepanjang rute (Elevation API); dipakai RouteRunner untuk altitude. Gagal = pakai altitude manual. */
+    private fun fetchElevations(points: List<LatLng>) {
+        elevationJob?.cancel()
+        if (!PrefManager.altitudeFromServer) {   // "Get altitude from server" mati: pakai altitude manual
+            RouteRunner.elevations = null
+            return
+        }
+        elevationJob = lifecycleScope.launch {
+            val samples = ElevationClient.sample(points, 100)
+            ElevationClient.fetch(this@MapActivity, samples)?.let { RouteRunner.elevations = it }
         }
     }
 
     private fun setRouteButton() {
         binding.route.setOnClickListener { if (routeReady) showRouteOptions() }
-        binding.routeDelete.setOnClickListener { clearRoute() }
+        // tap = hapus titik terakhir (undo), tekan lama = hapus semua titik/rute
+        binding.routeDelete.setOnClickListener { removeLastWaypoint() }
+        binding.routeDelete.setOnLongClickListener { clearRoute(); true }
     }
 
     /** Tombol centang hanya tampil bila rute siap, belum jalan, dan Play sedang tampil. */
@@ -321,7 +396,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         val idle = !RouteRunner.isRunning && binding.start.visibility == View.VISIBLE
         binding.route.visibility = if (routeReady && idle) View.VISIBLE else View.GONE
         // hapus: tampil begitu titik awal dipilih (juga saat rute gagal / belum selesai dicari)
-        binding.routeDelete.visibility = if (routeStart != null && idle) View.VISIBLE else View.GONE
+        binding.routeDelete.visibility = if (routeWaypoints.isNotEmpty() && idle) View.VISIBLE else View.GONE
     }
 
     private fun startRoute() {
@@ -339,7 +414,10 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         ) {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
         }
-        RouteRunner.start(routePoints, PrefManager.routeSpeed, PrefManager.routeWaitStart)
+        RouteRunner.start(
+            routePoints, PrefManager.routeSpeed,
+            PrefManager.routeWaitStart, PrefManager.routeWaitEnd, PrefManager.routeSpeedVar
+        )
         ContextCompat.startForegroundService(this, Intent(this, RouteService::class.java))
         binding.start.visibility = View.GONE
         binding.stop.visibility = View.VISIBLE
@@ -353,7 +431,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
                 RouteRunner.state.collect { s ->
                     if (s.running) wasRouteRunning = true
                     val pos = s.position
-                    if (pos != null && (s.running || s.finished)) {
+                    if (pos != null && (s.running || (s.finished && !s.spoofOff))) {
                         mLatLng = pos
                         lat = pos.latitude
                         lon = pos.longitude
@@ -370,6 +448,12 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
                     if (s.finished && wasRouteRunning) {
                         wasRouteRunning = false
                         showToast(getString(R.string.route_arrived))
+                        if (s.spoofOff) {
+                            // selesai diam di tujuan: spoof sudah dimatikan otomatis
+                            mMarker?.isVisible = false
+                            binding.stop.visibility = View.GONE
+                            binding.start.visibility = View.VISIBLE
+                        }
                     } else if (!s.running && !s.finished && wasRouteRunning) {
                         // dihentikan dari tombol Stop di notifikasi
                         wasRouteRunning = false
@@ -389,7 +473,12 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         val summary = view.findViewById<TextView>(R.id.route_summary)
         val chips = view.findViewById<ChipGroup>(R.id.route_mode)
         val speedEt = view.findViewById<EditText>(R.id.route_speed)
+        val speedVarEt = view.findViewById<EditText>(R.id.route_speed_var)
         val waitEt = view.findViewById<EditText>(R.id.route_wait)
+        val waitEndEt = view.findViewById<EditText>(R.id.route_wait_end)
+        val altEt = view.findViewById<EditText>(R.id.route_altitude)
+        val altVarEt = view.findViewById<EditText>(R.id.route_altitude_var)
+        val altServerCb = view.findViewById<android.widget.CompoundButton>(R.id.route_altitude_server)
 
         val modeIds = intArrayOf(R.id.mode_walk, R.id.mode_bike, R.id.mode_motor, R.id.mode_car)
         val defaultSpeeds = floatArrayOf(5f, 15f, 40f, 50f)
@@ -411,7 +500,12 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
 
         chips.check(modeIds[oldMode])
         speedEt.setText(num(PrefManager.routeSpeed))
+        PrefManager.routeSpeedVar.let { if (it >= 0f) speedVarEt.setText(num(it)) }   // kosong = otomatis 8%
         waitEt.setText(num(PrefManager.routeWaitStart))
+        waitEndEt.setText(num(PrefManager.routeWaitEnd))
+        altEt.setText(num(PrefManager.altitudeManual))
+        altVarEt.setText(num(PrefManager.altitudeVariation))
+        altServerCb.isChecked = PrefManager.altitudeFromServer
         refreshSummary()
 
         speedEt.doAfterTextChanged { refreshSummary() }
@@ -433,11 +527,26 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             val wait = (waitEt.text.toString().toFloatOrNull() ?: 0f).coerceIn(0f, 600f)
             val newMode = modeIds.indexOf(chips.checkedChipId).let { if (it < 0) oldMode else it }
             PrefManager.routeSpeed = sp
+            PrefManager.routeSpeedVar = speedVarEt.text.toString().toFloatOrNull()?.coerceIn(0f, sp) ?: -1f
             PrefManager.routeWaitStart = wait
+            PrefManager.routeWaitEnd = (waitEndEt.text.toString().toFloatOrNull() ?: 0f).coerceIn(0f, 600f)
+            val alt = (altEt.text.toString().toFloatOrNull() ?: 0f).coerceIn(-500f, 9000f)
+            val altVar = (altVarEt.text.toString().toFloatOrNull() ?: 0f).coerceIn(0f, 500f)
+            val fromServer = altServerCb.isChecked
+            val serverChanged = fromServer != PrefManager.altitudeFromServer
+            PrefManager.altitudeManual = alt
+            PrefManager.altitudeVariation = altVar
+            PrefManager.altitudeFromServer = fromServer
+            if (!fromServer) PrefManager.altitudeM = alt   // nilai tetap = altitude manual
+            if (fromServer && routePoints.size >= 2 && (serverChanged || RouteRunner.elevations == null)) {
+                fetchElevations(routePoints)
+            } else if (!fromServer) {
+                fetchElevations(routePoints)   // membersihkan elevasi lama
+            }
             sheet.dismiss()
             if (newMode != oldMode) {
                 PrefManager.routeMode = newMode
-                fetchRoute()   // jenis kendaraan beda -> rute bisa beda
+                fetchRoute(dropLastOnFail = false)   // jenis kendaraan beda -> rute bisa beda
             }
         }
         sheet.setContentView(view)

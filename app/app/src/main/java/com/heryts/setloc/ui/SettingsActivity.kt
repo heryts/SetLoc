@@ -28,11 +28,14 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     class SettingPreferenceDataStore() : PreferenceDataStore() {
+        private fun fmt(f: Float) = if (f % 1f == 0f) f.toInt().toString() else f.toString()
+
         override fun getBoolean(key: String?, defValue: Boolean): Boolean {
             return when (key) {
                 "isHookedSystem" -> PrefManager.isHookSystem
                 "random_position" -> PrefManager.isRandomPosition
                 "disable_update" -> PrefManager.disableUpdate
+                "altitude_from_server" -> PrefManager.altitudeFromServer
                 else -> throw IllegalArgumentException("Invalid key $key")
             }
         }
@@ -42,6 +45,7 @@ class SettingsActivity : AppCompatActivity() {
                 "isHookedSystem" -> PrefManager.isHookSystem = value
                 "random_position" -> PrefManager.isRandomPosition = value
                 "disable_update" -> PrefManager.disableUpdate = value
+                "altitude_from_server" -> PrefManager.altitudeFromServer = value
                 else -> throw IllegalArgumentException("Invalid key $key")
             }
         }
@@ -51,6 +55,8 @@ class SettingsActivity : AppCompatActivity() {
                 "accuracy_settings" -> PrefManager.accuracy
                 "map_type" -> PrefManager.mapType.toString()
                 "darkTheme" -> PrefManager.darkTheme.toString()
+                "altitude_manual" -> fmt(PrefManager.altitudeManual)
+                "altitude_var" -> fmt(PrefManager.altitudeVariation)
                 else -> throw IllegalArgumentException("Invalid key $key")
             }
         }
@@ -60,6 +66,10 @@ class SettingsActivity : AppCompatActivity() {
                 "accuracy_settings" -> PrefManager.accuracy = value
                 "map_type" -> PrefManager.mapType = value!!.toInt()
                 "darkTheme" -> PrefManager.darkTheme = value!!.toInt()
+                "altitude_manual" -> PrefManager.altitudeManual =
+                    (value?.toFloatOrNull() ?: 0f).coerceIn(-500f, 9000f)
+                "altitude_var" -> PrefManager.altitudeVariation =
+                    (value?.toFloatOrNull() ?: 0f).coerceIn(0f, 500f)
                 else -> throw IllegalArgumentException("Invalid key $key")
             }
         }
@@ -124,6 +134,26 @@ class SettingsActivity : AppCompatActivity() {
                         ).show()
                     }
                     true
+                }
+            }
+
+            // altitude manual (boleh negatif) dan variasi: angka desimal, ringkasan menampilkan nilainya
+            for ((key, signed) in listOf("altitude_manual" to true, "altitude_var" to false)) {
+                findPreference<EditTextPreference>(key)?.let { pref ->
+                    val show = { v: String? -> pref.summary = "${v ?: "0"} m" }
+                    show(preferenceManager.preferenceDataStore?.getString(key, "0"))
+                    pref.setOnBindEditTextListener { editText ->
+                        editText.inputType = InputType.TYPE_CLASS_NUMBER or
+                            InputType.TYPE_NUMBER_FLAG_DECIMAL or
+                            (if (signed) InputType.TYPE_NUMBER_FLAG_SIGNED else 0)
+                        editText.addTextChangedListener(getCommaReplacerTextWatcher(editText))
+                    }
+                    pref.setOnPreferenceChangeListener { _, newValue ->
+                        val ok = (newValue as? String)?.toFloatOrNull() != null
+                        if (ok) show(newValue as String)
+                        else Toast.makeText(requireContext(), getString(R.string.enter_valid_input), Toast.LENGTH_SHORT).show()
+                        ok
+                    }
                 }
             }
 

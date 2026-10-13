@@ -1,7 +1,10 @@
 Zygisk version of location spoofer
 
 ## Rute (v2.1)
-- Tekan lama di peta: titik awal (hijau), lalu tujuan (biru). Rute diambil dari Google **Routes API**.
-- Tombol centang (di atas Play) membuka opsi: jenis kendaraan, kecepatan, diam di titik awal, hapus rute.
+- Tekan lama di peta: titik awal (hijau), lalu tiap tekan lama berikutnya MENAMBAH titik (kuning = perantara, biru = tujuan/terakhir), sampai 27 titik. Rute diambil dari Google **Routes API**.
+- Tombol tempat sampah: ketuk = hapus titik terakhir (undo), tekan lama = hapus semua titik. Tap biasa di peta = kembali ke mode satu titik (rute dihapus).
+- Tombol centang (di atas Play) membuka opsi: kendaraan, kecepatan, diam di titik awal, diam di tujuan (0 = spoof tetap aktif sampai Stop, >0 = otomatis mati setelahnya), hapus rute. Tombol tempat sampah menghapus titik/rute sebelum dijalankan.
 - Play menjalankan rute; posisi ditulis ke pref tiap ~1 detik (RouteRunner + RouteService), modul Zygisk tidak berubah.
+- Kecepatan (m/s), arah (derajat) dan ketinggian (m) ikut dikirim: app -> pref (`speed_ms`, `bearing`, `altitude`) -> `bridge.sh` -> `gpsz_cfg` (`spd`, `brg`, `alt`) -> hook `Location.getSpeed/getBearing/getAltitude` + `hasSpeed/hasBearing/hasAltitude` (dan system_server bila aktif). Kecepatan bervariasi seperti GPS asli (kolom ± km/h di opsi rute; kosong = otomatis ±8%, 0 = konstan); arah mengikuti segmen rute; titik tunggal/manual = diam tanpa arah. Ketinggian dari Elevation API (cadangan: Open-Meteo, lalu nilai manual di opsi rute).
 - Syarat: aktifkan **Routes API** di Google Cloud untuk API key yang sama dengan Maps SDK (billing aktif).
+- Altitude: opsi rute (dan layar Pengaturan) punya "Altitude (m) ± (m)" dan kotak centang "Get altitude from server". Centang aktif = Google Elevation API (aktifkan di Cloud Console pada key yang sama), cadangan Open-Meteo, lalu angka manual. Centang mati = selalu angka manual (tanpa panggilan jaringan). Variasi ± diterapkan modul (derau halus ~1 detik sekali) baik saat rute berjalan maupun titik tunggal.

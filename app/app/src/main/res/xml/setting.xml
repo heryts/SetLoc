@@ -44,6 +44,20 @@
             android:icon="@drawable/ic_random_position"
             android:key="random_position"/>
 
+        <SwitchPreference
+            android:title="@string/settings_altitude_server"
+            android:summary="@string/settings_altitude_server_summary"
+            android:defaultValue="true"
+            android:key="altitude_from_server"/>
+
+        <EditTextPreference
+            android:title="@string/settings_altitude"
+            android:key="altitude_manual"/>
+
+        <EditTextPreference
+            android:title="@string/settings_altitude_var"
+            android:key="altitude_var"/>
+
 
     </PreferenceCategory>
 

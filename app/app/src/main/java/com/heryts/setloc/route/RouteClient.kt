@@ -6,6 +6,7 @@ import android.os.Build
 import com.google.android.gms.maps.model.LatLng
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -27,27 +28,37 @@ object RouteClient {
 
     private const val ENDPOINT = "https://routes.googleapis.com/directions/v2:computeRoutes"
 
-    suspend fun fetch(context: Context, from: LatLng, to: LatLng, mode: Int): Result =
+    /** Routes API: maksimal 25 titik perantara => 27 titik total (awal + perantara + tujuan). */
+    const val MAX_POINTS = 27
+
+    /** [stops] = titik awal, titik-titik perantara (urut), titik tujuan. Minimal 2. */
+    suspend fun fetch(context: Context, stops: List<LatLng>, mode: Int): Result =
         withContext(Dispatchers.IO) {
+            if (stops.size < 2) throw RouteException("Minimal dua titik")
             val appCtx = context.applicationContext
             val wanted = mode.coerceIn(0, MODES.size - 1)
             try {
-                request(appCtx, from, to, MODES[wanted])
+                request(appCtx, stops, MODES[wanted])
             } catch (e: RouteException) {
                 // TWO_WHEELER tidak didukung di semua wilayah -> coba lagi sebagai mobil
-                if (MODES[wanted] == "TWO_WHEELER") request(appCtx, from, to, "DRIVE") else throw e
+                if (MODES[wanted] == "TWO_WHEELER") request(appCtx, stops, "DRIVE") else throw e
             }
         }
 
-    private fun request(context: Context, from: LatLng, to: LatLng, travelMode: String): Result {
+    private fun request(context: Context, stops: List<LatLng>, travelMode: String): Result {
         val key = apiKey(context) ?: throw RouteException("API key Google Maps tidak ditemukan")
 
         val body = JSONObject()
-            .put("origin", waypoint(from))
-            .put("destination", waypoint(to))
+            .put("origin", waypoint(stops.first()))
+            .put("destination", waypoint(stops.last()))
             .put("travelMode", travelMode)
             .put("polylineEncoding", "ENCODED_POLYLINE")
-            .toString()
+        if (stops.size > 2) {
+            val mid = JSONArray()
+            for (i in 1 until stops.size - 1) mid.put(waypoint(stops[i]))
+            body.put("intermediates", mid)
+        }
+        val bodyText = body.toString()
 
         val conn = URL(ENDPOINT).openConnection() as HttpURLConnection
         try {
@@ -65,7 +76,7 @@ object RouteClient {
             conn.setRequestProperty("X-Android-Package", context.packageName)
             certSha1(context)?.let { conn.setRequestProperty("X-Android-Cert", it) }
 
-            conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+            conn.outputStream.use { it.write(bodyText.toByteArray(Charsets.UTF_8)) }
 
             val code = conn.responseCode
             val text = (if (code in 200..299) conn.inputStream else conn.errorStream)
@@ -106,7 +117,7 @@ object RouteClient {
         return if (msg.isNotEmpty()) "Rute gagal ($code): $msg" else "Rute gagal (HTTP $code)"
     }
 
-    private fun apiKey(context: Context): String? = try {
+    internal fun apiKey(context: Context): String? = try {
         @Suppress("DEPRECATION")
         context.packageManager
             .getApplicationInfo(context.packageName, PackageManager.GET_META_DATA)
@@ -118,7 +129,7 @@ object RouteClient {
 
     /** SHA-1 sertifikat penanda tangan APK, hex huruf besar tanpa pemisah. */
     @Suppress("DEPRECATION")
-    private fun certSha1(context: Context): String? = try {
+    internal fun certSha1(context: Context): String? = try {
         val pm = context.packageManager
         val sig = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)

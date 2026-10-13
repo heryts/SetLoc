@@ -447,6 +447,20 @@ final class SystemHooks {
         try { setMock.invoke(l, Boolean.FALSE); } catch (Throwable ignored) { }
     }
 
+    /** Altitude / speed / bearing dari config (m, m/s, derajat). Tanpa arah -> bearing dihapus. */
+    private static void applyMotion(Location l) {
+        l.setAltitude(Config.altitudeNow());
+        l.setSpeed(Config.spd);
+        float b = Config.brg;
+        if (Float.isNaN(b)) l.removeBearing(); else l.setBearing(b);
+        if (Build.VERSION.SDK_INT >= 26) {
+            // nilai akurasi kecepatan/arah/vertikal milik fix asli tidak berlaku lagi
+            l.removeSpeedAccuracy();
+            l.removeBearingAccuracy();
+            l.removeVerticalAccuracy();
+        }
+    }
+
     /** Copy of the real fix with lat/lng/accuracy replaced (system_server's own Location getters are not hooked). */
     private static Location spoof(Location orig) {
         if (orig == null) return null;
@@ -455,8 +469,7 @@ final class SystemHooks {
         l.setLatitude(snapLat);
         l.setLongitude(snapLng);
         l.setAccuracy(Math.max(1f, Config.acc)); // LocationResult.validate() rejects accuracy <= 0
-        l.setAltitude(0.0);
-        l.setSpeed(0f);
+        applyMotion(l);
         clearMock(l);
         return l;
     }
@@ -467,8 +480,7 @@ final class SystemHooks {
         l.setLatitude(snapLat);
         l.setLongitude(snapLng);
         l.setAccuracy(Math.max(1f, Config.acc));
-        l.setAltitude(0.0);
-        l.setSpeed(0f);
+        applyMotion(l);
         l.setTime(System.currentTimeMillis() - 300);
         l.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
         clearMock(l);
