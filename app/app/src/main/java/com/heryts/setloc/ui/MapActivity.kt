@@ -46,9 +46,12 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import java.io.IOException
+import java.util.Locale
 import java.util.regex.Matcher
 import java.util.regex.Pattern
 import kotlin.properties.Delegates
@@ -94,6 +97,10 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         }
 
         binding.start.setOnClickListener {
+            if (mLatLng == null || !::mMap.isInitialized) {
+                showToast("Map belum siap")
+                return@setOnClickListener
+            }
             viewModel.update(true, lat, lon)
             mLatLng.let {
                 mMarker?.position = it!!
@@ -241,30 +248,32 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         alertDialog.setTitle("Search")
         alertDialog.setView(view)
         alertDialog.setPositiveButton("Search") { _, _ ->
-            if (isNetworkConnected()){
-                lifecycleScope.launch(Dispatchers.Main) {
-                    val  getInput = editText.text.toString()
-                    if (getInput.isNotEmpty()){
-                        getSearchAddress(getInput).let {
-                            it.collect { result ->
-                                when(result) {
+            if (isNetworkConnected()) {
+                val getInput = editText.text.toString().trim()
+                if (getInput.isNotEmpty()) {
+                    lifecycleScope.launch(Dispatchers.Main) {
+                        getSearchAddress(getInput)
+                            .catch { e ->
+                                Log.e("MapActivity", "search flow error", e)
+                                emit(SearchProgress.Fail(getString(R.string.address_not_found)))
+                            }
+                            .collect { result ->
+                                when (result) {
                                     is SearchProgress.Progress -> {
-                                        progressBar.show()
+                                        if (!isFinishing) progressBar.show()
                                     }
                                     is SearchProgress.Complete -> {
+                                        progressBar.dismissSafe()
                                         lat = result.lat
                                         lon = result.lon
-                                        progressBar.dismiss()
-                                        moveMapToNewLocation(true)
+                                        if (::mMap.isInitialized) moveMapToNewLocation(true)
                                     }
-
                                     is SearchProgress.Fail -> {
-                                        progressBar.dismiss()
-                                        showToast(result.error!!)
+                                        progressBar.dismissSafe()
+                                        showToast(result.error ?: getString(R.string.address_not_found))
                                     }
                                 }
                             }
-                        }
                     }
                 }
             } else {
@@ -407,33 +416,42 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     }
 
 
-    private suspend fun getSearchAddress(address: String) = callbackFlow {
-        withContext(Dispatchers.IO){
-            trySend(SearchProgress.Progress)
-            val matcher: Matcher =
-                Pattern.compile("[-+]?\\d{1,3}([.]\\d+)?, *[-+]?\\d{1,3}([.]\\d+)?").matcher(address)
+    private fun getSearchAddress(address: String): Flow<SearchProgress> = flow {
+        emit(SearchProgress.Progress)
+        emit(resolveAddress(address.trim()))
+    }.flowOn(Dispatchers.IO)
 
-            if (matcher.matches()){
-                delay(3000)
-                trySend(SearchProgress.Complete(matcher.group().split(",")[0].toDouble(),matcher.group().split(",")[1].toDouble()))
-            }else {
-                try {
+    // Dipisah dari flow supaya try/catch tidak menelan exception downstream (emit)
+    private fun resolveAddress(input: String): SearchProgress {
+        val notFound = SearchProgress.Fail(getString(R.string.address_not_found))
+        val matcher: Matcher =
+            Pattern.compile("[-+]?\\d{1,3}([.]\\d+)?, *[-+]?\\d{1,3}([.]\\d+)?").matcher(input)
 
-                    val list: List<Address>? = Geocoder(this@MapActivity).getFromLocationName(address,5)
-                    list?.let {
-                        if (it.size == 1){
-                            trySend(SearchProgress.Complete(list[0].latitude,list[1].longitude))
-                        }else {
-                            trySend(SearchProgress.Fail(getString(R.string.address_not_found)))
-                        }
-                    }
-                } catch (io : IOException){
-                    trySend(SearchProgress.Fail(getString(R.string.no_internet)))
-                }
-            }
+        if (matcher.matches()) {
+            val parts = input.split(",")
+            val la = parts[0].trim().toDoubleOrNull()
+            val lo = parts[1].trim().toDoubleOrNull()
+            return if (la != null && lo != null && la in -90.0..90.0 && lo in -180.0..180.0) {
+                SearchProgress.Complete(la, lo)
+            } else notFound
         }
 
-        awaitClose { this.cancel() }
+        return try {
+            if (!Geocoder.isPresent()) {
+                notFound
+            } else {
+                val list: List<Address>? = Geocoder(this, Locale.getDefault())
+                    .getFromLocationName(input, 5)
+                // ambil hasil pertama (paling relevan), tidak wajib cuma 1 hasil
+                val first = list?.firstOrNull()
+                if (first != null) SearchProgress.Complete(first.latitude, first.longitude) else notFound
+            }
+        } catch (io: IOException) {
+            SearchProgress.Fail(getString(R.string.no_internet))
+        } catch (e: Exception) {
+            Log.e("MapActivity", "search failed", e)
+            notFound
+        }
     }
 
 
@@ -459,6 +477,10 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
 
 }
 
+
+private fun ProgressDialog.dismissSafe() {
+    try { if (isShowing) dismiss() } catch (_: Exception) {}
+}
 
 sealed class SearchProgress {
     object Progress : SearchProgress()

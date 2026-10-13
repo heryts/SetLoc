@@ -3,20 +3,19 @@ package com.heryts.setloc.utils.ext
 
 import android.content.Context
 import android.location.Geocoder
-import androidx.lifecycle.lifecycleScope
 import com.google.android.gms.maps.model.LatLng
 import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import java.util.*
 
-suspend fun LatLng.getAddress(context: Context) = callbackFlow {
-    withContext(Dispatchers.IO){
-        val addresses =
-            Geocoder(context, Locale.getDefault()).getFromLocation(latitude, longitude, 1)
-        val sb = StringBuilder()
-        if (addresses!!.size > 0) {
-            val address = addresses[0].getAddressLine(0)
+fun LatLng.getAddress(context: Context): Flow<String> = flow {
+    val sb = StringBuilder()
+    try {
+        val addresses = Geocoder(context, Locale.getDefault()).getFromLocation(latitude, longitude, 1)
+        if (!addresses.isNullOrEmpty()) {
+            val address = addresses[0].getAddressLine(0) ?: ""
             val strs = address.split(",".toRegex()).toTypedArray()
             if (strs.size > 1) {
                 sb.append(strs[0])
@@ -28,7 +27,9 @@ suspend fun LatLng.getAddress(context: Context) = callbackFlow {
                 sb.append(address)
             }
         }
-        trySend(sb.toString())
+    } catch (e: Exception) {
+        // tanpa internet / geocoder error: tetap tampilkan koordinat
     }
-    awaitClose { this.cancel() }
-}
+    if (sb.isEmpty()) sb.append("%.5f, %.5f".format(Locale.US, latitude, longitude))
+    emit(sb.toString())
+}.flowOn(Dispatchers.IO)
