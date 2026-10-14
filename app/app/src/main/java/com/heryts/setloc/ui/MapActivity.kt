@@ -97,6 +97,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     private var routeLoading = false
     private var routeJob: Job? = null
     private var elevationJob: Job? = null
+    private var clearHintShown = false
     private var wasRouteRunning = false
     private val routeReady get() = routePoints.size >= 2 && !routeLoading
 
@@ -304,6 +305,11 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         routePoints = emptyList()
         RouteRunner.elevations = null
         refreshRouteMarkers()
+        // petunjuk sekali per sesi: hapus satu per satu itu lambat, ada cara hapus semua
+        if (routeWaypoints.size >= 2 && !clearHintShown) {
+            clearHintShown = true
+            showToast(getString(R.string.route_clear_hint))
+        }
         if (routeWaypoints.size >= 2) fetchRoute(dropLastOnFail = false) else updateRouteFab()
     }
 

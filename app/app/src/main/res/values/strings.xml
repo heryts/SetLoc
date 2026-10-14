@@ -81,6 +81,7 @@
     <string name="route_save">Save</string>
     <string name="route_invalid_speed">Enter a speed between 1 and 300 km/h</string>
     <string name="route_max_points">Maximum %1$d points per route</string>
+    <string name="route_clear_hint">Long press the trash button to clear the whole route</string>
     <string name="route_altitude">Altitude (m)</string>
     <string name="route_altitude_var">m</string>
     <string name="route_altitude_server">Get altitude from server (Altitude above is the fallback)</string>

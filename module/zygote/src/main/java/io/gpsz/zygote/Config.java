@@ -128,7 +128,7 @@ final class Config {
                 } catch (Throwable t) {
                     Log.w(ZygoteEntry.TAG, "config read failed: " + t);
                 }
-                sleep(1000);
+                sleep(250);   // Settings.Global di-cache per proses (generation), pembacaan murah
             }
         }, "gpsz-config");
         th.setDaemon(true);

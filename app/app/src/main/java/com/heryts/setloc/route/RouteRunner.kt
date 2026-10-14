@@ -45,7 +45,7 @@ object RouteRunner {
     private var job: Job? = null
     private var active = false   // dijaga lock: hanya bila true, tick boleh menulis ke pref
 
-    private const val TICK_MS = 1000L
+    private const val TICK_MS = 500L   // 2x per detik: posisi rute lebih halus & delay ke app lain lebih kecil
     /** Variasi kecepatan +-8% (seperti GPS asli), dihaluskan supaya tidak melompat. */
     private const val SPEED_VARIATION = 0.08
     private const val SPEED_PULL = 0.1    // tarikan balik ke kecepatan rata-rata per tick (naik = lebih cepat kembali)

@@ -28,6 +28,7 @@ log() {
 # prefs, jadi /data/data/... bisa kosong/basi). Ambil yang paling baru diubah.
 find_pref() {
   [ -n "$GPSZ_PREF" ] && { echo "$GPSZ_PREF"; return; }
+  [ -n "$PREFC" ] && [ -f "$PREFC" ] && { echo "$PREFC"; return; }   # cache dari daemon (hindari ls tiap putaran)
   CAND=$(ls -t /data/data/$APP/shared_prefs/$PREFNAME \
                 /data/user/*/$APP/shared_prefs/$PREFNAME \
                 /data/user_de/*/$APP/shared_prefs/$PREFNAME \
@@ -53,16 +54,24 @@ install_app() {
 
 pval() { sed -n "s/.*<$1 name=\"$2\" value=\"\([^\"]*\)\".*/\1/p" "$PREF" | head -1; }
 pstr() { sed -n "s|.*<string name=\"$1\">\([^<]*\)</string>.*|\1|p" "$PREF" | head -1; }
+# Versi cepat untuk derive(): isi pref dibaca sekali ke $PX, ekstraksi murni shell (tanpa spawn sed/head)
+fval() { L=${PX#*"<$1 name=\"$2\" value=\""}; [ "$L" = "$PX" ] && return; echo "${L%%\"*}"; }
+fstr() { L=${PX#*"<string name=\"$1\">"}; [ "$L" = "$PX" ] && return; echo "${L%%<*}"; }
+
+# Settings.Global lewat `cmd settings` (native, ~puluhan ms) -- `settings` memulai JVM baru tiap panggilan (~0,3-0,6 dtk).
+sget() { cmd settings get global "$1" 2>/dev/null || settings get global "$1" 2>/dev/null; }
+sput() { cmd settings put global "$1" "$2" >/dev/null 2>&1 || settings put global "$1" "$2"; }
 numok() { case "$1" in ''|*[!0-9.eE+-]*) return 1 ;; *) return 0 ;; esac; }
 
 # Hitung nilai gpsz_cfg dari prefs app. Cetak ke stdout; return 1 bila tidak bisa.
 derive() {
   PREF=$(find_pref)
   [ -n "$PREF" ] && [ -f "$PREF" ] || return 2
-  START=$(pval boolean start)
-  LAT=$(pval float latitude);  LNG=$(pval float longitude)
-  RND=$(pval boolean random_position)
-  ACC=$(pstr accuracy_settings)
+  PX=$(cat "$PREF" 2>/dev/null)
+  START=$(fval boolean start)
+  LAT=$(fval float latitude);  LNG=$(fval float longitude)
+  RND=$(fval boolean random_position)
+  ACC=$(fstr accuracy_settings)
   # Belum pernah menekan Start/menyimpan titik di app -> belum ada titik valid
   [ -z "$LAT" ] && LAT=40.7128
   [ -z "$LNG" ] && LNG=-74.0060
@@ -71,10 +80,10 @@ derive() {
   E=0; [ "$START" = true ] && E=1
   R=0; [ "$RND" = true ] && R=1
   # gerak: kecepatan (m/s), arah (derajat; negatif/kosong = tanpa arah), ketinggian (m)
-  SPD=$(pval float speed_ms); BRG=$(pval float bearing); ALT=$(pval float altitude)
+  SPD=$(fval float speed_ms); BRG=$(fval float bearing); ALT=$(fval float altitude)
   numok "$SPD" || SPD=0
   numok "$ALT" || ALT=0
-  ALTV=$(pval float altitude_var); numok "$ALTV" || ALTV=0
+  ALTV=$(fval float altitude_var); numok "$ALTV" || ALTV=0
   X=";spd=$SPD;alt=$ALT;altv=$ALTV"
   numok "$BRG" && X="$X;brg=$BRG"
   echo "enabled=$E;lat=$LAT;lng=$LNG;acc=$ACC;random=$R$X"
@@ -92,12 +101,16 @@ sync_cfg() {
   fi
   rm -f "$MODDIR/.last_err"
   PREV=$(cat "$LASTF" 2>/dev/null)
-  CUR=$(settings get global $KEY 2>/dev/null)
-  if [ "$1" = force ] || [ "$NEW" != "$PREV" ] || [ -z "$CUR" ] || [ "$CUR" = null ]; then
-    if [ "$CUR" != "$NEW" ]; then
-      settings put global $KEY "$NEW" && log "sync: $NEW" || { log "settings put GAGAL"; return 1; }
-    fi
+  if [ "$1" = force ] || [ "$NEW" != "$PREV" ]; then
+    # app mengubah sesuatu: tulis langsung (put idempotent, tanpa `get` lebih dulu)
+    sput $KEY "$NEW" && log "sync: $NEW" || { log "settings put GAGAL"; return 1; }
     echo "$NEW" > "$LASTF"
+  else
+    CUR=$(sget $KEY)
+    if [ -z "$CUR" ] || [ "$CUR" = null ]; then   # gpsz_cfg terhapus: pulihkan
+      sput $KEY "$NEW" && log "sync (pulihkan): $NEW" || { log "settings put GAGAL"; return 1; }
+      echo "$NEW" > "$LASTF"
+    fi
   fi
   return 0
 }
@@ -193,7 +206,7 @@ case "$1" in
       echo "pref_start=$(pval boolean start) lat=$(pval float latitude) lng=$(pval float longitude)"
     else echo "pref=missing"; fi
     echo "derived=$(derive)"
-    echo "cfg=$(settings get global $KEY 2>/dev/null)"
+    echo "cfg=$(sget $KEY)"
     exit 0 ;;
   daemon) ;;
   *) echo "usage: bridge.sh ensure|sync|force|setstart 0|1|setpos <lat> <lng>|status|install"; exit 1 ;;
@@ -207,14 +220,21 @@ log "daemon start (pid $$)"
 until [ "$(getprop sys.boot_completed)" = 1 ]; do sleep 5; done
 sleep 5
 app_installed || install_app >/dev/null
+PREFC=""; PREFC=$(find_pref)
 sync_cfg
 LAST=$(sig)
 log "daemon jalan, pantau $(find_pref deep)"
+# Polling cepat (0,2 dtk) selama spoof aktif supaya posisi rute tidak tertinggal; 0,5 dtk saat nonaktif.
+DELAY=0.5; N=0
 while true; do
-  sleep 1
+  sleep $DELAY
+  N=$((N+1))
+  # path pref di-cache; cari ulang tiap ~5 dtk atau bila file hilang
+  if [ $((N % 20)) -eq 0 ] || [ ! -f "$PREFC" ]; then PREFC=""; PREFC=$(find_pref); fi
   S=$(sig)
   if [ "$S" != "$LAST" ]; then      # juga memicu saat file baru muncul/hilang
-    sleep 0.3
+    sleep 0.1                       # beri waktu SharedPreferences selesai menulis file
     if sync_cfg; then LAST=$S; fi   # gagal -> coba lagi di putaran berikut
   fi
+  case "$NEW" in *enabled=1*) DELAY=0.2 ;; *) DELAY=0.5 ;; esac
 done
