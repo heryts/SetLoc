@@ -17,12 +17,13 @@ LNG=$(get lng);    [ -z "$LNG" ] && LNG=106.8456
 ACC=$(get acc);    [ -z "$ACC" ] && ACC=10
 RND=$(get random); [ -z "$RND" ] && RND=0
 # kecepatan/arah/ketinggian dari app; ikut dibawa saat save supaya tidak hilang
-SPD=$(get spd); BRG=$(get brg); ALT=$(get alt); ALTV=$(get altv)
+SPD=$(get spd); BRG=$(get brg); ALT=$(get alt); ALTV=$(get altv); RR=$(get rr)
 save() {
   X=""
   [ -n "$SPD" ] && X="$X;spd=$SPD"
   [ -n "$ALT" ] && X="$X;alt=$ALT"
   [ -n "$ALTV" ] && X="$X;altv=$ALTV"
+  [ -n "$RR" ] && X="$X;rr=$RR"
   [ -n "$BRG" ] && X="$X;brg=$BRG"
   settings put global $KEY "enabled=$E;lat=$LAT;lng=$LNG;acc=$ACC;random=$RND$X"
 }
@@ -39,7 +40,7 @@ case "$1" in
     if [ -n "$4" ]; then isnum "$4" || { echo "acc must be a number"; exit 1; }; ACC=$4; fi
     save ;;
   random) RND=$2; save ;;
-  show)   echo "enabled=$E lat=$LAT lng=$LNG acc=$ACC random=$RND spd=${SPD:-0} brg=${BRG:--} alt=${ALT:-0} altv=${ALTV:-0}"
+  show)   echo "enabled=$E lat=$LAT lng=$LNG acc=$ACC random=$RND spd=${SPD:-0} brg=${BRG:--} alt=${ALT:-0} altv=${ALTV:-0} rr=${RR:-8}"
           [ -e "$PKGDIR/.all" ] && echo "packages: ALL apps (listed ones below are EXCLUDED)"
           ls -1A "$PKGDIR" 2>/dev/null | grep -v '^\.\(all\|sysoff\)$' | sed 's/^/  pkg: /' ;;
   pkg)

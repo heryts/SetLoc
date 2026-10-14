@@ -40,6 +40,7 @@ object PrefManager   {
     private const val ALTITUDE = "altitude"
     private const val ALTITUDE_MANUAL = "altitude_manual"
     private const val ALTITUDE_VAR = "altitude_var"          // dibaca bridge.sh -> altv
+    private const val RANDOM_RADIUS = "random_radius"        // dibaca bridge.sh -> rr
     private const val ALTITUDE_SERVER = "altitude_from_server"
 
 
@@ -149,6 +150,11 @@ object PrefManager   {
     var altitudeM: Float
         get() = pref.getFloat(ALTITUDE, 0f)
         set(value) { pref.edit().putFloat(ALTITUDE, value).apply() }
+
+    /** Radius pergeseran acak posisi (meter) bila "Random position" aktif. Default 8. */
+    var randomRadius: Float
+        get() = pref.getFloat(RANDOM_RADIUS, 8f)
+        set(value) { pref.edit().putFloat(RANDOM_RADIUS, value.coerceIn(0f, 100f)).apply() }
 
     /** Variasi altitude +- meter (0 = konstan). Diterapkan modul tiap ~1 detik. */
     var altitudeVariation: Float

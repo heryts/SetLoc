@@ -140,7 +140,7 @@ final class LocationHooks {
     }
 
     private static double meters() {
-        return (RND.nextDouble() * 2.0 - 1.0) * 8.0; // +-8 m
+        return (RND.nextDouble() * 2.0 - 1.0) * Config.rr; // +-rr meter (default 8)
     }
 
     @SuppressWarnings("unchecked")

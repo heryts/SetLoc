@@ -57,6 +57,7 @@ class SettingsActivity : AppCompatActivity() {
                 "darkTheme" -> PrefManager.darkTheme.toString()
                 "altitude_manual" -> fmt(PrefManager.altitudeManual)
                 "altitude_var" -> fmt(PrefManager.altitudeVariation)
+                "random_radius" -> fmt(PrefManager.randomRadius)
                 else -> throw IllegalArgumentException("Invalid key $key")
             }
         }
@@ -70,6 +71,8 @@ class SettingsActivity : AppCompatActivity() {
                     (value?.toFloatOrNull() ?: 0f).coerceIn(-500f, 9000f)
                 "altitude_var" -> PrefManager.altitudeVariation =
                     (value?.toFloatOrNull() ?: 0f).coerceIn(0f, 500f)
+                "random_radius" -> PrefManager.randomRadius =
+                    (value?.toFloatOrNull() ?: 8f).coerceIn(0f, 100f)
                 else -> throw IllegalArgumentException("Invalid key $key")
             }
         }
@@ -138,7 +141,7 @@ class SettingsActivity : AppCompatActivity() {
             }
 
             // altitude manual (boleh negatif) dan variasi: angka desimal, ringkasan menampilkan nilainya
-            for ((key, signed) in listOf("altitude_manual" to true, "altitude_var" to false)) {
+            for ((key, signed) in listOf("altitude_manual" to true, "altitude_var" to false, "random_radius" to false)) {
                 findPreference<EditTextPreference>(key)?.let { pref ->
                     val show = { v: String? -> pref.summary = "${v ?: "0"} m" }
                     show(preferenceManager.preferenceDataStore?.getString(key, "0"))

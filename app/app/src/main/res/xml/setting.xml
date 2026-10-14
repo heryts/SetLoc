@@ -44,6 +44,11 @@
             android:icon="@drawable/ic_random_position"
             android:key="random_position"/>
 
+        <EditTextPreference
+            android:title="@string/settings_random_radius"
+            android:dependency="random_position"
+            android:key="random_radius"/>
+
         <SwitchPreference
             android:title="@string/settings_altitude_server"
             android:summary="@string/settings_altitude_server_summary"

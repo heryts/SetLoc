@@ -84,7 +84,8 @@ derive() {
   numok "$SPD" || SPD=0
   numok "$ALT" || ALT=0
   ALTV=$(fval float altitude_var); numok "$ALTV" || ALTV=0
-  X=";spd=$SPD;alt=$ALT;altv=$ALTV"
+  RR=$(fval float random_radius); numok "$RR" || RR=8
+  X=";spd=$SPD;alt=$ALT;altv=$ALTV;rr=$RR"
   numok "$BRG" && X="$X;brg=$BRG"
   echo "enabled=$E;lat=$LAT;lng=$LNG;acc=$ACC;random=$R$X"
 }

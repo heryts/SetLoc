@@ -439,7 +439,7 @@ final class SystemHooks {
     }
 
     private static double meters() {
-        return (RND.nextDouble() * 2.0 - 1.0) * 8.0;
+        return (RND.nextDouble() * 2.0 - 1.0) * Config.rr;
     }
 
     private static void clearMock(Location l) {

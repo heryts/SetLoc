@@ -32,6 +32,8 @@ final class Config {
     static volatile double alt = 0.0;
     /** Variasi altitude +- meter (0 = konstan), diterapkan di [altitudeNow]. */
     static volatile float altVar = 0f;
+    /** Radius pergeseran acak posisi (meter), dipakai bila random=1. */
+    static volatile float rr = 8f;
     private static final Random RND = new Random();
     private static volatile double altNoise = 0.0;
     private static volatile long altAt = 0;
@@ -59,7 +61,7 @@ final class Config {
         double la = lat, lo = lng;
         float ac = acc;
         // field gerak direset tiap parse: kunci yang tidak ada = nilai awal (diam, tanpa arah, alt 0)
-        float sp = 0f, br = Float.NaN, av = 0f;
+        float sp = 0f, br = Float.NaN, av = 0f, rad = 8f;
         double al = 0.0;
         for (String kv : s.split(";")) {
             int i = kv.indexOf('=');
@@ -81,11 +83,12 @@ final class Config {
                     }
                     case "alt": al = Double.parseDouble(v); break;
                     case "altv": av = Math.max(0f, Float.parseFloat(v)); break;
+                    case "rr": rad = Math.max(0f, Math.min(100f, Float.parseFloat(v))); break;
                     default: break;
                 }
             } catch (NumberFormatException ignored) { }
         }
-        lat = la; lng = lo; acc = ac; spd = sp; brg = br; alt = al; altVar = av; jitter = jit; enabled = en;
+        lat = la; lng = lo; acc = ac; spd = sp; brg = br; alt = al; altVar = av; rr = rad; jitter = jit; enabled = en;
     }
 
     private static Application currentApplication() {
