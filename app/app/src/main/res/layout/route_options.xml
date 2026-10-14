@@ -57,17 +57,14 @@
             android:text="@string/mode_car" />
     </com.google.android.material.chip.ChipGroup>
 
-    <!-- Kecepatan: kosong = auto (menurut profil kendaraan). Judul menempel di border, "auto" jadi placeholder. -->
+    <!-- Kecepatan ± variasi dalam satu baris. Kosong = auto: judul menempel di border, "auto" jadi placeholder.
+         Judul kotak variasi hanya satuan ("%" / "km/h" / "MPH") mengikuti dropdown di sebelahnya. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
-
-        <Space
-            android:layout_width="24dp"
-            android:layout_height="match_parent" />
 
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/route_speed_layout"
@@ -90,32 +87,22 @@
         <!-- satuan kecepatan (km/h | MPH) -->
         <Spinner
             android:id="@+id/route_speed_unit"
-            android:layout_width="88dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp" />
-    </LinearLayout>
-
-    <!-- Variasi kecepatan: tanda ± di samping kotak; judul hanya satuan ("%" / "km/h" / "MPH") mengikuti dropdown; kosong = auto -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
 
         <TextView
-            android:layout_width="24dp"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:gravity="center"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="6dp"
             android:text="±"
             android:textAppearance="?attr/textAppearanceSubtitle1" />
 
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/route_speed_var_layout"
             style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/route_var_box_width"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
             android:hint="@string/route_var_label"
             app:expandedHintEnabled="false"
             app:placeholderText="@string/route_auto">
@@ -131,9 +118,8 @@
         <!-- satuan variasi (% | km/h | MPH) -->
         <Spinner
             android:id="@+id/route_speed_var_unit"
-            android:layout_width="88dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp" />
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
     </LinearLayout>
 
     <com.google.android.material.textfield.TextInputLayout
@@ -198,9 +184,8 @@
 
         <com.google.android.material.textfield.TextInputLayout
             style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
-            android:layout_width="0dp"
+            android:layout_width="@dimen/route_var_box_width"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
             android:hint="@string/route_altitude_var">
 
             <com.google.android.material.textfield.TextInputEditText
