@@ -17,7 +17,6 @@ import kotlinx.coroutines.launch
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.min
-import kotlin.random.Random
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -49,6 +48,8 @@ object RouteRunner {
     private const val TICK_MS = 1000L
     /** Variasi kecepatan +-8% (seperti GPS asli), dihaluskan supaya tidak melompat. */
     private const val SPEED_VARIATION = 0.08
+    private const val SPEED_PULL = 0.1    // tarikan balik ke kecepatan rata-rata per tick (naik = lebih cepat kembali)
+    private const val SPEED_STEP = 0.22   // besar langkah acak per tick relatif terhadap variasi (naik = lebih gelisah)
 
     /**
      * Ketinggian (m) berjarak sama di sepanjang rute, diisi MapActivity dari [ElevationClient].
@@ -113,12 +114,16 @@ object RouteRunner {
         var travelled = 0.0
         var seg = 1
         var cur = 0.0   // kecepatan sesaat (m/s)
+        // variasi kecepatan: random walk yang ditarik pelan ke rata-rata (berubah bertahap, bukan loncat-loncat)
+        val rnd = java.util.Random()
+        var dev = 0.0   // selisih dari speedMs (m/s)
         var last = SystemClock.elapsedRealtime()
         while (currentCoroutineContext().isActive && travelled < total) {
             delay(TICK_MS)
             val now = SystemClock.elapsedRealtime()
-            val target = (speedMs + (Random.nextDouble() * 2.0 - 1.0) * varMs).coerceAtLeast(0.3)
-            cur = if (cur <= 0.0) target else cur + (target - cur) * 0.3
+            dev = dev * (1.0 - SPEED_PULL) + rnd.nextGaussian() * varMs * SPEED_STEP
+            dev = dev.coerceIn(-varMs, varMs)
+            cur = (speedMs + dev).coerceAtLeast(0.3)
             travelled = min(total, travelled + cur * (now - last) / 1000.0)
             last = now
 

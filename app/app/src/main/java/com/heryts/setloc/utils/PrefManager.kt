@@ -32,6 +32,7 @@ object PrefManager   {
     private const val ROUTE_WAIT = "route_wait_start"
     private const val ROUTE_SPEED_VAR = "route_speed_var"
     private const val SPEED_UNIT_MPH = "speed_unit_mph"
+    private const val SPEED_VAR_UNIT = "speed_var_unit"
     private const val ROUTE_WAIT_END = "route_wait_end"
     // dibaca bridge.sh dari file pref -> gpsz_cfg (spd / brg / alt)
     private const val SPEED_MS = "speed_ms"
@@ -110,10 +111,30 @@ object PrefManager   {
         get() = pref.getBoolean(SPEED_UNIT_MPH, false)
         set(value) { pref.edit().putBoolean(SPEED_UNIT_MPH, value).apply() }
 
-    /** Variasi kecepatan +- km/jam. Negatif = otomatis (+-8% dari kecepatan), 0 = konstan. */
-    var routeSpeedVar: Float
+    /** Nilai variasi kecepatan sesuai satuan [speedVarUnit]. Negatif = otomatis (+-8%), 0 = konstan. */
+    var routeSpeedVarRaw: Float
         get() = pref.getFloat(ROUTE_SPEED_VAR, -1f)
         set(value) { pref.edit().putFloat(ROUTE_SPEED_VAR, value).apply() }
+
+    /**
+     * Satuan variasi kecepatan: 0 = persen, 1 = km/h, 2 = MPH.
+     * Data lama (variasi tersimpan dalam km/h) otomatis dianggap km/h.
+     */
+    var speedVarUnit: Int
+        get() = pref.getInt(SPEED_VAR_UNIT, if (routeSpeedVarRaw >= 0f) 1 else 0)
+        set(value) { pref.edit().putInt(SPEED_VAR_UNIT, value).apply() }
+
+    /** Variasi kecepatan +- km/jam yang dipakai RouteRunner. Negatif = otomatis 8%. */
+    val routeSpeedVar: Float
+        get() {
+            val raw = routeSpeedVarRaw
+            if (raw < 0f) return -1f
+            return when (speedVarUnit) {
+                0 -> routeSpeed * raw / 100f
+                2 -> raw * 1.609344f
+                else -> raw
+            }
+        }
 
     /** Lama diam di titik awal sebelum jalan (menit). */
     var routeWaitStart: Float

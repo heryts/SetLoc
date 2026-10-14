@@ -74,21 +74,31 @@
                 android:maxLength="5" />
         </com.google.android.material.textfield.TextInputLayout>
 
+        <!-- satuan kecepatan (km/h | MPH) -->
+        <Spinner
+            android:id="@+id/route_speed_unit"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_vertical" />
+
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center_vertical"
-            android:layout_marginStart="8dp"
-            android:layout_marginEnd="8dp"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="6dp"
             android:text="±"
             android:textAppearance="?attr/textAppearanceSubtitle1" />
 
+        <!-- expandedHintEnabled=false: judul tetap menempel di garis border walau kotak kosong -->
         <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/route_speed_var_layout"
             style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:hint="@string/route_speed_var">
+            android:hint="@string/route_speed_var"
+            app:expandedHintEnabled="false">
 
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/route_speed_var"
@@ -98,12 +108,12 @@
                 android:maxLength="5" />
         </com.google.android.material.textfield.TextInputLayout>
 
+        <!-- satuan variasi (% | km/h | MPH) -->
         <Spinner
-            android:id="@+id/route_speed_unit"
+            android:id="@+id/route_speed_var_unit"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_gravity="center_vertical"
-            android:layout_marginStart="8dp" />
+            android:layout_gravity="center_vertical" />
     </LinearLayout>
 
     <com.google.android.material.textfield.TextInputLayout

@@ -475,6 +475,8 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         val speedEt = view.findViewById<EditText>(R.id.route_speed)
         val speedVarEt = view.findViewById<EditText>(R.id.route_speed_var)
         val unitSp = view.findViewById<android.widget.Spinner>(R.id.route_speed_unit)
+        val varUnitSp = view.findViewById<android.widget.Spinner>(R.id.route_speed_var_unit)
+        val speedVarLayout = view.findViewById<com.google.android.material.textfield.TextInputLayout>(R.id.route_speed_var_layout)
         val waitEt = view.findViewById<EditText>(R.id.route_wait)
         val waitEndEt = view.findViewById<EditText>(R.id.route_wait_end)
         val altEt = view.findViewById<EditText>(R.id.route_altitude)
@@ -506,9 +508,33 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             } else formatDistance(distance)
         }
 
+        // satuan variasi: 0 = %, 1 = km/h, 2 = MPH (independen dari satuan kecepatan)
+        var varUnit = PrefManager.speedVarUnit.coerceIn(0, 2)
+        fun varToKmh(v: Float, u: Int, speedKmh: Float) = when (u) {
+            0 -> speedKmh * v / 100f
+            2 -> v * kmPerMile
+            else -> v
+        }
+        fun varFromKmh(kmh: Float, u: Int, speedKmh: Float) = when (u) {
+            0 -> if (speedKmh > 0f) kmh / speedKmh * 100f else 0f
+            2 -> kmh / kmPerMile
+            else -> kmh
+        }
+        fun currentSpeedKmh() = speedEt.text.toString().toFloatOrNull()?.let { toKmh(it) } ?: PrefManager.routeSpeed
+
+        // judul "auto 8%" selalu menempel di border; berubah jadi "Variation" kalau sudah diisi
+        fun refreshVarHint() {
+            speedVarLayout.hint = getString(
+                if (speedVarEt.text.isNullOrEmpty()) R.string.route_speed_var else R.string.route_speed_var_set
+            )
+        }
+
         chips.check(modeIds[oldMode])
         speedEt.setText(numU(toUnit(PrefManager.routeSpeed)))
-        PrefManager.routeSpeedVar.let { if (it >= 0f) speedVarEt.setText(numU(toUnit(it))) }   // kosong = otomatis 8%
+        PrefManager.routeSpeedVarRaw.let { if (it >= 0f) speedVarEt.setText(numU(it)) }   // kosong = otomatis 8%
+        refreshVarHint()
+        speedVarEt.doAfterTextChanged { refreshVarHint() }
+
         unitSp.adapter = android.widget.ArrayAdapter(
             this, android.R.layout.simple_spinner_dropdown_item, arrayOf("km/h", "MPH")
         )
@@ -519,14 +545,30 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
                 if (newMph == mph) return
                 val oldMph = mph
                 mph = newMph
-                // ubah angka yang sedang tampil ke satuan baru
-                for (et in listOf(speedEt, speedVarEt)) {
-                    et.text.toString().toFloatOrNull()?.let {
-                        val kmh = if (oldMph) it * kmPerMile else it
-                        et.setText(numU(toUnit(kmh)))
-                    }
+                // ubah angka kecepatan ke satuan baru (variasi punya satuan sendiri)
+                speedEt.text.toString().toFloatOrNull()?.let {
+                    val kmh = if (oldMph) it * kmPerMile else it
+                    speedEt.setText(numU(toUnit(kmh)))
                 }
                 refreshSummary()
+            }
+            override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
+        }
+
+        varUnitSp.adapter = android.widget.ArrayAdapter(
+            this, android.R.layout.simple_spinner_dropdown_item, arrayOf("%", "km/h", "MPH")
+        )
+        varUnitSp.setSelection(varUnit)
+        varUnitSp.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: android.widget.AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                if (pos == varUnit) return
+                val old = varUnit
+                varUnit = pos
+                // konversi angka yang sedang tampil ke satuan variasi baru
+                speedVarEt.text.toString().toFloatOrNull()?.let {
+                    val sp = currentSpeedKmh()
+                    speedVarEt.setText(numU(varFromKmh(varToKmh(it, old, sp), pos, sp)))
+                }
             }
             override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
         }
@@ -556,8 +598,10 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             val wait = (waitEt.text.toString().toFloatOrNull() ?: 0f).coerceIn(0f, 600f)
             val newMode = modeIds.indexOf(chips.checkedChipId).let { if (it < 0) oldMode else it }
             PrefManager.routeSpeed = sp
-            PrefManager.routeSpeedVar =
-                speedVarEt.text.toString().toFloatOrNull()?.let { toKmh(it) }?.coerceIn(0f, sp) ?: -1f
+            PrefManager.speedVarUnit = varUnit
+            PrefManager.routeSpeedVarRaw =
+                speedVarEt.text.toString().toFloatOrNull()
+                    ?.coerceIn(0f, if (varUnit == 0) 100f else varFromKmh(sp, varUnit, sp)) ?: -1f
             PrefManager.speedUnitMph = mph
             PrefManager.routeWaitStart = wait
             PrefManager.routeWaitEnd = (waitEndEt.text.toString().toFloatOrNull() ?: 0f).coerceIn(0f, 600f)
