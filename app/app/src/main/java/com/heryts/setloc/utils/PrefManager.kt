@@ -41,6 +41,7 @@ object PrefManager   {
     private const val ALTITUDE_MANUAL = "altitude_manual"
     private const val ALTITUDE_VAR = "altitude_var"          // dibaca bridge.sh -> altv
     private const val RANDOM_RADIUS = "random_radius"        // dibaca bridge.sh -> rr
+    private const val ROUTE_ACTIVE = "route_active"          // bridge.sh: true -> random position dinonaktifkan sementara
     private const val ALTITUDE_SERVER = "altitude_from_server"
 
 
@@ -151,6 +152,14 @@ object PrefManager   {
         get() = pref.getFloat(ALTITUDE, 0f)
         set(value) { pref.edit().putFloat(ALTITUDE, value).apply() }
 
+    /**
+     * true selama rute sedang berjalan (bergerak). Selama itu bridge.sh mengirim random=0 ke modul tanpa
+     * mengubah pengaturan "Random position" milik pengguna; selesai rute, pengaturan semula berlaku lagi.
+     */
+    var routeActive: Boolean
+        get() = pref.getBoolean(ROUTE_ACTIVE, false)
+        set(value) { pref.edit().putBoolean(ROUTE_ACTIVE, value).apply() }
+
     /** Radius pergeseran acak posisi (meter) bila "Random position" aktif. Default 8. */
     var randomRadius: Float
         get() = pref.getFloat(RANDOM_RADIUS, 8f)
@@ -177,7 +186,8 @@ object PrefManager   {
      */
     fun updateNow(
         start: Boolean, la: Double, ln: Double,
-        speedMs: Float = 0f, bearing: Float = -1f, altitude: Float? = null
+        speedMs: Float = 0f, bearing: Float = -1f, altitude: Float? = null,
+        routeActive: Boolean = false
     ) {
         // satu apply() untuk semuanya: bridge membaca posisi + kecepatan + arah + ketinggian yang konsisten
         val e = pref.edit()
@@ -186,6 +196,7 @@ object PrefManager   {
             .putBoolean(START, start)
             .putFloat(SPEED_MS, speedMs.coerceAtLeast(0f))
             .putFloat(BEARING, bearing)          // negatif = tanpa arah
+            .putBoolean(ROUTE_ACTIVE, routeActive)
         if (altitude != null) e.putFloat(ALTITUDE, altitude)
         e.apply()
     }
@@ -198,6 +209,7 @@ object PrefManager   {
             prefEditor.putBoolean(START, start)
             prefEditor.putFloat(SPEED_MS, 0f)    // titik tunggal = diam
             prefEditor.putFloat(BEARING, -1f)
+            prefEditor.putBoolean(ROUTE_ACTIVE, false)
             prefEditor.apply()
         }
 

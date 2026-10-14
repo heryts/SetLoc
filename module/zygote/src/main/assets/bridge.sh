@@ -79,6 +79,8 @@ derive() {
   case "$ACC" in ''|*[!0-9.]*) ACC=10 ;; esac
   E=0; [ "$START" = true ] && E=1
   R=0; [ "$RND" = true ] && R=1
+  # rute sedang bergerak: random position dimatikan sementara (pengaturan pengguna tidak diubah)
+  [ "$(fval boolean route_active)" = true ] && R=0
   # gerak: kecepatan (m/s), arah (derajat; negatif/kosong = tanpa arah), ketinggian (m)
   SPD=$(fval float speed_ms); BRG=$(fval float bearing); ALT=$(fval float altitude)
   numok "$SPD" || SPD=0

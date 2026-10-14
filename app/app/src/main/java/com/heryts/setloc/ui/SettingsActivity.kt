@@ -116,6 +116,14 @@ class SettingsActivity : AppCompatActivity() {
             preferenceManager?.preferenceDataStore = SettingPreferenceDataStore()
             setPreferencesFromResource(R.xml.setting, rootKey)
 
+            // selama rute berjalan, Random position dinonaktifkan otomatis (nilainya tetap, kembali berlaku setelah rute)
+            findPreference<androidx.preference.SwitchPreference>("random_position")?.let {
+                if (PrefManager.routeActive) {
+                    it.isEnabled = false
+                    it.summary = getString(R.string.settings_random_paused)
+                }
+            }
+
             findPreference<EditTextPreference>("accuracy_settings")?.let {
                 it.summary = "${PrefManager.accuracy} m."
                 it.setOnBindEditTextListener { editText ->

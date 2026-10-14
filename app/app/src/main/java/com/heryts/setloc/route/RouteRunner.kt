@@ -71,7 +71,7 @@ object RouteRunner {
             lastBearing = bearing(points[0], points[1])
             PrefManager.updateNow(
                 true, points.first().latitude, points.first().longitude,
-                0f, lastBearing, altitudeAt(0.0)
+                0f, lastBearing, altitudeAt(0.0), routeActive = true
             )
             _state.value = State(running = true, position = points.first())
             job = scope.launch {
@@ -163,7 +163,7 @@ object RouteRunner {
     private fun write(p: LatLng, pct: Int, speedMs: Float, brg: Float, alt: Float?): Boolean = synchronized(lock) {
         if (!active) return false
         if (brg >= 0f) lastBearing = brg
-        PrefManager.updateNow(true, p.latitude, p.longitude, speedMs, lastBearing, alt)
+        PrefManager.updateNow(true, p.latitude, p.longitude, speedMs, lastBearing, alt, routeActive = true)
         _state.value = State(running = true, position = p, progressPercent = pct)
         true
     }
