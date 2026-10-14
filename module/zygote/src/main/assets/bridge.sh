@@ -96,7 +96,7 @@ sync_cfg() {
   NEW=$(derive); RC=$?
   if [ $RC -ne 0 ]; then
     case $RC in 2) MSG="pref app tidak ditemukan ($PREFNAME) di /data/data, /data/user*, /data/misc/*/prefs" ;; *) MSG="lat/lng tidak valid di pref" ;; esac
-    [ "$(cat "$MODDIR/.last_err" 2>/dev/null)" != "$MSG" ] && { log "sync gagal: $MSG"; echo "$MSG" > "$MODDIR/.last_err"; }
+    [ "$QUIET" != 1 ] && [ "$(cat "$MODDIR/.last_err" 2>/dev/null)" != "$MSG" ] && { log "sync gagal: $MSG"; echo "$MSG" > "$MODDIR/.last_err"; }
     return 1
   fi
   rm -f "$MODDIR/.last_err"
@@ -234,7 +234,18 @@ while true; do
   S=$(sig)
   if [ "$S" != "$LAST" ]; then      # juga memicu saat file baru muncul/hilang
     sleep 0.1                       # beri waktu SharedPreferences selesai menulis file
-    if sync_cfg; then LAST=$S; fi   # gagal -> coba lagi di putaran berikut
+    # SharedPreferences menulis ulang file (sesaat hilang/kosong): ulangi cepat & diam-diam sebelum dianggap gagal
+    OK=0
+    for R in 1 2 3 4 5 6; do
+      QUIET=1; sync_cfg; RC=$?; QUIET=0
+      [ $RC -eq 0 ] && { OK=1; break; }
+      sleep 0.05
+      PREFC=""; PREFC=$(find_pref)
+    done
+    # LAST=$S (bukan sig baru): perubahan yang masuk saat sync tetap terdeteksi di putaran berikut
+    if [ $OK = 1 ]; then LAST=$S
+    elif sync_cfg; then LAST=$S     # tetap gagal: tercatat di log, dicoba lagi di putaran berikut
+    fi
   fi
   case "$NEW" in *enabled=1*) DELAY=0.2 ;; *) DELAY=0.5 ;; esac
 done
