@@ -101,9 +101,9 @@ object PrefManager   {
         get() = pref.getInt(ROUTE_MODE, 3)
         set(value) { pref.edit().putInt(ROUTE_MODE, value).apply() }
 
-    /** Kecepatan simulasi rute (km/jam). */
+    /** Kecepatan simulasi rute (km/jam). Negatif = otomatis sesuai profil kendaraan (lihat AutoSpeed). */
     var routeSpeed: Float
-        get() = pref.getFloat(ROUTE_SPEED, 50f)
+        get() = pref.getFloat(ROUTE_SPEED, -1f)
         set(value) { pref.edit().putFloat(ROUTE_SPEED, value).apply() }
 
     /** Satuan kecepatan di opsi rute: false = km/h, true = MPH. Nilai tersimpan tetap km/h. */
@@ -124,17 +124,16 @@ object PrefManager   {
         get() = pref.getInt(SPEED_VAR_UNIT, if (routeSpeedVarRaw >= 0f) 1 else 0)
         set(value) { pref.edit().putInt(SPEED_VAR_UNIT, value).apply() }
 
-    /** Variasi kecepatan +- km/jam yang dipakai RouteRunner. Negatif = otomatis 8%. */
-    val routeSpeedVar: Float
-        get() {
-            val raw = routeSpeedVarRaw
-            if (raw < 0f) return -1f
-            return when (speedVarUnit) {
-                0 -> routeSpeed * raw / 100f
-                2 -> raw * 1.609344f
-                else -> raw
-            }
+    /** Variasi kecepatan +- km/jam yang dipakai RouteRunner untuk kecepatan [speedKmh]. Negatif = otomatis 8%. */
+    fun routeSpeedVarFor(speedKmh: Float): Float {
+        val raw = routeSpeedVarRaw
+        if (raw < 0f) return -1f
+        return when (speedVarUnit) {
+            0 -> speedKmh * raw / 100f
+            2 -> raw * 1.609344f
+            else -> raw
         }
+    }
 
     /** Lama diam di titik awal sebelum jalan (menit). */
     var routeWaitStart: Float

@@ -81,14 +81,14 @@
     <string name="route_save">Enregistrer</string>
     <string name="route_invalid_speed">Entrez une vitesse entre 1 et 300 km/h</string>
     <string name="route_max_points">Maximum %1$d points par itinéraire</string>
-    <string name="route_speed_var">auto 8%</string>
-    <string name="route_speed_var_set">Variation</string>
     <string name="route_altitude">Altitude (m)</string>
-    <string name="route_altitude_var">± (m)</string>
+    <string name="route_altitude_var">m</string>
     <string name="route_altitude_server">Obtenir l\’altitude du serveur (l\’altitude ci-dessus sert de secours)</string>
     <string name="settings_altitude_server">Obtenir l\’altitude du serveur</string>
     <string name="settings_altitude_server_summary">Elevation API, puis Open-Meteo. Désactivé = utiliser l\’altitude ci-dessous</string>
     <string name="settings_altitude">Altitude (m)</string>
     <string name="settings_altitude_var">Variation d\’altitude ± (m)</string>
 
+    <string name="route_auto">auto</string>
+    <string name="route_var_label">%1$s</string>
 </resources>

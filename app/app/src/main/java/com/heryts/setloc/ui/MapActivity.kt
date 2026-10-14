@@ -35,6 +35,7 @@ import com.heryts.setloc.R
 import com.heryts.setloc.adapter.FavListAdapter
 import com.heryts.setloc.databinding.ActivityMapBinding
 import com.heryts.setloc.route.ElevationClient
+import com.heryts.setloc.route.AutoSpeed
 import com.heryts.setloc.route.RouteClient
 import com.heryts.setloc.route.RouteRunner
 import com.heryts.setloc.route.RouteService
@@ -91,6 +92,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     private val routeMarkers = mutableListOf<Marker>()
     private var routeLine: Polyline? = null
     private var routePoints: List<LatLng> = emptyList()
+    private var routeDurationS: Double? = null   // durasi dari Google (detik) untuk kecepatan auto
     private var routeLoading = false
     private var routeJob: Job? = null
     private var elevationJob: Job? = null
@@ -327,6 +329,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
                 val result = RouteClient.fetch(this@MapActivity, stops, PrefManager.routeMode)
                 routeLine?.remove()
                 routePoints = result.points
+                routeDurationS = result.durationS.takeIf { it > 0.0 }
                 routeLine = mMap.addPolyline(
                     PolylineOptions()
                         .addAll(result.points)
@@ -414,9 +417,12 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         ) {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
         }
+        // kotak Speed kosong = auto: kecepatan mengikuti profil kendaraan & rute
+        val speed = PrefManager.routeSpeed.takeIf { it > 0f }
+            ?: AutoSpeed.kmh(PrefManager.routeMode, RouteRunner.routeLength(routePoints), routeDurationS)
         RouteRunner.start(
-            routePoints, PrefManager.routeSpeed,
-            PrefManager.routeWaitStart, PrefManager.routeWaitEnd, PrefManager.routeSpeedVar
+            routePoints, speed,
+            PrefManager.routeWaitStart, PrefManager.routeWaitEnd, PrefManager.routeSpeedVarFor(speed)
         )
         ContextCompat.startForegroundService(this, Intent(this, RouteService::class.java))
         binding.start.visibility = View.GONE
@@ -484,9 +490,14 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         val altServerCb = view.findViewById<android.widget.CompoundButton>(R.id.route_altitude_server)
 
         val modeIds = intArrayOf(R.id.mode_walk, R.id.mode_bike, R.id.mode_motor, R.id.mode_car)
-        val defaultSpeeds = floatArrayOf(5f, 15f, 40f, 50f)
         val oldMode = PrefManager.routeMode.coerceIn(0, modeIds.size - 1)
         val distance = RouteRunner.routeLength(routePoints)
+
+        // kecepatan auto untuk profil yang sedang dipilih; durasi Google hanya cocok untuk mode rute saat ini
+        fun selectedMode() = modeIds.indexOf(chips.checkedChipId).let { if (it < 0) oldMode else it }
+        fun autoSpeedKmh() = AutoSpeed.kmh(
+            selectedMode(), distance, if (selectedMode() == oldMode) routeDurationS else null
+        )
 
         fun num(f: Float) = if (f % 1f == 0f) f.toInt().toString() else f.toString()
 
@@ -498,8 +509,8 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         fun numU(f: Float) = num(Math.round(f * 10f) / 10f)
 
         fun refreshSummary() {
-            val sp = speedEt.text.toString().toFloatOrNull()?.let { toKmh(it) }
-            summary.text = if (sp != null && sp > 0f) {
+            val sp = speedEt.text.toString().toFloatOrNull()?.let { toKmh(it) } ?: autoSpeedKmh()
+            summary.text = if (sp > 0f) {
                 getString(
                     R.string.route_summary,
                     formatDistance(distance),
@@ -520,20 +531,18 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             2 -> kmh / kmPerMile
             else -> kmh
         }
-        fun currentSpeedKmh() = speedEt.text.toString().toFloatOrNull()?.let { toKmh(it) } ?: PrefManager.routeSpeed
+        fun currentSpeedKmh() = speedEt.text.toString().toFloatOrNull()?.let { toKmh(it) } ?: autoSpeedKmh()
 
-        // judul "auto 8%" selalu menempel di border; berubah jadi "Variation" kalau sudah diisi
+        // judul kotak variasi menempel di border dan mengikuti dropdown: "± %", "± km/h", "± MPH"
+        val varUnitNames = arrayOf("%", "km/h", "MPH")
         fun refreshVarHint() {
-            speedVarLayout.hint = getString(
-                if (speedVarEt.text.isNullOrEmpty()) R.string.route_speed_var else R.string.route_speed_var_set
-            )
+            speedVarLayout.hint = getString(R.string.route_var_label, varUnitNames[varUnit])
         }
 
         chips.check(modeIds[oldMode])
-        speedEt.setText(numU(toUnit(PrefManager.routeSpeed)))
+        PrefManager.routeSpeed.let { if (it > 0f) speedEt.setText(numU(toUnit(it))) }   // kosong = auto
         PrefManager.routeSpeedVarRaw.let { if (it >= 0f) speedVarEt.setText(numU(it)) }   // kosong = otomatis 8%
         refreshVarHint()
-        speedVarEt.doAfterTextChanged { refreshVarHint() }
 
         unitSp.adapter = android.widget.ArrayAdapter(
             this, android.R.layout.simple_spinner_dropdown_item, arrayOf("km/h", "MPH")
@@ -556,7 +565,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         }
 
         varUnitSp.adapter = android.widget.ArrayAdapter(
-            this, android.R.layout.simple_spinner_dropdown_item, arrayOf("%", "km/h", "MPH")
+            this, android.R.layout.simple_spinner_dropdown_item, varUnitNames
         )
         varUnitSp.setSelection(varUnit)
         varUnitSp.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
@@ -564,6 +573,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
                 if (pos == varUnit) return
                 val old = varUnit
                 varUnit = pos
+                refreshVarHint()
                 // konversi angka yang sedang tampil ke satuan variasi baru
                 speedVarEt.text.toString().toFloatOrNull()?.let {
                     val sp = currentSpeedKmh()
@@ -582,7 +592,8 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         speedEt.doAfterTextChanged { refreshSummary() }
         chips.setOnCheckedStateChangeListener { _, checkedIds ->
             val idx = checkedIds.firstOrNull()?.let { modeIds.indexOf(it) } ?: -1
-            if (idx >= 0) speedEt.setText(numU(toUnit(defaultSpeeds[idx])))
+            // ganti kendaraan -> kecepatan kembali auto; ketik angka sendiri bila mau mengganti
+            if (idx >= 0) speedEt.setText("")
         }
 
         view.findViewById<View>(R.id.route_clear).setOnClickListener {
@@ -590,14 +601,16 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             sheet.dismiss()
         }
         view.findViewById<View>(R.id.route_save).setOnClickListener {
-            val sp = speedEt.text.toString().toFloatOrNull()?.let { toKmh(it) }
-            if (sp == null || sp < 1f || sp > 300f) {
+            // kosong = auto; kalau diisi harus 1..300 km/h
+            val typed = speedEt.text.toString().toFloatOrNull()?.let { toKmh(it) }
+            if (!speedEt.text.isNullOrBlank() && (typed == null || typed < 1f || typed > 300f)) {
                 showToast(getString(R.string.route_invalid_speed))
                 return@setOnClickListener
             }
+            val sp = typed ?: autoSpeedKmh()   // dipakai untuk batas variasi
             val wait = (waitEt.text.toString().toFloatOrNull() ?: 0f).coerceIn(0f, 600f)
             val newMode = modeIds.indexOf(chips.checkedChipId).let { if (it < 0) oldMode else it }
-            PrefManager.routeSpeed = sp
+            PrefManager.routeSpeed = typed ?: -1f
             PrefManager.speedVarUnit = varUnit
             PrefManager.routeSpeedVarRaw =
                 speedVarEt.text.toString().toFloatOrNull()
@@ -625,6 +638,8 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             }
         }
         sheet.setContentView(view)
+        sheet.behavior.skipCollapsed = true
+        sheet.behavior.state = com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED
         sheet.show()
     }
 

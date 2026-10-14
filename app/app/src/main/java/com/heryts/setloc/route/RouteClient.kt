@@ -21,7 +21,7 @@ object RouteClient {
 
     class RouteException(message: String) : Exception(message)
 
-    class Result(val points: List<LatLng>, val distanceM: Double)
+    class Result(val points: List<LatLng>, val distanceM: Double, val durationS: Double)
 
     /** Mode perjalanan: indeks sama dengan PrefManager.routeMode. */
     private val MODES = arrayOf("WALK", "BICYCLE", "TWO_WHEELER", "DRIVE")
@@ -70,7 +70,7 @@ object RouteClient {
             conn.setRequestProperty("X-Goog-Api-Key", key)
             conn.setRequestProperty(
                 "X-Goog-FieldMask",
-                "routes.distanceMeters,routes.polyline.encodedPolyline"
+                "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline"
             )
             // Supaya key yang dibatasi "Android apps" tetap diterima
             conn.setRequestProperty("X-Android-Package", context.packageName)
@@ -90,7 +90,9 @@ object RouteClient {
             if (encoded.isEmpty()) throw RouteException("Rute tidak ditemukan")
             val points = decodePolyline(encoded)
             if (points.size < 2) throw RouteException("Rute tidak ditemukan")
-            return Result(points, route.optDouble("distanceMeters", 0.0))
+            // "duration" = string detik, mis. "1037s"
+            val seconds = route.optString("duration").removeSuffix("s").toDoubleOrNull() ?: 0.0
+            return Result(points, route.optDouble("distanceMeters", 0.0), seconds)
         } catch (e: RouteException) {
             throw e
         } catch (e: java.io.IOException) {

@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+<LinearLayout
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
@@ -53,18 +57,27 @@
             android:text="@string/mode_car" />
     </com.google.android.material.chip.ChipGroup>
 
+    <!-- Kecepatan: kosong = auto (menurut profil kendaraan). Judul menempel di border, "auto" jadi placeholder. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="12dp"
+        android:gravity="center_vertical"
         android:orientation="horizontal">
 
+        <Space
+            android:layout_width="24dp"
+            android:layout_height="match_parent" />
+
         <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/route_speed_layout"
             style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:hint="@string/route_speed">
+            android:hint="@string/route_speed"
+            app:expandedHintEnabled="false"
+            app:placeholderText="@string/route_auto">
 
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/route_speed"
@@ -77,28 +90,35 @@
         <!-- satuan kecepatan (km/h | MPH) -->
         <Spinner
             android:id="@+id/route_speed_unit"
-            android:layout_width="wrap_content"
+            android:layout_width="88dp"
             android:layout_height="wrap_content"
-            android:layout_gravity="center_vertical" />
+            android:layout_marginStart="8dp" />
+    </LinearLayout>
+
+    <!-- Variasi kecepatan: tanda ± di samping kotak; judul hanya satuan ("%" / "km/h" / "MPH") mengikuti dropdown; kosong = auto -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
 
         <TextView
-            android:layout_width="wrap_content"
+            android:layout_width="24dp"
             android:layout_height="wrap_content"
-            android:layout_gravity="center_vertical"
-            android:layout_marginStart="2dp"
-            android:layout_marginEnd="6dp"
+            android:gravity="center"
             android:text="±"
             android:textAppearance="?attr/textAppearanceSubtitle1" />
 
-        <!-- expandedHintEnabled=false: judul tetap menempel di garis border walau kotak kosong -->
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/route_speed_var_layout"
             style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:hint="@string/route_speed_var"
-            app:expandedHintEnabled="false">
+            android:hint="@string/route_var_label"
+            app:expandedHintEnabled="false"
+            app:placeholderText="@string/route_auto">
 
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/route_speed_var"
@@ -111,9 +131,9 @@
         <!-- satuan variasi (% | km/h | MPH) -->
         <Spinner
             android:id="@+id/route_speed_var_unit"
-            android:layout_width="wrap_content"
+            android:layout_width="88dp"
             android:layout_height="wrap_content"
-            android:layout_gravity="center_vertical" />
+            android:layout_marginStart="8dp" />
     </LinearLayout>
 
     <com.google.android.material.textfield.TextInputLayout
@@ -221,3 +241,4 @@
             android:text="@string/route_save" />
     </LinearLayout>
 </LinearLayout>
+</androidx.core.widget.NestedScrollView>
