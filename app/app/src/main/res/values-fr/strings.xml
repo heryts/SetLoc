@@ -85,7 +85,7 @@
     <string name="route_altitude_var">m</string>
     <string name="route_altitude_server">Obtenir l\’altitude du serveur (l\’altitude ci-dessus sert de secours)</string>
     <string name="settings_altitude_server">Obtenir l\’altitude du serveur</string>
-    <string name="settings_altitude_server_summary">Elevation API, puis Open-Meteo. Désactivé = utiliser l\’altitude ci-dessous</string>
+    <string name="settings_altitude_server_summary">Elevation API, puis Open-Meteo\nDésactivé = altitude ci-dessous</string>
     <string name="settings_altitude">Altitude (m)</string>
     <string name="settings_altitude_var">Variation d\’altitude ± (m)</string>
 

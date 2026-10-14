@@ -4,38 +4,45 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:orientation="horizontal"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:padding="24dp"
+    android:layout_height="wrap_content"
+    android:gravity="center_vertical"
+    android:paddingStart="24dp"
+    android:paddingEnd="24dp"
+    android:paddingTop="28dp"
+    android:paddingBottom="24dp"
     tools:viewBindingIgnore="true">
 
     <ImageView
         android:id="@+id/design_about_icon"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
+        android:layout_width="64dp"
+        android:layout_height="64dp"
+        android:importantForAccessibility="no"
         android:src="@mipmap/ic_launcher_round" />
 
     <LinearLayout
         android:orientation="vertical"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="16dp">
+        android:layout_marginStart="20dp">
 
         <com.google.android.material.textview.MaterialTextView
             android:id="@+id/design_about_title"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textSize="18sp"
+            android:textSize="20sp"
+            android:textStyle="bold"
             android:textAppearance="@android:style/TextAppearance.Material.Body1" />
 
         <com.google.android.material.textview.MaterialTextView
             android:id="@+id/design_about_version"
+            android:layout_marginTop="2dp"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textSize="14sp" />
 
         <com.google.android.material.textview.MaterialTextView
             android:id="@+id/design_about_info"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="6dp"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textSize="14sp"

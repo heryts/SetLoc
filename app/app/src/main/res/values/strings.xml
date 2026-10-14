@@ -85,7 +85,7 @@
     <string name="route_altitude_var">m</string>
     <string name="route_altitude_server">Get altitude from server (Altitude above is the fallback)</string>
     <string name="settings_altitude_server">Get altitude from server</string>
-    <string name="settings_altitude_server_summary">Elevation API, then Open-Meteo. Off = use the altitude below</string>
+    <string name="settings_altitude_server_summary">Elevation API, then Open-Meteo\nOff = use the altitude below</string>
     <string name="settings_altitude">Altitude (m)</string>
     <string name="settings_altitude_var">Altitude variation ± (m)</string>
 
