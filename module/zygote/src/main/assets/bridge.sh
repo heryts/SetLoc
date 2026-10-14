@@ -89,6 +89,7 @@ derive() {
   RR=$(fval float random_radius); numok "$RR" || RR=8
   X=";spd=$SPD;alt=$ALT;altv=$ALTV;rr=$RR"
   numok "$BRG" && X="$X;brg=$BRG"
+  TS=$(fval long ts_ms); numok "$TS" && X="$X;ts=$TS"
   echo "enabled=$E;lat=$LAT;lng=$LNG;acc=$ACC;random=$R$X"
 }
 

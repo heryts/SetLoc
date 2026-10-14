@@ -34,6 +34,8 @@ final class Config {
     static volatile float altVar = 0f;
     /** Radius pergeseran acak posisi (meter), dipakai bila random=1. */
     static volatile float rr = 8f;
+    /** Cap waktu (epoch ms) saat app menulis posisi terakhir; dipakai hanya untuk mengukur latensi (0 = tidak ada). */
+    static volatile long ts = 0;
     private static final Random RND = new Random();
     private static volatile double altNoise = 0.0;
     private static volatile long altAt = 0;
@@ -52,6 +54,22 @@ final class Config {
         return alt + altNoise;
     }
 
+    // ---- pengukuran latensi app -> modul (lihat `logcat -s GpsZ`): umur data saat modul membacanya
+    private static long lastTs = 0, lagN = 0, lagSum = 0, lagMax = 0;
+
+    private static void recordLag() {
+        long t = ts;
+        if (t <= 0 || t == lastTs) return;
+        lastTs = t;
+        long lag = System.currentTimeMillis() - t;
+        if (lag < 0 || lag > 60000) return;          // cap lama/basi atau jam tidak cocok: abaikan
+        lagN++; lagSum += lag; if (lag > lagMax) lagMax = lag;
+        if (lagN >= 10) {
+            Log.i(ZygoteEntry.TAG, "lag app->modul: rata2=" + (lagSum / lagN) + " ms, maks=" + lagMax + " ms (n=" + lagN + ")");
+            lagN = 0; lagSum = 0; lagMax = 0;
+        }
+    }
+
     static void parse(String s) {
         if (s == null || s.equals("null")) {
             enabled = false;
@@ -62,6 +80,7 @@ final class Config {
         float ac = acc;
         // field gerak direset tiap parse: kunci yang tidak ada = nilai awal (diam, tanpa arah, alt 0)
         float sp = 0f, br = Float.NaN, av = 0f, rad = 8f;
+        long tsv = 0;
         double al = 0.0;
         for (String kv : s.split(";")) {
             int i = kv.indexOf('=');
@@ -83,12 +102,13 @@ final class Config {
                     }
                     case "alt": al = Double.parseDouble(v); break;
                     case "altv": av = Math.max(0f, Float.parseFloat(v)); break;
+                    case "ts": tsv = Long.parseLong(v); break;
                     case "rr": rad = Math.max(0f, Math.min(100f, Float.parseFloat(v))); break;
                     default: break;
                 }
             } catch (NumberFormatException ignored) { }
         }
-        lat = la; lng = lo; acc = ac; spd = sp; brg = br; alt = al; altVar = av; rr = rad; jitter = jit; enabled = en;
+        lat = la; lng = lo; acc = ac; spd = sp; brg = br; alt = al; altVar = av; rr = rad; ts = tsv; jitter = jit; enabled = en;
     }
 
     private static Application currentApplication() {
@@ -123,6 +143,7 @@ final class Config {
             for (;;) {
                 try {
                     parse(Settings.Global.getString(app.getContentResolver(), KEY));
+                    recordLag();
                     system = "1".equals(Settings.Global.getString(app.getContentResolver(), KEY_SYS));
                     if (onReady != null && !readyRan && system) {
                         readyRan = true;

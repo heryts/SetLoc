@@ -15,3 +15,4 @@ build/
 .idea/
 .DS_Store
 module/external/
+external/
