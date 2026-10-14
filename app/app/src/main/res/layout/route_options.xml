@@ -57,8 +57,7 @@
             android:text="@string/mode_car" />
     </com.google.android.material.chip.ChipGroup>
 
-    <!-- Kecepatan ± variasi dalam satu baris. Kosong = auto: judul menempel di border, "auto" jadi placeholder.
-         Judul kotak variasi hanya satuan ("%" / "km/h" / "MPH") mengikuti dropdown di sebelahnya. -->
+    <!-- Kecepatan ± variasi dalam satu baris. Judul kotak: nama biasa bila terisi, "auto" bila dikosongkan (diatur di kode). -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -73,9 +72,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:minWidth="84dp"
-            android:hint="@string/route_speed"
-            app:expandedHintEnabled="false"
-            app:placeholderText="@string/route_auto">
+            android:hint="@string/route_speed">
 
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/route_speed"
@@ -104,9 +101,7 @@
             style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
             android:layout_width="@dimen/route_var_box_width"
             android:layout_height="wrap_content"
-            android:hint="@string/route_var_label"
-            app:expandedHintEnabled="false"
-            app:placeholderText="@string/route_auto">
+            android:hint="@string/route_auto">
 
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/route_speed_var"
@@ -127,6 +122,7 @@
         style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:id="@+id/route_wait_layout"
         android:layout_marginTop="12dp"
         android:hint="@string/route_wait_start">
 
@@ -142,6 +138,7 @@
         style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:id="@+id/route_wait_end_layout"
         android:layout_marginTop="12dp"
         android:hint="@string/route_wait_end">
 
@@ -163,6 +160,7 @@
             style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:id="@+id/route_altitude_layout"
             android:layout_weight="1"
             android:hint="@string/route_altitude">
 
@@ -185,6 +183,7 @@
 
         <com.google.android.material.textfield.TextInputLayout
             style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+            android:id="@+id/route_altitude_var_layout"
             android:layout_width="@dimen/route_var_box_width"
             android:layout_height="wrap_content"
             android:hint="@string/route_altitude_var">

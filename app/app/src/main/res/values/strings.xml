@@ -90,5 +90,4 @@
     <string name="settings_altitude_var">Altitude variation ± (m)</string>
 
     <string name="route_auto">auto</string>
-    <string name="route_var_label">%1$s</string>
 </resources>
