@@ -545,8 +545,8 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         refreshVarHint()
 
         unitSp.adapter = android.widget.ArrayAdapter(
-            this, android.R.layout.simple_spinner_dropdown_item, arrayOf("km/h", "MPH")
-        )
+            this, android.R.layout.simple_spinner_item, arrayOf("km/h", "MPH")
+        ).also { it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
         unitSp.setSelection(if (mph) 1 else 0)
         unitSp.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(p: android.widget.AdapterView<*>?, v: View?, pos: Int, id: Long) {
@@ -565,8 +565,8 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         }
 
         varUnitSp.adapter = android.widget.ArrayAdapter(
-            this, android.R.layout.simple_spinner_dropdown_item, varUnitNames
-        )
+            this, android.R.layout.simple_spinner_item, varUnitNames
+        ).also { it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
         varUnitSp.setSelection(varUnit)
         varUnitSp.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(p: android.widget.AdapterView<*>?, v: View?, pos: Int, id: Long) {

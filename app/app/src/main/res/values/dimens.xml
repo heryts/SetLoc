@@ -14,5 +14,5 @@
     <dimen name="app_editor_header_elevation">4dp</dimen>
     <dimen name="snackbar_corner_radius">4dp</dimen>
     <!-- lebar kotak variasi (kecepatan & altitude disamakan) -->
-    <dimen name="route_var_box_width">92dp</dimen>
+    <dimen name="route_var_box_width">68dp</dimen>
 </resources>
