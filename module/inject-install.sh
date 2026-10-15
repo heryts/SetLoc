@@ -1,5 +1,7 @@
 #!/bin/sh
-# pakai: sh inject.sh <zip modul> <40-install-apk.sh>
+# pakai: sh inject-install.sh <zip modul> <40-install-apk.sh>
+# Skrip disisipkan SESUDAH baris 90-restore-module-permission di customize.sh. Skrip 90 meng-reset izin seluruh
+# isi modul ke 0644, jadi set_perm 0755 untuk service.sh/bridge.sh di 40-install-apk.sh harus jalan sesudahnya.
 set -e
 Z=$(readlink -f "$1"); P=$(readlink -f "$2")
 W=$(mktemp -d); cd "$W"
@@ -9,9 +11,12 @@ unzip -q -o "$Z" customize.sh
 if grep -q '40-install-apk.sh' customize.sh; then echo "sudah ada di customize.sh, tidak diubah"; else
   L=$(grep -n '^\[ -f "\$MODPATH/customize.d/90-restore' customize.sh | cut -d: -f1)
   [ -n "$L" ] || { echo "baris 90-restore tidak ketemu"; exit 1; }
-  head -n $((L-1)) customize.sh > c.new
+  case "$(sed -n "${L}p" customize.sh)" in
+    *'\') echo "baris 90-restore menyambung ke baris berikutnya, tidak aman disisipi"; exit 1 ;;
+  esac
+  head -n "$L" customize.sh > c.new
   printf '%s\n' '[ -f "$MODPATH/customize.d/40-install-apk.sh" ] && . "$MODPATH/customize.d/40-install-apk.sh"' >> c.new
-  tail -n +$L customize.sh >> c.new
+  tail -n +$((L+1)) customize.sh >> c.new
   mv c.new customize.sh
 fi
 zip -q "$Z" customize.sh customize.d/40-install-apk.sh

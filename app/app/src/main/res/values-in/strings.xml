@@ -94,8 +94,8 @@
     <string name="settings_altitude_var">Variasi ketinggian ± (m)</string>
 
     <string name="route_auto">otomatis</string>
-    <string name="route_needs_system_title">Mode sistem belum aktif</string>
-    <string name="route_needs_system_msg">Mode routing membutuhkan mode System-wide atau mode Heartbeat yang aktif dan sudah termuat. Nyalakan salah satunya di WebUI modul, lalu reboot bila diminta.</string>
+    <string name="route_needs_system_title">System hook belum aktif</string>
+    <string name="route_needs_system_msg">Agar rute di app target lebih akurat dan real-time, nyalakan mode System-wide atau&#160;Heartbeat.</string>
     <string name="route_needs_system_continue">Tetap lanjut</string>
 
 </resources>
