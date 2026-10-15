@@ -93,4 +93,8 @@
     <string name="settings_altitude_var">Altitude variation ± (m)</string>
 
     <string name="route_auto">auto</string>
+    <string name="route_needs_system_title">System mode not active</string>
+    <string name="route_needs_system_msg">Route mode requires System-wide mode or Heartbeat mode to be active and loaded. Turn one on in the module WebUI and reboot if asked.</string>
+    <string name="route_needs_system_continue">Continue anyway</string>
+
 </resources>

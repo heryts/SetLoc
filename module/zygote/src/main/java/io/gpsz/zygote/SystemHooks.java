@@ -234,8 +234,40 @@ final class SystemHooks {
                 || n.equals("addGnssNavigationMessageListener");
     }
 
+    /** Mode penuh (gpsz_sys=1): semua app yang membaca lokasi lewat sistem mendapat lokasi palsu. */
     private static boolean active() {
-        return Config.enabled && Config.system && !Double.isNaN(Config.lat) && !Double.isNaN(Config.lng);
+        return Config.enabled && Config.system && !Config.sysHeartbeat && !Double.isNaN(Config.lat) && !Double.isNaN(Config.lng);
+    }
+
+    /** Mode heartbeat (gpsz_sys=2): lokasi app lain TIDAK diubah; sistem hanya mengulang fix asli tiap detik. */
+    private static boolean beat() {
+        return Config.enabled && Config.system && Config.sysHeartbeat;
+    }
+
+    /** Fix asli terakhir yang lewat onReportLocation (disalin sebelum ada penimpaan). */
+    private static volatile Location lastReal;
+
+    private static void captureReal(Object result) {
+        try {
+            if (result == null || resultClass == null || !resultClass.isInstance(result)
+                    || resultSize == null || resultGet == null) return;
+            int n = (Integer) resultSize.invoke(result);
+            if (n <= 0) return;
+            Object o = resultGet.invoke(result, n - 1);
+            if (o instanceof Location) lastReal = new Location((Location) o);
+        } catch (Throwable ignored) { }
+    }
+
+    /** Salinan fix asli terakhir dengan cap waktu baru: callback lokasi tetap datang walau HP diam. */
+    private static Location realBeat(String provider) {
+        Location src = lastReal;
+        if (src == null) return null;
+        Location l = new Location(src);
+        l.setProvider(provider);
+        if (!l.hasAccuracy() || l.getAccuracy() <= 0f) l.setAccuracy(20f);
+        l.setTime(System.currentTimeMillis() - 300);
+        l.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
+        return l;
     }
 
     private static HookTransformer transformer(final int kind, final int argIdx) {
@@ -247,6 +279,7 @@ final class SystemHooks {
                     Object self = frame.accessor().getReference(0);
                     String name = register(self);
                     if (LocationManager.GPS_PROVIDER.equals(name)) lastGpsReport = SystemClock.elapsedRealtime();
+                    if (!active()) captureReal(frame.accessor().getReference(argIdx));   // hanya fix yang belum diubah
                     if (active() && !inEmergency(self)) {
                         Object o = frame.accessor().getReference(argIdx);
                         Object replaced = spoofResult(o);
@@ -354,7 +387,8 @@ final class SystemHooks {
             for (;;) {
                 try {
                     Thread.sleep(250);
-                    if (!active()) continue;
+                    final boolean full = active();
+                    if (!full && !beat()) continue;
                     long now = SystemClock.elapsedRealtime();
                     if (now - lastGpsReport < 900) continue; // a gps fix (real or ours) went through just now
                     if (!managers.containsKey(LocationManager.GPS_PROVIDER) && now - lastScan > 5000) {
@@ -369,7 +403,9 @@ final class SystemHooks {
                         Object mgr = managers.get(name);
                         if (mgr == null) continue;
                         try {
-                            Object res = wrap(freshFix(name));
+                            Location fix = full ? freshFix(name) : realBeat(name);
+                            if (fix == null) continue;   // heartbeat: belum ada fix asli sejak boot
+                            Object res = wrap(fix);
                             if (res != null) lpmOnReport.invoke(mgr, res);
                         } catch (Throwable t) {
                             Log.w(TAG, "fake fix to " + name + " failed: " + t);

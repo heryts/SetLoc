@@ -93,4 +93,8 @@
     <string name="settings_altitude_var">Variation d\’altitude ± (m)</string>
 
     <string name="route_auto">auto</string>
+    <string name="route_needs_system_title">Mode système inactif</string>
+    <string name="route_needs_system_msg">Le mode itinéraire nécessite que le mode System-wide ou le mode Heartbeat soit actif et chargé. Activez-en un dans la WebUI du module et redémarrez si demandé.</string>
+    <string name="route_needs_system_continue">Continuer quand même</string>
+
 </resources>

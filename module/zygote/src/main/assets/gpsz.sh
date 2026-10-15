@@ -64,8 +64,10 @@ case "$1" in
     # Hook system_server: modul harus di-inject ke "android" (file packages/android) -> perlu reboot.
     # Jika bootloop: dari recovery/adb buat file /data/adb/modules/setloc_zygisk/disable
     case "$2" in
-      on)  mkdir -p "$PKGDIR" && rm -f "$PKGDIR/.sysoff" && : > "$PKGDIR/android" && settings put global gpsz_sys 1
-           echo "system hook ON. REBOOT dibutuhkan. Bootloop? buat file $MODDIR/disable dari recovery." ;;
+      on)  mkdir -p "$PKGDIR" && rm -f "$PKGDIR/.sysoff" && { [ -e "$PKGDIR/android" ] || : > "$PKGDIR/android"; } && settings put global gpsz_sys 1
+           echo "system hook ON (mode PENUH: semua app dispoof). REBOOT dibutuhkan bila belum live. Bootloop? buat file $MODDIR/disable dari recovery." ;;
+      heartbeat) mkdir -p "$PKGDIR" && rm -f "$PKGDIR/.sysoff" && { [ -e "$PKGDIR/android" ] || : > "$PKGDIR/android"; } && settings put global gpsz_sys 2
+           echo "system hook mode HEARTBEAT: sistem hanya mengulang fix asli 1 Hz, lokasi app lain TIDAK diubah (spoof hanya app di packages/). Bila sudah live, berlaku tanpa reboot; bila belum, REBOOT." ;;
       off) live=0
            if [ -e "$PKGDIR/android" ]; then
              mt=$(stat -c %Y "$PKGDIR/android" 2>/dev/null || echo 0); boot=$(( $(date +%s) - $(cut -d. -f1 /proc/uptime) ))
@@ -76,14 +78,14 @@ case "$1" in
            echo "system hook OFF. Reboot agar system_server tidak lagi di-inject." ;;
       status) [ -e "$PKGDIR/android" ] && F=ya || F=tidak
            ST=off
-           if [ "$F" = ya ] && [ "$(settings get global gpsz_sys 2>/dev/null)" = 1 ]; then
+           if [ "$F" = ya ] && case "$(settings get global gpsz_sys 2>/dev/null)" in 1|2) true ;; *) false ;; esac; then
              mt=$(stat -c %Y "$PKGDIR/android" 2>/dev/null || echo 0); boot=$(( $(date +%s) - $(cut -d. -f1 /proc/uptime) ))
              [ "$mt" -lt "$boot" ] && ST=live || ST=pending
            fi
            echo "packages/android: $F   gpsz_sys=$(settings get global gpsz_sys 2>/dev/null)   state=$ST"
            echo "log system hook (logcat -s GpsZ):"
            logcat -d -s GpsZ:I 2>/dev/null | grep -i "system hook" | tail -12 | sed 's/^/  /' ;;
-      *)   echo "system on|off|status" ;;
+      *)   echo "system on|heartbeat|off|status" ;;
     esac ;;
   sync)   sh "$MODDIR/bridge.sh" force; echo "cfg=$(settings get global $KEY 2>/dev/null)" ;;
   status) sh "$MODDIR/bridge.sh" status ;;
@@ -99,5 +101,5 @@ case "$1" in
     echo "log inject terakhir (logcat -s GpsZ):"
     logcat -d -s GpsZ:I 2>/dev/null | grep "injected into $2" | tail -3 | sed 's/^/  /'
     echo "  (kosong = proses ini TIDAK pernah ter-inject sejak buffer log terakhir)" ;;
-  *)      echo "on|off|toggle|set <lat> <lng> [acc]|random 0|1|show|pkg ...|system on|off|status|sync|status|check <pkg>" ;;
+  *)      echo "on|off|toggle|set <lat> <lng> [acc]|random 0|1|show|pkg ...|system on|heartbeat|off|status|sync|status|check <pkg>" ;;
 esac

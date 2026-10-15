@@ -125,6 +125,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .syscard { margin-top: 10px; padding: 14px 16px; display: flex; gap: 12px; align-items: center; }
 .syscard .t { font-weight: 600; }
 .syscard .grow { flex: 1; min-width: 0; }
+.syscard .s { font-size: 12px; opacity: .7; margin-top: 2px; }
 .syscard .btn { flex: none; min-width: 74px; }
 
 /* ---------- Toolbar ---------- */
@@ -342,20 +343,25 @@ const Real = {
     return { all: files.includes('.all'), files: files.filter(f => f[0] !== '.' && f !== 'android') };
   },
   async readSys() {
-    // 'live'       = aktif & sudah termuat di system_server (file dibuat sebelum boot terakhir)
-    // 'pending'    = dinyalakan, belum reboot
+    // 'live'       = mode PENUH (gpsz_sys=1) aktif & termuat di system_server: SEMUA app dispoof
+    // 'heartbeat' = mode 2 aktif & termuat: system_server hanya mengirim detak fix asli, hanya app terpilih yang dispoof
+    // 'pending'    = mode penuh dinyalakan, belum reboot
+    // 'pendinghb'  = mode heartbeat dinyalakan, belum reboot
     // 'offpending' = dimatikan saat sedang live, belum reboot
     // 'off'        = mati
     try {
-      const out = await sh(`F='${PKGDIR}/android'; O='${PKGDIR}/.sysoff'; boot=$(( $(date +%s) - $(cut -d. -f1 /proc/uptime) )); ` +
-        `if [ -e "$F" ] && [ "$(settings get global gpsz_sys 2>/dev/null)" = 1 ]; then mt=$(stat -c %Y "$F" 2>/dev/null || echo 0); if [ "$mt" -lt "$boot" ]; then echo live; else echo pending; fi; ` +
+      const out = await sh(`F='${PKGDIR}/android'; O='${PKGDIR}/.sysoff'; boot=$(( $(date +%s) - $(cut -d. -f1 /proc/uptime) )); g=$(settings get global gpsz_sys 2>/dev/null); ` +
+        `if [ -e "$F" ] && { [ "$g" = 1 ] || [ "$g" = 2 ]; }; then mt=$(stat -c %Y "$F" 2>/dev/null || echo 0); if [ "$mt" -lt "$boot" ]; then if [ "$g" = 2 ]; then echo heartbeat; else echo live; fi; else if [ "$g" = 2 ]; then echo pendinghb; else echo pending; fi; fi; ` +
         `elif [ -e "$O" ]; then mt=$(stat -c %Y "$O" 2>/dev/null || echo 0); if [ "$mt" -ge "$boot" ]; then echo offpending; else echo off; fi; else echo off; fi`);
-      const m = /(live|pending|offpending|off)/.exec(out || '');
+      const m = /(heartbeat|live|pendinghb|pending|offpending|off)/.exec(out || '');
       return m ? m[1] : 'off';
     } catch (e) { return 'off'; }
   },
+  async setHb() {
+    await sh(`mkdir -p '${PKGDIR}' && rm -f '${PKGDIR}/.sysoff' && { [ -e '${PKGDIR}/android' ] || : > '${PKGDIR}/android'; } && settings put global gpsz_sys 2`);
+  },
   async setSys(on) {
-    if (on) await sh(`mkdir -p '${PKGDIR}' && rm -f '${PKGDIR}/.sysoff' && : > '${PKGDIR}/android' && settings put global gpsz_sys 1`);
+    if (on) await sh(`mkdir -p '${PKGDIR}' && rm -f '${PKGDIR}/.sysoff' && { [ -e '${PKGDIR}/android' ] || : > '${PKGDIR}/android'; } && settings put global gpsz_sys 1`);
     else await sh(`F='${PKGDIR}/android'; live=0; if [ -e "$F" ]; then mt=$(stat -c %Y "$F" 2>/dev/null || echo 0); boot=$(( $(date +%s) - $(cut -d. -f1 /proc/uptime) )); [ "$mt" -lt "$boot" ] && live=1; fi; ` +
       `rm -f "$F" '${PKGDIR}/.sysoff'; [ "$live" = 1 ] && : > '${PKGDIR}/.sysoff'; settings put global gpsz_sys 0`);
   },
@@ -442,6 +448,7 @@ const Mock = (() => {
     async setAll(on) { await wait(150); all = on; },
     async readSys() { return sys_; },
     async setSys(on) { await wait(150); sys_ = on ? 'pending' : 'offpending'; },
+    async setHb() { await wait(150); sys_ = 'pendinghb'; },
     async reboot() { await wait(200); },
     async setSpoof(on) { await wait(200); cfgOn = on; },
     async stop() {},
@@ -458,8 +465,9 @@ const S = {
   apps: [],            // {pkg,label,system,installed}
   files: new Set(),
   all: false,
-  sys: false,          // system-wide dinyalakan (live atau pending)
-  sysMode: 'off',      // off | pending | live | offpending
+  sys: false,          // mode PENUH (system-wide) dinyalakan (live atau pending)
+  hb: false,           // mode HEARTBEAT dinyalakan (heartbeat atau pendinghb)
+  sysMode: 'off',      // off | pending | pendinghb | live | heartbeat | offpending
   tab: 'all',
   showSys: false,
   q: '',
@@ -529,10 +537,12 @@ function render() {
 function renderBanners() {
   const b = [];
   if (!hasKsu) b.push('<div class="banner">Mode pratinjau: WebUI dibuka di luar KernelSU / APatch / manager WebUI, jadi data di bawah hanya contoh dan tidak mengubah apa pun.</div>');
-  if (S.all) b.push('<div class="banner danger"><b>Mode semua app aktif.</b> Hook masuk ke semua app kecuali yang dimatikan di daftar. Matikan di Pengaturan bila tidak sengaja.</div>');
-  if (S.sysMode === 'live') b.push('<div class="card syscard"><div class="dot on"></div><div class="grow"><div class="t">System-wide aktif</div></div><button class="btn stop" id="btnSysOff">Matikan</button></div>');
+  if (S.all) b.push('<div class="card syscard"><div class="dot on"></div><div class="grow"><div class="t">Mode semua app aktif</div></div><button class="btn stop" id="btnAllOff">Matikan</button></div>');
+  if (S.sysMode === 'heartbeat') b.push('<div class="card syscard"><div class="dot on"></div><div class="grow"><div class="t">Mode heartbeat aktif</div></div><button class="btn stop" id="btnSysOff">Matikan</button></div>');
+  else if (S.sysMode === 'live') b.push('<div class="card syscard"><div class="dot on"></div><div class="grow"><div class="t">System-wide aktif</div></div><button class="btn stop" id="btnSysOff">Matikan</button></div>');
+  else if (S.sysMode === 'pendinghb') b.push('<div class="banner danger"><b>System hook (heartbeat) dinyalakan.</b> Perlu reboot.<button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');
   else if (S.sysMode === 'pending') b.push('<div class="banner danger"><b>System-wide dinyalakan.</b> Perlu reboot.<button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');
-  else if (S.sysMode === 'offpending') b.push('<div class="banner danger"><b>System-wide dimatikan.</b> Perlu reboot.<button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');
+  else if (S.sysMode === 'offpending') b.push('<div class="banner danger"><b>System hook dimatikan.</b> Perlu reboot.<button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');
   if (S.daemon === false) b.push('<div class="banner danger">Daemon sinkronisasi (app SetLoc → modul) tidak berjalan, jadi tombol Start/Stop di app belum terbaca modul. Tekan muat ulang; bila tetap gagal, lihat <span class="mono">' + esc(MODDIR) + '/bridge.log</span>.</div>');
   if (S.missing) b.push('<div class="banner danger">Folder modul tidak ditemukan di ' + esc(MODDIR) + '. Pastikan id modul = <b>' + MODID + '</b> dan sudah reboot setelah flash.</div>');
   $('#banners').innerHTML = b.join('');
@@ -578,7 +588,7 @@ async function load() {
       B.listPkgs('user').catch(() => []), B.listPkgs('system').catch(() => []),
       B.readSys().catch(() => 'off')
     ]);
-    S.all = st.all; S.sysMode = sysOn; S.sys = sysOn === 'live' || sysOn === 'pending'; S.files = new Set(st.files);
+    S.all = st.all; S.sysMode = sysOn; S.sys = sysOn === 'live' || sysOn === 'pending'; S.hb = sysOn === 'heartbeat' || sysOn === 'pendinghb'; S.files = new Set(st.files);
     renderStatus(cfg);
     S.appOn = await B.appInstalled().catch(() => null);
     renderApp();
@@ -642,13 +652,13 @@ async function appAction() {
   S.appBusy = false; renderApp();
 }
 
-async function setAllMode(on) {
+async function setAllMode(on, reopen = true) {
   try {
     await B.setAll(on);
     S.all = on;
     toast(on ? 'Mode semua app diaktifkan' : 'Mode semua app dimatikan');
   } catch (e) { toast('Gagal: ' + e.message, true); }
-  renderBanners(); render(); openSheet();
+  renderBanners(); render(); if (reopen) openSheet();
 }
 
 async function setSysMode(on) {
@@ -656,7 +666,19 @@ async function setSysMode(on) {
     await B.setSys(on);
     S.sysMode = await B.readSys();
     S.sys = S.sysMode === 'live' || S.sysMode === 'pending';
-    toast(S.sysMode === 'off' ? 'System-wide mati' : 'Reboot untuk menerapkan');
+    S.hb = S.sysMode === 'heartbeat' || S.sysMode === 'pendinghb';
+    toast(S.sysMode === 'off' ? 'System hook mati' : (S.sysMode === 'live' || S.sysMode === 'heartbeat') ? 'Mode diterapkan' : 'Reboot untuk menerapkan');
+  } catch (e) { toast('Gagal: ' + e.message, true); }
+  renderBanners(); openSheet();
+}
+
+async function setHbMode() {
+  try {
+    await B.setHb();
+    S.sysMode = await B.readSys();
+    S.sys = S.sysMode === 'live' || S.sysMode === 'pending';
+    S.hb = S.sysMode === 'heartbeat' || S.sysMode === 'pendinghb';
+    toast(S.sysMode === 'heartbeat' ? 'Mode diterapkan' : 'Reboot untuk menerapkan');
   } catch (e) { toast('Gagal: ' + e.message, true); }
   renderBanners(); openSheet();
 }
@@ -692,9 +714,16 @@ function openSheet() {
     <div class="set">
       <div class="grow">
         <div>System-wide</div>
-        <div class="d">Semua app ikut tanpa dipilih satu per satu. Perlu reboot.</div>
+        <div class="d">Semua app ikut dispoof tanpa dipilih satu per satu. Perlu reboot.</div>
       </div>
       <button class="switch" id="swSys" role="switch" aria-checked="${S.sys}"></button>
+    </div>
+    <div class="set">
+      <div class="grow">
+        <div>Mode heartbeat</div>
+        <div class="d">System hook aktif, tapi hanya app terpilih yang dispoof; app lain tetap lokasi asli. Perlu reboot.</div>
+      </div>
+      <button class="switch" id="swHb" role="switch" aria-checked="${S.hb}"></button>
     </div>
     <div class="set">
       <div class="grow"><div>Folder konfigurasi</div><div class="d mono">${esc(PKGDIR)}</div></div>
@@ -878,6 +907,7 @@ $('#btnReload').addEventListener('click', load);
 $('#banners').addEventListener('click', e => {
   if (e.target.closest('#btnReboot')) B.reboot().catch(err => toast('Gagal reboot: ' + err.message, true));
   else if (e.target.closest('#btnSysOff')) setSysMode(false);
+  else if (e.target.closest('#btnAllOff')) setAllMode(false, false);
 });
 $('#btnApp').addEventListener('click', appAction);
 $('#stBox').addEventListener('click', editCoords);
@@ -903,6 +933,7 @@ $('#sheet').addEventListener('click', e => {
   if (th) { applyTheme(th.dataset.th); openSheet(); return; }
   if (e.target.closest('#swAll')) { S.all ? setAllMode(false) : confirmAll(); return; }
   if (e.target.closest('#swSys')) { S.sys ? setSysMode(false) : confirmSys(); return; }
+  if (e.target.closest('#swHb')) { S.hb ? setSysMode(false) : setHbMode(); return; }
   if (e.target.closest('#sNo')) { openSheet(); return; }
   if (e.target.closest('#sYes')) { setSysMode(true); return; }
   if (e.target.closest('#pNo') || e.target.closest('#cdNo')) { closeSheet(); return; }

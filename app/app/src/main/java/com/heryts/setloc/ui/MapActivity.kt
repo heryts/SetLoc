@@ -9,6 +9,7 @@ import android.location.Address
 import android.location.Geocoder
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
@@ -135,7 +136,10 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
                 return@setOnClickListener
             }
             if (routeReady) {
-                startRoute()
+                // peringatan muncul setiap kali Play ditekan selama mode sistem belum aktif (satu kali per Play;
+                // "Tetap lanjut" langsung menjalankan rute). Dulu ada penanda per proses yang tidak pernah direset,
+                // sehingga setelah muncul sekali pop-up tidak muncul lagi selama app masih hidup.
+                if (systemModeActive()) startRoute() else showSystemModeWarning { startRoute() }
                 return@setOnClickListener
             }
             if (routeWaypoints.size >= 2) {
@@ -308,7 +312,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         RouteRunner.elevations = null
         refreshRouteMarkers()
         // petunjuk sekali per sesi: hapus satu per satu itu lambat, ada cara hapus semua
-        if (routeWaypoints.size >= 2 && !clearHintShown) {
+        if (routeWaypoints.isNotEmpty() && !clearHintShown) {
             clearHintShown = true
             showToast(getString(R.string.route_clear_hint))
         }
@@ -409,6 +413,32 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         binding.route.visibility = if (routeReady && idle) View.VISIBLE else View.GONE
         // hapus: tampil begitu titik awal dipilih (juga saat rute gagal / belum selesai dicari)
         binding.routeDelete.visibility = if (routeWaypoints.isNotEmpty() && idle) View.VISIBLE else View.GONE
+    }
+
+    /**
+     * Mode routing butuh system hook modul (System-wide = gpsz_sys 1, Heartbeat = gpsz_sys 2).
+     * Nilainya ditulis modul/WebUI ke Settings.Global; app biasa boleh membacanya.
+     * Bila tidak terbaca (error), anggap aktif supaya tidak memunculkan peringatan palsu.
+     */
+    private fun systemModeActive(): Boolean = try {
+        val v = Settings.Global.getString(contentResolver, "gpsz_sys")
+        val enabled = v == "1" || v == "2"
+        // nilai gpsz_sys saja tidak membuktikan hook termuat (mis. baru dinyalakan & belum reboot, atau modul
+        // belum meng-inject system_server): modul menulis gpsz_sys_live = boot_count saat hook benar-benar termuat
+        val boot = Settings.Global.getInt(contentResolver, Settings.Global.BOOT_COUNT, -1)
+        val live = Settings.Global.getString(contentResolver, "gpsz_sys_live")?.toIntOrNull()
+        enabled && boot >= 0 && live == boot
+    } catch (e: Exception) {
+        true
+    }
+
+    private fun showSystemModeWarning(onContinue: () -> Unit) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.route_needs_system_title)
+            .setMessage(R.string.route_needs_system_msg)
+            .setPositiveButton(R.string.route_needs_system_continue) { d, _ -> d.dismiss(); onContinue() }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private fun startRoute() {

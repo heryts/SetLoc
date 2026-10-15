@@ -5,13 +5,11 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.heryts.setloc.BuildConfig
 import com.heryts.setloc.gsApp
-import dagger.Reusable
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import rikka.material.app.DayNightDelegate
-import java.io.File
 
 
 @SuppressLint("WorldReadableFiles")
@@ -41,7 +39,6 @@ object PrefManager   {
     private const val ALTITUDE_MANUAL = "altitude_manual"
     private const val ALTITUDE_VAR = "altitude_var"          // dibaca bridge.sh -> altv
     private const val RANDOM_RADIUS = "random_radius"        // dibaca bridge.sh -> rr
-    private const val TS_MS = "ts_ms"                       // cap waktu tulis (untuk ukur latensi), dibaca bridge.sh -> ts
     private const val ROUTE_ACTIVE = "route_active"          // bridge.sh: true -> random position dinonaktifkan sementara
     private const val ALTITUDE_SERVER = "altitude_from_server"
 
@@ -198,7 +195,6 @@ object PrefManager   {
             .putFloat(SPEED_MS, speedMs.coerceAtLeast(0f))
             .putFloat(BEARING, bearing)          // negatif = tanpa arah
             .putBoolean(ROUTE_ACTIVE, routeActive)
-            .putLong(TS_MS, System.currentTimeMillis())
         if (altitude != null) e.putFloat(ALTITUDE, altitude)
         e.apply()
     }

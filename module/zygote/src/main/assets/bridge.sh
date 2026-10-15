@@ -16,6 +16,7 @@ PREF=""
 KEY=gpsz_cfg
 LOG="$MODDIR/bridge.log"
 PIDF="$MODDIR/.daemon.pid"
+PKGDIR="$MODDIR/packages"
 LASTF="$MODDIR/.last_app_cfg"     # nilai turunan dari app yang terakhir disinkronkan
 
 log() {
@@ -23,6 +24,16 @@ log() {
   echo "$(date '+%m-%d %H:%M:%S') $*" >> "$LOG"
 }
 
+
+# Jaga app SetLoc dari pembekuan/pembatasan saat di background (rute harus tetap berjalan walau Maps di depan).
+# Dijalankan di latar belakang & diam-diam: perintah yang tidak ada di ROM ini diabaikan.
+keepalive() {
+  ( cmd deviceidle whitelist +$APP
+    cmd appops set $APP RUN_ANY_IN_BACKGROUND allow
+    cmd appops set $APP RUN_IN_BACKGROUND allow
+    cmd appops set $APP SYSTEM_ALERT_WINDOW allow     # izin overlay 1x1 penjaga proses (RouteService)
+    cmd activity set-standby-bucket $APP active ) >/dev/null 2>&1 &
+}
 
 # Cari file pref app di semua lokasi yang mungkin (multi-user bisa mengalihkan
 # prefs, jadi /data/data/... bisa kosong/basi). Ambil yang paling baru diubah.
@@ -45,7 +56,7 @@ app_installed() { pm path "$APP" 2>/dev/null | grep -q '^package:'; }
 install_app() {
   [ -f "$APK" ] || { echo "APK tidak ditemukan: $APK"; return 1; }
   cp "$APK" /data/local/tmp/gpsz_app.apk && chmod 644 /data/local/tmp/gpsz_app.apk
-  OUT=$(pm install -r /data/local/tmp/gpsz_app.apk 2>&1)
+  OUT=$(pm install -r -d /data/local/tmp/gpsz_app.apk 2>&1)
   rm -f /data/local/tmp/gpsz_app.apk
   echo "$OUT"
   log "pm install: $OUT"
@@ -89,7 +100,6 @@ derive() {
   RR=$(fval float random_radius); numok "$RR" || RR=8
   X=";spd=$SPD;alt=$ALT;altv=$ALTV;rr=$RR"
   numok "$BRG" && X="$X;brg=$BRG"
-  TS=$(fval long ts_ms); numok "$TS" && X="$X;ts=$TS"
   echo "enabled=$E;lat=$LAT;lng=$LNG;acc=$ACC;random=$R$X"
 }
 
@@ -176,6 +186,20 @@ set_app_pos() {
   return 0
 }
 
+# Tandai ke app SetLoc bahwa system hook (System-wide/Heartbeat) sudah termuat di boot ini: gpsz_sys_live = boot_count.
+# Logika sama dengan status "aktif" di WebUI: packages/android sudah ada SEBELUM boot terakhir (jadi ter-inject saat boot)
+# dan gpsz_sys = 1 atau 2. Ditulis oleh root (daemon) karena penulisan dari system_server tidak andal di semua ROM.
+publish_live() {
+  [ -e "$PKGDIR/android" ] || return 0
+  case "$(sget gpsz_sys)" in 1|2) ;; *) return 0 ;; esac
+  MT=$(stat -c %Y "$PKGDIR/android" 2>/dev/null || echo 0)
+  BT=$(( $(date +%s) - $(cut -d. -f1 /proc/uptime) ))
+  [ "$MT" -lt "$BT" ] || return 0
+  BC=$(sget boot_count)
+  case "$BC" in ''|null|*[!0-9]*) return 0 ;; esac
+  [ "$(sget gpsz_sys_live)" = "$BC" ] || { sput gpsz_sys_live "$BC"; log "live: gpsz_sys_live=$BC"; }
+}
+
 daemon_running() {
   [ -f "$PIDF" ] || return 1
   P=$(cat "$PIDF" 2>/dev/null)
@@ -223,9 +247,16 @@ trap 'rm -f "$PIDF"' EXIT
 log "daemon start (pid $$)"
 until [ "$(getprop sys.boot_completed)" = 1 ]; do sleep 5; done
 sleep 5
-app_installed || install_app >/dev/null
+# APK selalu dipasang tiap modul di-flash: bandingkan checksum APK di modul dengan yang terakhir terpasang oleh modul
+SUM=$(md5sum "$APK" 2>/dev/null | cut -d' ' -f1)
+if ! app_installed || [ "$SUM" != "$(cat "$MODDIR/.apk_sum" 2>/dev/null)" ]; then
+  log "pasang APK modul (sum $SUM)"
+  install_app >/dev/null && echo "$SUM" > "$MODDIR/.apk_sum"
+fi
 PREFC=""; PREFC=$(find_pref)
 sync_cfg
+publish_live
+app_installed && keepalive     # izin overlay/whitelist sudah siap sebelum rute pertama dijalankan
 LAST=$(sig)
 log "daemon jalan, pantau $(find_pref deep)"
 # Polling cepat (0,2 dtk) selama spoof aktif supaya posisi rute tidak tertinggal; 0,5 dtk saat nonaktif.
@@ -233,6 +264,7 @@ DELAY=0.5; N=0
 while true; do
   sleep $DELAY
   N=$((N+1))
+  [ $((N % 100)) -eq 0 ] && publish_live   # ~tiap 20-50 dtk; murah, hanya menulis bila nilai berubah
   # path pref di-cache; cari ulang tiap ~5 dtk atau bila file hilang
   if [ $((N % 20)) -eq 0 ] || [ ! -f "$PREFC" ]; then PREFC=""; PREFC=$(find_pref); fi
   S=$(sig)
@@ -251,5 +283,8 @@ while true; do
     elif sync_cfg; then LAST=$S     # tetap gagal: tercatat di log, dicoba lagi di putaran berikut
     fi
   fi
-  case "$NEW" in *enabled=1*) DELAY=0.2 ;; *) DELAY=0.5 ;; esac
+  case "$NEW" in
+    *enabled=1*) DELAY=0.2; [ "$WASON" != 1 ] && { WASON=1; keepalive; } ;;   # spoof baru menyala: jaga app
+    *) DELAY=0.5; WASON=0 ;;
+  esac
 done

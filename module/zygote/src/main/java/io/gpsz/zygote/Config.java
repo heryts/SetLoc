@@ -23,6 +23,8 @@ final class Config {
     static volatile boolean enabled;
     static volatile boolean jitter;
     static volatile boolean system;
+    /** gpsz_sys=2: system_server hanya mengirim "detak" fix ASLI 1 Hz (tanpa mengubah lokasi app lain); spoof tetap per-app. */
+    static volatile boolean sysHeartbeat;
     static volatile double lat = Double.NaN;
     static volatile double lng = Double.NaN;
     static volatile float acc = 10f;
@@ -34,8 +36,6 @@ final class Config {
     static volatile float altVar = 0f;
     /** Radius pergeseran acak posisi (meter), dipakai bila random=1. */
     static volatile float rr = 8f;
-    /** Cap waktu (epoch ms) saat app menulis posisi terakhir; dipakai hanya untuk mengukur latensi (0 = tidak ada). */
-    static volatile long ts = 0;
     private static final Random RND = new Random();
     private static volatile double altNoise = 0.0;
     private static volatile long altAt = 0;
@@ -54,19 +54,17 @@ final class Config {
         return alt + altNoise;
     }
 
-    // ---- pengukuran latensi app -> modul (lihat `logcat -s GpsZ`): umur data saat modul membacanya
-    private static long lastTs = 0, lagN = 0, lagSum = 0, lagMax = 0;
-
-    private static void recordLag() {
-        long t = ts;
-        if (t <= 0 || t == lastTs) return;
-        lastTs = t;
-        long lag = System.currentTimeMillis() - t;
-        if (lag < 0 || lag > 60000) return;          // cap lama/basi atau jam tidak cocok: abaikan
-        lagN++; lagSum += lag; if (lag > lagMax) lagMax = lag;
-        if (lagN >= 10) {
-            Log.i(ZygoteEntry.TAG, "lag app->modul: rata2=" + (lagSum / lagN) + " ms, maks=" + lagMax + " ms (n=" + lagN + ")");
-            lagN = 0; lagSum = 0; lagMax = 0;
+    /**
+     * Tandai bahwa system hook termuat di boot ini: gpsz_sys_live = boot_count. App SetLoc membandingkannya dengan
+     * boot_count saat ini; nilai lama dari boot sebelumnya otomatis tidak cocok. (Jam dinding tidak dipakai karena
+     * bisa melompat saat sinkronisasi waktu.)
+     */
+    private static void publishLive(Application app) {
+        try {
+            int bc = Settings.Global.getInt(app.getContentResolver(), Settings.Global.BOOT_COUNT, -1);
+            Settings.Global.putString(app.getContentResolver(), "gpsz_sys_live", Integer.toString(bc));
+        } catch (Throwable t) {
+            Log.w(ZygoteEntry.TAG, "publish live failed: " + t);
         }
     }
 
@@ -80,7 +78,6 @@ final class Config {
         float ac = acc;
         // field gerak direset tiap parse: kunci yang tidak ada = nilai awal (diam, tanpa arah, alt 0)
         float sp = 0f, br = Float.NaN, av = 0f, rad = 8f;
-        long tsv = 0;
         double al = 0.0;
         for (String kv : s.split(";")) {
             int i = kv.indexOf('=');
@@ -102,13 +99,12 @@ final class Config {
                     }
                     case "alt": al = Double.parseDouble(v); break;
                     case "altv": av = Math.max(0f, Float.parseFloat(v)); break;
-                    case "ts": tsv = Long.parseLong(v); break;
                     case "rr": rad = Math.max(0f, Math.min(100f, Float.parseFloat(v))); break;
                     default: break;
                 }
             } catch (NumberFormatException ignored) { }
         }
-        lat = la; lng = lo; acc = ac; spd = sp; brg = br; alt = al; altVar = av; rr = rad; ts = tsv; jitter = jit; enabled = en;
+        lat = la; lng = lo; acc = ac; spd = sp; brg = br; alt = al; altVar = av; rr = rad; jitter = jit; enabled = en;
     }
 
     private static Application currentApplication() {
@@ -143,11 +139,13 @@ final class Config {
             for (;;) {
                 try {
                     parse(Settings.Global.getString(app.getContentResolver(), KEY));
-                    recordLag();
-                    system = "1".equals(Settings.Global.getString(app.getContentResolver(), KEY_SYS));
+                    String sv = Settings.Global.getString(app.getContentResolver(), KEY_SYS);
+                    system = "1".equals(sv) || "2".equals(sv);
+                    sysHeartbeat = "2".equals(sv);
                     if (onReady != null && !readyRan && system) {
                         readyRan = true;
                         onReady.run();
+                        publishLive(app);
                     }
                 } catch (Throwable t) {
                     Log.w(ZygoteEntry.TAG, "config read failed: " + t);
