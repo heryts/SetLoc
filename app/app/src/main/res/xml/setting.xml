@@ -66,9 +66,14 @@
 
     </PreferenceCategory>
 
+    <PreferenceCategory android:title="@string/settings_route">
 
+        <SwitchPreference
+            android:title="@string/settings_traffic_aware"
+            android:summary="@string/settings_traffic_aware_summary"
+            android:defaultValue="false"
+            android:key="route_traffic_aware"/>
 
-
-
+    </PreferenceCategory>
 
 </PreferenceScreen>

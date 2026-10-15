@@ -25,6 +25,7 @@ object PrefManager   {
     private const val MAP_TYPE = "map_type"
     private const val DARK_THEME = "dark_theme"
     private const val DISABLE_UPDATE = "disable_update"
+    private const val ROUTE_TRAFFIC = "route_traffic_aware"
     private const val ROUTE_SPEED = "route_speed"
     private const val ROUTE_MODE = "route_mode"
     private const val ROUTE_WAIT = "route_wait_start"
@@ -95,6 +96,11 @@ object PrefManager   {
         set(value) = pref.edit().putBoolean(DISABLE_UPDATE, value).apply()
 
 
+
+    /** Rute mobil/motor memakai TRAFFIC_AWARE (SKU Pro, jatah gratis 5.000/bulan). Default mati = Essentials (10.000/bulan). */
+    var trafficAware: Boolean
+        get() = pref.getBoolean(ROUTE_TRAFFIC, false)
+        set(value) { pref.edit().putBoolean(ROUTE_TRAFFIC, value).apply() }
 
     /** Mode rute: 0 jalan kaki, 1 sepeda, 2 motor, 3 mobil. */
     var routeMode: Int

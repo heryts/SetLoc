@@ -97,4 +97,8 @@
     <string name="route_needs_system_msg">For a more accurate, real-time route on&#160;target apps, turn on System-wide or&#160;Heartbeat mode.</string>
     <string name="route_needs_system_continue">Continue anyway</string>
 
+    <string name="settings_route">Route</string>
+    <string name="settings_traffic_aware">Traffic aware</string>
+    <string name="settings_traffic_aware_summary">Route follows current traffic</string>
+
 </resources>

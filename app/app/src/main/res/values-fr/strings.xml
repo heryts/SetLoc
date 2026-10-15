@@ -97,4 +97,8 @@
     <string name="route_needs_system_msg">Pour un itinéraire plus précis et en temps réel dans les apps cibles, activez le mode System-wide ou&#160;Heartbeat.</string>
     <string name="route_needs_system_continue">Continuer quand même</string>
 
+    <string name="settings_route">Itinéraire</string>
+    <string name="settings_traffic_aware">Trafic en temps réel</string>
+    <string name="settings_traffic_aware_summary">L\’itinéraire suit le trafic actuel</string>
+
 </resources>

@@ -14,8 +14,8 @@ android {
         applicationId = namespace
         minSdk = 26
         targetSdk = 36
-        versionCode = 319
-        versionName = "3.19"
+        versionCode = 320
+        versionName = "3.20"
     }
 
     sourceSets {

@@ -98,4 +98,8 @@
     <string name="route_needs_system_msg">Agar rute di app target lebih akurat dan real-time, nyalakan mode System-wide atau&#160;Heartbeat.</string>
     <string name="route_needs_system_continue">Tetap lanjut</string>
 
+    <string name="settings_route">Rute</string>
+    <string name="settings_traffic_aware">Traffic aware</string>
+    <string name="settings_traffic_aware_summary">Rute mengikuti lalu lintas saat ini</string>
+
 </resources>

@@ -36,6 +36,7 @@ class SettingsActivity : AppCompatActivity() {
                 "random_position" -> PrefManager.isRandomPosition
                 "disable_update" -> PrefManager.disableUpdate
                 "altitude_from_server" -> PrefManager.altitudeFromServer
+                "route_traffic_aware" -> PrefManager.trafficAware
                 else -> throw IllegalArgumentException("Invalid key $key")
             }
         }
@@ -46,6 +47,7 @@ class SettingsActivity : AppCompatActivity() {
                 "random_position" -> PrefManager.isRandomPosition = value
                 "disable_update" -> PrefManager.disableUpdate = value
                 "altitude_from_server" -> PrefManager.altitudeFromServer = value
+                "route_traffic_aware" -> PrefManager.trafficAware = value
                 else -> throw IllegalArgumentException("Invalid key $key")
             }
         }

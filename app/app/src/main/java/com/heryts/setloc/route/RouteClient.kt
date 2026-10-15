@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import com.google.android.gms.maps.model.LatLng
+import com.heryts.setloc.utils.PrefManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -23,8 +24,12 @@ object RouteClient {
 
     class Result(val points: List<LatLng>, val distanceM: Double, val durationS: Double)
 
-    /** Mode perjalanan: indeks sama dengan PrefManager.routeMode. */
-    private val MODES = arrayOf("WALK", "BICYCLE", "TWO_WHEELER", "DRIVE")
+    /**
+     * Mode perjalanan: indeks sama dengan PrefManager.routeMode.
+     * Motor (indeks 2) sengaja memakai DRIVE, bukan TWO_WHEELER: TWO_WHEELER ditagih sebagai Enterprise
+     * (jatah gratis hanya 1.000/bulan), sedangkan DRIVE Essentials/Pro. Kecepatan motor tetap lewat AutoSpeed.
+     */
+    private val MODES = arrayOf("WALK", "BICYCLE", "DRIVE", "DRIVE")
 
     private const val ENDPOINT = "https://routes.googleapis.com/directions/v2:computeRoutes"
 
@@ -37,12 +42,7 @@ object RouteClient {
             if (stops.size < 2) throw RouteException("Minimal dua titik")
             val appCtx = context.applicationContext
             val wanted = mode.coerceIn(0, MODES.size - 1)
-            try {
-                request(appCtx, stops, MODES[wanted])
-            } catch (e: RouteException) {
-                // TWO_WHEELER tidak didukung di semua wilayah -> coba lagi sebagai mobil
-                if (MODES[wanted] == "TWO_WHEELER") request(appCtx, stops, "DRIVE") else throw e
-            }
+            request(appCtx, stops, MODES[wanted])
         }
 
     private fun request(context: Context, stops: List<LatLng>, travelMode: String): Result {
@@ -53,6 +53,9 @@ object RouteClient {
             .put("destination", waypoint(stops.last()))
             .put("travelMode", travelMode)
             .put("polylineEncoding", "ENCODED_POLYLINE")
+        // Opsional (Pengaturan, default mati): traffic-aware = SKU Pro, jatah gratis 5.000/bulan; hanya valid untuk DRIVE; durasi memperhitungkan lalu lintas
+        // saat ini sehingga kecepatan otomatis (AutoSpeed) mengikuti macet/lancar. Jalan kaki & sepeda tetap Essentials.
+        if (travelMode == "DRIVE" && PrefManager.trafficAware) body.put("routingPreference", "TRAFFIC_AWARE")
         if (stops.size > 2) {
             val mid = JSONArray()
             for (i in 1 until stops.size - 1) mid.put(waypoint(stops[i]))
