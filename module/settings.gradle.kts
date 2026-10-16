@@ -18,7 +18,7 @@ dependencyResolutionManagement {
         maven("https://jitpack.io")
     }
     versionCatalogs {
-        // Needs external/AndroidVMTools (run setup.sh first)
+        // butuh external/AndroidVMTools (jalankan setup.sh)
         create("androidvmtools") {
             from(files(Path(rootDir.path, "external", "AndroidVMTools", "gradle", "libs.versions.toml")))
         }

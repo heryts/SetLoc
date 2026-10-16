@@ -1,6 +1,5 @@
 package com.heryts.setloc.ui
 
-
 import android.os.Bundle
 import android.text.Editable
 import android.text.InputType
@@ -20,21 +19,18 @@ import com.heryts.setloc.databinding.SettingsActivityBinding
 import com.heryts.setloc.utils.PrefManager
 import rikka.preference.SimpleMenuPreference
 
-
 class SettingsActivity : AppCompatActivity() {
 
     private val binding by lazy {
         SettingsActivityBinding.inflate(layoutInflater)
     }
 
-    class SettingPreferenceDataStore() : PreferenceDataStore() {
+    class SettingPreferenceDataStore : PreferenceDataStore() {
         private fun fmt(f: Float) = if (f % 1f == 0f) f.toInt().toString() else f.toString()
 
         override fun getBoolean(key: String?, defValue: Boolean): Boolean {
             return when (key) {
-                "isHookedSystem" -> PrefManager.isHookSystem
                 "random_position" -> PrefManager.isRandomPosition
-                "disable_update" -> PrefManager.disableUpdate
                 "altitude_from_server" -> PrefManager.altitudeFromServer
                 "route_traffic_aware" -> PrefManager.trafficAware
                 else -> throw IllegalArgumentException("Invalid key $key")
@@ -43,9 +39,7 @@ class SettingsActivity : AppCompatActivity() {
 
         override fun putBoolean(key: String?, value: Boolean) {
             return when (key) {
-                "isHookedSystem" -> PrefManager.isHookSystem = value
                 "random_position" -> PrefManager.isRandomPosition = value
-                "disable_update" -> PrefManager.disableUpdate = value
                 "altitude_from_server" -> PrefManager.altitudeFromServer = value
                 "route_traffic_aware" -> PrefManager.trafficAware = value
                 else -> throw IllegalArgumentException("Invalid key $key")
@@ -80,7 +74,6 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
@@ -101,7 +94,6 @@ class SettingsActivity : AppCompatActivity() {
                 }
             }
         )
-
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
@@ -111,14 +103,12 @@ class SettingsActivity : AppCompatActivity() {
         return super.onOptionsItemSelected(item)
     }
 
-
     class SettingsPreferenceFragment : PreferenceFragmentCompat() {
 
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
             preferenceManager?.preferenceDataStore = SettingPreferenceDataStore()
             setPreferencesFromResource(R.xml.setting, rootKey)
 
-            // selama rute berjalan, Random position dinonaktifkan otomatis (nilainya tetap, kembali berlaku setelah rute)
             findPreference<androidx.preference.SwitchPreference>("random_position")?.let {
                 if (PrefManager.routeActive) {
                     it.isEnabled = false
@@ -129,28 +119,17 @@ class SettingsActivity : AppCompatActivity() {
             findPreference<EditTextPreference>("accuracy_settings")?.let {
                 it.summary = "${PrefManager.accuracy} m."
                 it.setOnBindEditTextListener { editText ->
-                    editText.inputType = InputType.TYPE_CLASS_NUMBER;
-                    editText.keyListener = DigitsKeyListener.getInstance("0123456789.,");
-                    editText.addTextChangedListener(getCommaReplacerTextWatcher(editText));
+                    editText.inputType = InputType.TYPE_CLASS_NUMBER
+                    editText.keyListener = DigitsKeyListener.getInstance("0123456789.,")
+                    editText.addTextChangedListener(getCommaReplacerTextWatcher(editText))
                 }
 
                 it.setOnPreferenceChangeListener { preference, newValue ->
-                    try {
-                        newValue as String?
-                        preference.summary = "$newValue  m."
-                    } catch (n: NumberFormatException) {
-                        n.printStackTrace()
-                        Toast.makeText(
-                            requireContext(),
-                            getString(R.string.enter_valid_input),
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
+                    preference.summary = "$newValue m."
                     true
                 }
             }
 
-            // altitude manual (boleh negatif) dan variasi: angka desimal, ringkasan menampilkan nilainya
             for ((key, signed) in listOf("altitude_manual" to true, "altitude_var" to false, "random_radius" to false)) {
                 findPreference<EditTextPreference>(key)?.let { pref ->
                     val show = { v: String? -> pref.summary = "${v ?: "0"} m" }
@@ -178,40 +157,18 @@ class SettingsActivity : AppCompatActivity() {
                 }
                 true
             }
-
-
-
         }
 
-        private fun getCommaReplacerTextWatcher(editText: EditText): TextWatcher {
-            return object : TextWatcher {
-                override fun beforeTextChanged(
-                    charSequence: CharSequence,
-                    i: Int,
-                    i1: Int,
-                    i2: Int
-                ) {
-                }
-
-                override fun onTextChanged(
-                    charSequence: CharSequence,
-                    i: Int,
-                    i1: Int,
-                    i2: Int
-                ) {
-                }
-
-                override fun afterTextChanged(editable: Editable) {
-                    val text = editable.toString()
-                    if (text.contains(",")) {
-                        editText.setText(text.replace(",", "."))
-                        editText.setSelection(editText.text.length)
-                    }
+        private fun getCommaReplacerTextWatcher(editText: EditText) = object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(editable: Editable) {
+                val text = editable.toString()
+                if (text.contains(",")) {
+                    editText.setText(text.replace(",", "."))
+                    editText.setSelection(editText.text.length)
                 }
             }
         }
-
     }
-
-
 }

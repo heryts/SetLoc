@@ -1,26 +1,20 @@
 package com.heryts.setloc.utils.ext
 
-
-import android.Manifest
-import android.annotation.TargetApi
-import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.widget.Toast
-import androidx.core.app.ActivityCompat.requestPermissions
 import androidx.core.content.ContextCompat
-import com.heryts.setloc.ui.MapActivity
 
-fun Context.showToast(msg : String){
-    Toast.makeText(this,msg, Toast.LENGTH_LONG).show()
+fun Context.showToast(msg: String) {
+    Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
 }
 
 fun Context.isNetworkConnected(): Boolean {
-    val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-    val networkCapabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
-    val capabilities = arrayOf(
+    val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    val caps = cm.getNetworkCapabilities(cm.activeNetwork)
+    return intArrayOf(
         NetworkCapabilities.TRANSPORT_BLUETOOTH,
         NetworkCapabilities.TRANSPORT_CELLULAR,
         NetworkCapabilities.TRANSPORT_ETHERNET,
@@ -28,12 +22,8 @@ fun Context.isNetworkConnected(): Boolean {
         NetworkCapabilities.TRANSPORT_VPN,
         NetworkCapabilities.TRANSPORT_WIFI,
         NetworkCapabilities.TRANSPORT_WIFI_AWARE
-    )
-    return capabilities.any { networkCapabilities?.hasTransport(it) ?: false }
+    ).any { caps?.hasTransport(it) ?: false }
 }
 
-
- fun Context.checkSinglePermission(permission: String) : Boolean {
-    return ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
-}
-
+fun Context.checkSinglePermission(permission: String): Boolean =
+    ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED

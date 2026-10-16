@@ -9,7 +9,4 @@
         <item name="android:navigationBarColor">@android:color/transparent</item>
 
     </style>
-
-
-
 </resources>

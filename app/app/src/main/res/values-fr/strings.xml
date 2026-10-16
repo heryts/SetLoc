@@ -1,46 +1,23 @@
 <resources>
     <string name="app_name">Régulateur GPS</string>
-    <string name="title_activity_maps">ActivitéMaps</string>
-    <string name="search">Rechercher</string>
-
-
-    <!-- Errors -->
-    <string name="error_missing_root">Pas d\’accès raçine</string>
-    <string name="error_missing_root_desc">L\’accès raçine est nécessaire pour que cette application puisse gérrer les surcouches et fonctionner correctement.</string>
 
     <string name="record_saved">Enregistrer</string>
-
 
     <string name="address">Etats Unis</string>
     <string name="add_favourite">Ajouter le favoris</string>
     <string name="Search">rechercher</string>
-    <string name="rename_favourite">Renommer favoris</string>
-    <string name="add_fav_in_database">Ajouter favoris à la base de données</string>
-    <string name="show_fav_list">Afficher la liste des favoris</string>
     <string name="favourites">Favoris</string>
     <string name="address_not_found">Addresse introuvable</string>
-
 
     <!-- About -->
 
     <string name="about">A propos</string>
-    <string name="about_tittle">Régulateur GPS</string>
     <string name="about_info">Un module qui définira votre localisation où que vous le vouliez sans activer la localisation.</string>
-
-    <!-- Update -->
-
-    <string name="download_manager_description">Téléchargement de la mise à jour…</string>
-    <string name="update_button">Mise à jour</string>
-    <string name="update_available">Mise à jour disponible</string>
-    <string name="bs_update_download_failed">Échec</string>
-
 
     <string name="cant_save">Enregistrement impossible</string>
     <string name="location_set">Définir localisation</string>
     <string name="title">Notification de l\’emplacement définie</string>
     <string name="des">Afficher une notification lorsce que la localisation sera définie</string>
-
-    <string name="dialog_button_ok">OK</string>
 
     <string name="add_fav_dialog_title">Ajouter favoris</string>
     <string name="dialog_button_add">Ajouter</string>
@@ -51,14 +28,12 @@
     <!-- SettingActivity -->
 
     <string name="settings_location">Location</string>
-    <string name="advance_hook">Hammeçonner la localisation du système</string>
     <string name="settings">Réglages</string>
     <string name="settings_of_accuracy">Précision</string>
     <string name="preference_category_general">Général</string>
     <string name="enter_valid_input">Entrer un numéro valide</string>
     <string name="delete_favourite_item">Supprimer favoris</string>
     <string name="title_activity_settings">Réglges</string>
-
 
     <!-- Route -->
     <string name="route_options">Options de l\’itinéraire</string>
@@ -85,6 +60,7 @@
     <string name="route_altitude">Altitude (m)</string>
     <string name="route_altitude_var">m</string>
     <string name="route_altitude_server">Obtenir l\’altitude du serveur (l\’altitude ci-dessus sert de secours)</string>
+    <string name="route_traffic_aware">Trafic en temps réel (itinéraire voiture &amp; moto selon le trafic actuel)</string>
     <string name="settings_altitude_server">Obtenir l\’altitude du serveur</string>
     <string name="settings_altitude_server_summary">Elevation API, puis Open-Meteo\nDésactivé = altitude ci-dessous</string>
     <string name="settings_random_paused">Suspendu pendant un itinéraire</string>
@@ -93,6 +69,7 @@
     <string name="settings_altitude_var">Variation d\’altitude ± (m)</string>
 
     <string name="route_auto">auto</string>
+    <string name="route_auto_stop">Arrêt automatique</string>
     <string name="route_needs_system_title">Hook système inactif</string>
     <string name="route_needs_system_msg">Pour un itinéraire plus précis et en temps réel dans les apps cibles, activez le mode System-wide ou&#160;Heartbeat.</string>
     <string name="route_needs_system_continue">Continuer quand même</string>
@@ -100,5 +77,4 @@
     <string name="settings_route">Itinéraire</string>
     <string name="settings_traffic_aware">Trafic en temps réel</string>
     <string name="settings_traffic_aware_summary">L\’itinéraire suit le trafic actuel</string>
-
 </resources>

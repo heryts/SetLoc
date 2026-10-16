@@ -1,7 +1,6 @@
 #!/bin/sh
-# pakai: sh inject-install.sh <zip modul> <40-install-apk.sh>
-# Skrip disisipkan SESUDAH baris 90-restore-module-permission di customize.sh. Skrip 90 meng-reset izin seluruh
-# isi modul ke 0644, jadi set_perm 0755 untuk service.sh/bridge.sh di 40-install-apk.sh harus jalan sesudahnya.
+# Pakai: sh inject-install.sh <zip modul> <40-install-apk.sh>
+# Menyisipkan part 40 ke customize.sh di dalam zip bila belum ada (zip dari plugin sudah memuatnya).
 set -e
 Z=$(readlink -f "$1"); P=$(readlink -f "$2")
 W=$(mktemp -d); cd "$W"

@@ -1,47 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">SetLoc</string>
-    <string name="title_activity_maps">MapsActivity</string>
-    <string name="search">Cari</string>
-
-
-    <!-- Errors -->
-    <string name="error_missing_root">Tidak ada akses root</string>
-    <string name="error_missing_root_desc">Akses root diperlukan agar aplikasi ini dapat mengelola overlay dan berfungsi dengan benar.</string>
 
     <string name="record_saved">Simpan</string>
-
 
     <string name="address">Amerika Serikat</string>
     <string name="add_favourite">Tambah favorit</string>
     <string name="Search">cari</string>
-    <string name="rename_favourite">Ubah nama favorit</string>
-    <string name="add_fav_in_database">Tambah favorit ke database</string>
-    <string name="show_fav_list">Tampilkan daftar favorit</string>
     <string name="favourites">Favorit</string>
     <string name="address_not_found">Alamat tidak ditemukan</string>
-
 
     <!-- About -->
 
     <string name="about">Tentang</string>
-    <string name="about_tittle">SetLoc</string>
     <string name="about_info">Atur lokasi sesuai keinginan</string>
-
-    <!-- Update -->
-
-    <string name="download_manager_description">Mengunduh pembaruan…</string>
-    <string name="update_button">Perbarui</string>
-    <string name="update_available">Pembaruan tersedia</string>
-    <string name="bs_update_download_failed">Gagal</string>
-
 
     <string name="cant_save">Tidak bisa menyimpan</string>
     <string name="location_set">Lokasi diatur</string>
     <string name="title">Notifikasi lokasi diatur</string>
     <string name="des">Tampilkan notifikasi saat lokasi diatur</string>
-
-    <string name="dialog_button_ok">OK</string>
 
     <string name="add_fav_dialog_title">Tambah favorit</string>
     <string name="dialog_button_add">Tambah</string>
@@ -52,14 +29,12 @@
     <!-- SettingActivity -->
 
     <string name="settings_location">Lokasi</string>
-    <string name="advance_hook">Hook lokasi sistem</string>
     <string name="settings">Pengaturan</string>
     <string name="settings_of_accuracy">Akurasi</string>
     <string name="preference_category_general">Umum</string>
     <string name="enter_valid_input">Masukkan angka yang valid</string>
     <string name="delete_favourite_item">Hapus favorit</string>
     <string name="title_activity_settings">Pengaturan</string>
-
 
     <!-- Route -->
     <string name="route_options">Opsi rute</string>
@@ -86,6 +61,7 @@
     <string name="route_altitude">Ketinggian (m)</string>
     <string name="route_altitude_var">m</string>
     <string name="route_altitude_server">Ambil ketinggian dari server (Ketinggian di atas jadi cadangan)</string>
+    <string name="route_traffic_aware">Traffic aware (rute mobil &amp; motor mengikuti lalu lintas saat ini)</string>
     <string name="settings_altitude_server">Ambil ketinggian dari server</string>
     <string name="settings_altitude_server_summary">Elevation API, lalu Open-Meteo\nMati = pakai ketinggian di bawah</string>
     <string name="settings_random_paused">Dijeda selama rute berjalan</string>
@@ -94,6 +70,7 @@
     <string name="settings_altitude_var">Variasi ketinggian ± (m)</string>
 
     <string name="route_auto">otomatis</string>
+    <string name="route_auto_stop">Berhenti otomatis</string>
     <string name="route_needs_system_title">System hook belum aktif</string>
     <string name="route_needs_system_msg">Agar rute di app target lebih akurat dan real-time, nyalakan mode System-wide atau&#160;Heartbeat.</string>
     <string name="route_needs_system_continue">Tetap lanjut</string>
@@ -101,5 +78,4 @@
     <string name="settings_route">Rute</string>
     <string name="settings_traffic_aware">Traffic aware</string>
     <string name="settings_traffic_aware_summary">Rute mengikuti lalu lintas saat ini</string>
-
 </resources>

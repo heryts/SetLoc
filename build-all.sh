@@ -1,7 +1,7 @@
 #!/bin/sh
-# Build app SetLoc -> taruh ke modul -> build zip modul Zygisk.
-# Syarat: JDK 21 (modul) / JDK 17 (app), Android SDK 36 + build-tools 33.0.0 + platform 33, git, jaringan.
-# Peta Google: export MAPS_API_KEY=xxxx   (atau isi app/local.properties: MAPS_API_KEY=xxxx)
+# Build app -> taruh APK ke modul -> build zip modul Zygisk.
+# Butuh JDK 17 (app) / JDK 21 (modul), Android SDK 36 + build-tools 33.0.0 + platform 33, git, jaringan.
+# Peta Google: export MAPS_API_KEY=xxxx (atau isi app/local.properties).
 set -e
 cd "$(dirname "$0")"
 
@@ -14,7 +14,6 @@ echo "== 1/3 build app =="
 APK=$(ls app/app/build/outputs/apk/release/*.apk | head -1)
 mkdir -p module/zygote/src/main/assets/apk
 cp "$APK" module/zygote/src/main/assets/apk/SetLoc.apk
-echo "APK dimasukkan ke modul: $APK"
 
 echo "== 2/3 siapkan AndroidVMTools =="
 ( cd module && sh setup.sh )

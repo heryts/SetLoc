@@ -1,13 +1,8 @@
 #!/system/bin/sh
-# Run as root:  su -c "sh /data/adb/modules/setloc_zygisk/gpsz.sh <cmd>"
-#   on | off | toggle   (juga mengubah tombol Start/Stop di app SetLoc) | set <lat> <lng> [acc] | random 0|1 | show
-#   pkg add <package> | pkg rm <package> | pkg list | pkg all on|off
-#   system on|off|status   (hook system_server/LocationManagerService; wajib REBOOT)
-#   sync | status | check <package>   (diagnosa)
+# su -c "sh /data/adb/modules/setloc_zygisk/gpsz.sh <cmd>"; perintah lengkap: jalankan tanpa argumen.
 MODDIR=$(cd "$(dirname "$0")" && pwd)
 PKGDIR="$MODDIR/packages"
 KEY=gpsz_cfg
-# ambil dulu perubahan terbaru dari app SetLoc (hanya menimpa bila pengaturan di app berubah)
 case "$1" in sync|check|status) ;; *) sh "$MODDIR/bridge.sh" sync >/dev/null 2>&1 ;; esac
 RAW=$(settings get global $KEY 2>/dev/null)
 get() { echo "$RAW" | tr ';' '\n' | sed -n "s/^$1=//p" | head -1; }
@@ -16,7 +11,6 @@ LAT=$(get lat);    [ -z "$LAT" ] && LAT=-6.2088
 LNG=$(get lng);    [ -z "$LNG" ] && LNG=106.8456
 ACC=$(get acc);    [ -z "$ACC" ] && ACC=10
 RND=$(get random); [ -z "$RND" ] && RND=0
-# kecepatan/arah/ketinggian dari app; ikut dibawa saat save supaya tidak hilang
 SPD=$(get spd); BRG=$(get brg); ALT=$(get alt); ALTV=$(get altv); RR=$(get rr)
 save() {
   X=""
@@ -27,6 +21,12 @@ save() {
   [ -n "$BRG" ] && X="$X;brg=$BRG"
   settings put global $KEY "enabled=$E;lat=$LAT;lng=$LNG;acc=$ACC;random=$RND$X"
 }
+injected() {
+  [ -e "$PKGDIR/android" ] || return 1
+  mt=$(stat -c %Y "$PKGDIR/android" 2>/dev/null || echo 0)
+  [ "$mt" -lt $(( $(date +%s) - $(cut -d. -f1 /proc/uptime) )) ]
+}
+sysmode() { mkdir -p "$PKGDIR" && rm -f "$PKGDIR/.sysoff" && { [ -e "$PKGDIR/android" ] || : > "$PKGDIR/android"; } && settings put global gpsz_sys $1; }
 isnum() { case "$1" in ''|*[!0-9.-]*) return 1 ;; *) return 0 ;; esac; }
 validpkg() { case "$1" in ''|.*|*[!A-Za-z0-9._]*) return 1 ;; *) return 0 ;; esac; }
 
@@ -36,7 +36,7 @@ case "$1" in
   toggle) [ "$E" = 1 ] && E=0 || E=1; save; sh "$MODDIR/bridge.sh" setstart $E >/dev/null 2>&1 ;;
   set)
     isnum "$2" && isnum "$3" || { echo "usage: set <lat> <lng> [acc]"; exit 1; }
-    LAT=$2; LNG=$3; SPD=0; BRG=""   # titik manual = diam
+    LAT=$2; LNG=$3; SPD=0; BRG=""
     if [ -n "$4" ]; then isnum "$4" || { echo "acc must be a number"; exit 1; }; ACC=$4; fi
     save ;;
   random) RND=$2; save ;;
@@ -44,9 +44,7 @@ case "$1" in
           [ -e "$PKGDIR/.all" ] && echo "packages: ALL apps (listed ones below are EXCLUDED)"
           ls -1A "$PKGDIR" 2>/dev/null | grep -v '^\.\(all\|sysoff\)$' | sed 's/^/  pkg: /' ;;
   pkg)
-    # ZygoteLoader reads $MODDIR/packages/<name> at every app start; no rebuild needed.
-    # NOTE: it enables a package when (file <name> exists) XOR (file .all exists):
-    #       .all + <name> together means "all apps except <name>".
+    # ZygoteLoader membaca packages/<nama> tiap app start: di-hook = (file ada) XOR (.all ada)
     case "$2" in
       add)  validpkg "$3" || { echo "usage: pkg add <package>"; exit 1; }
             mkdir -p "$PKGDIR" && : > "$PKGDIR/$3" && am force-stop "$3" 2>/dev/null
@@ -61,27 +59,20 @@ case "$1" in
       *)    echo "pkg add|rm <package> | pkg list | pkg all on|off" ;;
     esac ;;
   system)
-    # Hook system_server: modul harus di-inject ke "android" (file packages/android) -> perlu reboot.
-    # Jika bootloop: dari recovery/adb buat file /data/adb/modules/setloc_zygisk/disable
     case "$2" in
-      on)  mkdir -p "$PKGDIR" && rm -f "$PKGDIR/.sysoff" && { [ -e "$PKGDIR/android" ] || : > "$PKGDIR/android"; } && settings put global gpsz_sys 1
+      on)  sysmode 1
            echo "system hook ON (mode PENUH: semua app dispoof). REBOOT dibutuhkan bila belum live. Bootloop? buat file $MODDIR/disable dari recovery." ;;
-      heartbeat) mkdir -p "$PKGDIR" && rm -f "$PKGDIR/.sysoff" && { [ -e "$PKGDIR/android" ] || : > "$PKGDIR/android"; } && settings put global gpsz_sys 2
+      heartbeat) sysmode 2
            echo "system hook mode HEARTBEAT: sistem hanya mengulang fix asli 1 Hz, lokasi app lain TIDAK diubah (spoof hanya app di packages/). Bila sudah live, berlaku tanpa reboot; bila belum, REBOOT." ;;
-      off) live=0
-           if [ -e "$PKGDIR/android" ]; then
-             mt=$(stat -c %Y "$PKGDIR/android" 2>/dev/null || echo 0); boot=$(( $(date +%s) - $(cut -d. -f1 /proc/uptime) ))
-             [ "$mt" -lt "$boot" ] && live=1
-           fi
+      off) injected && live=1 || live=0
            rm -f "$PKGDIR/android" "$PKGDIR/.sysoff"; [ "$live" = 1 ] && : > "$PKGDIR/.sysoff"
            settings put global gpsz_sys 0
            echo "system hook OFF. Reboot agar system_server tidak lagi di-inject." ;;
       status) [ -e "$PKGDIR/android" ] && F=ya || F=tidak
            ST=off
-           if [ "$F" = ya ] && case "$(settings get global gpsz_sys 2>/dev/null)" in 1|2) true ;; *) false ;; esac; then
-             mt=$(stat -c %Y "$PKGDIR/android" 2>/dev/null || echo 0); boot=$(( $(date +%s) - $(cut -d. -f1 /proc/uptime) ))
-             [ "$mt" -lt "$boot" ] && ST=live || ST=pending
-           fi
+           case "$(settings get global gpsz_sys 2>/dev/null)" in
+             1|2) [ "$F" = ya ] && { injected && ST=live || ST=pending; } ;;
+           esac
            echo "packages/android: $F   gpsz_sys=$(settings get global gpsz_sys 2>/dev/null)   state=$ST"
            echo "log system hook (logcat -s GpsZ):"
            logcat -d -s GpsZ:I 2>/dev/null | grep -i "system hook" | tail -12 | sed 's/^/  /' ;;
@@ -90,7 +81,6 @@ case "$1" in
   sync)   sh "$MODDIR/bridge.sh" force; echo "cfg=$(settings get global $KEY 2>/dev/null)" ;;
   status) sh "$MODDIR/bridge.sh" status ;;
   check)
-    # Diagnosa: apakah <package> seharusnya/benar-benar ter-inject modul?
     validpkg "$2" || { echo "usage: check <package>"; exit 1; }
     [ -e "$PKGDIR/$2" ] && F=ya || F=tidak
     [ -e "$PKGDIR/.all" ] && A=ya || A=tidak

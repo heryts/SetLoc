@@ -14,14 +14,13 @@ android {
         applicationId = namespace
         minSdk = 26
         targetSdk = 36
-        versionCode = 323
-        versionName = "3.23"
+        versionCode = 327
+        versionName = "3.27"
     }
 
     sourceSets {
         getByName("main") {
             java {
-                // AndroidVMTools is consumed as source (same approach HMA-OSS uses)
                 srcDirs(Path(rootDir.path, "external", "AndroidVMTools", "src", "main", "java"))
             }
         }
@@ -35,10 +34,9 @@ android {
 
 val targetPackages = (providers.gradleProperty("gpsz.packages").orNull ?: "")
     .split(",").map { it.trim() }.filter { it.isNotEmpty() }
-// may be empty: packages can be added at runtime with `gpsz.sh pkg add <package>`
 
 zygisk {
-    packages(*targetPackages.toTypedArray())  // -> packages/<name> files in the module (read by ZygoteLoader at app start)
+    packages(*targetPackages.toTypedArray())
 
     id = "setloc_zygisk"
     name = "SetLoc Zygisk"

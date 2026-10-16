@@ -1,7 +1,6 @@
 #!/bin/sh
 # Ubah release-key.pem + release-cert.pem jadi keystore PKCS12 untuk Gradle.
-# Pakai: sh make-keystore.sh /path/release-key.pem /path/release-cert.pem [/path/output/release.p12]
-# Simpan .p12 di luar folder project (atau biarkan default; *.p12 sudah di-ignore Git).
+# Pakai: sh make-keystore.sh <release-key.pem> <release-cert.pem> [output.p12]
 set -e
 cd "$(dirname "$0")"
 KEY="${1:?isi path release-key.pem}"
@@ -17,6 +16,6 @@ keyAlias=$ALIAS
 keyPassword=$PASS
 EOP
 chmod 600 app/keystore.properties "$OUT"
-echo "OK: $OUT dan app/keystore.properties dibuat (keduanya jangan di-commit)."
+echo "OK: $OUT dan app/keystore.properties dibuat (jangan di-commit)."
 echo "SHA-1 untuk pembatasan Maps API key:"
 openssl x509 -in "$CERT" -noout -fingerprint -sha1

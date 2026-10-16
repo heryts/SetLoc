@@ -13,7 +13,6 @@
         android:title="@string/add_favourite"
         app:showAsAction="never"/>
 
-
     <item
         android:id="@+id/get_favourite"
         android:title="@string/favourites"
@@ -28,7 +27,5 @@
         android:id="@+id/about"
         android:title="@string/about"
         app:showAsAction="never"/>
-
-
 
 </menu>

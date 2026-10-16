@@ -7,7 +7,6 @@
 <title>SetLoc Zygisk</title>
 <link rel="stylesheet" href="https://mui.kernelsu.org/internal/insets.css">
 <script>
-  // Terapkan tema sebelum render supaya tidak berkedip
   (function () {
     var t = 'system';
     try { t = localStorage.getItem('gpsz_theme') || 'system'; } catch (e) {}
@@ -45,7 +44,7 @@
 }
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 html, body { background: var(--bg); color: var(--text); color-scheme: light; }
-.dark html, html.dark, html.dark body { color-scheme: dark; }
+html.dark, html.dark body { color-scheme: dark; }
 body {
   font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 15px; line-height: 1.4;
@@ -56,7 +55,6 @@ body {
 button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
 input { font: inherit; color: inherit; }
 
-/* ---------- Header ---------- */
 .hero {
   background: linear-gradient(135deg, var(--primary), var(--accent));
   color: #fff;
@@ -79,7 +77,6 @@ input { font: inherit; color: inherit; }
 .icon-btn:active { background: rgba(255,255,255,.3); }
 svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
-/* ---------- Cards ---------- */
 .wrap { padding: 0 14px calc(var(--inset-bottom) + 28px); max-width: 720px; margin: 0 auto; }
 .card {
   background: var(--card); border: 1px solid var(--border); border-radius: 18px;
@@ -114,8 +111,6 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .banner.danger { background: rgba(239,68,68,.12); color: #b91c1c; border-color: rgba(239,68,68,.35); }
 .dark .banner.danger { color: #fca5a5; }
 .banner .mono { line-height: 1.4; }
-.banner .mono.block { display: block; margin-top: 6px; padding: 6px 8px; border-radius: 8px; background: rgba(0,0,0,.14); }
-.dark .banner .mono.block { background: rgba(0,0,0,.28); }
 .banner .btn-reboot {
   display: block; width: 100%; margin-top: 12px; padding: 10px 16px; border-radius: 12px;
   background: var(--danger); color: #fff; font-weight: 600; font-size: 14px; text-align: center;
@@ -128,7 +123,6 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .syscard .s { font-size: 12px; opacity: .7; margin-top: 2px; }
 .syscard .btn { flex: none; min-width: 74px; }
 
-/* ---------- Toolbar ---------- */
 .toolbar { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
 .search {
   display: flex; align-items: center; gap: 8px; padding: 0 12px; height: 46px;
@@ -144,10 +138,9 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
   font-size: 13.5px; white-space: nowrap; border: 1px solid transparent; transition: all .15s;
 }
 .chip:focus, .chip:focus-visible { outline: 0; }
-.chip.active, .chip.ghost.active { background: linear-gradient(135deg, var(--primary), var(--accent)); color: #fff; border-color: transparent; }
+.chip.active { background: linear-gradient(135deg, var(--primary), var(--accent)); color: #fff; border-color: transparent; }
 .count { margin: 14px 4px 8px; font-size: 13px; color: var(--text2); display: flex; justify-content: space-between; }
 
-/* ---------- App list ---------- */
 .list { display: flex; flex-direction: column; gap: 8px; }
 .row {
   display: flex; align-items: center; gap: 12px; padding: 10px 12px;
@@ -186,7 +179,6 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 
 .foot { margin: 18px 6px 0; font-size: 12px; color: var(--text2); text-align: center; }
 
-/* ---------- Pencarian nama tempat ---------- */
 .geo-res { margin-top: 8px; border-radius: 12px; overflow: hidden; background: var(--chip); }
 .geo-res:empty { display: none; }
 .geo-it { display: block; width: 100%; text-align: left; padding: 10px 12px; border-top: 1px solid var(--border); }
@@ -196,7 +188,6 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .geo-it .c { font-size: 11.5px; color: var(--text2); font-family: ui-monospace, Menlo, Consolas, monospace; }
 .geo-msg { padding: 10px 12px; font-size: 13px; color: var(--text2); }
 
-/* ---------- Sheet & toast ---------- */
 .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.45); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 20; }
 .scrim.show { opacity: 1; pointer-events: auto; }
 .sheet {
@@ -253,7 +244,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 <div class="wrap">
   <div class="card status">
     <div class="dot" id="dot"></div>
-    <div class="grow" id="stBox" style="min-width:0">
+    <div class="grow edit" id="stBox" style="min-width:0">
       <div class="t" id="stTitle">Memuat…</div>
       <div class="s" id="stSub">Titik lokasi diatur lewat aplikasi SetLoc</div>
     </div>
@@ -298,30 +289,22 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 <script>
 'use strict';
 
-/* =====================================================================
- *  Konfigurasi modul
- *  - ZygoteLoader membaca  $MODDIR/packages/<package>  setiap app start.
- *  - Aturan: app di-hook  <=>  (file <package> ada)  XOR  (file .all ada)
- *    -> tanpa .all : file = app yang DI-HOOK
- *    -> dengan .all: file = app yang DIKECUALIKAN
- * ===================================================================== */
+// Modul membaca packages/<pkg> tiap app start: di-hook = (file ada) XOR (.all ada).
 const MODID  = 'setloc_zygisk';
 const MODDIR = '/data/adb/modules/' + MODID;
 const PKGDIR = MODDIR + '/packages';
-const CFG_KEY = 'gpsz_cfg';          // dibaca saja (diisi oleh app SetLoc lewat bridge.sh)
+const CFG_KEY = 'gpsz_cfg';
 const APP_PKG = 'com.heryts.setloc';
 
-// Jangan force-stop paket ini (bisa membunuh sistem / manager yang sedang menjalankan WebUI)
+// Paket yang tidak boleh di-force-stop (sistem / manager yang menjalankan WebUI).
 const NO_STOP = new Set([
   'android', 'system', 'com.android.systemui', 'com.android.phone',
   'me.weishu.kernelsu', 'com.rifsxd.ksunext', 'me.bmax.apatch', 'com.topjohnwu.magisk',
   'com.dergoogler.mmrl', 'io.github.a13e300.ksuwebui', 'com.dergoogler.mmrl.wx'
 ]);
 
-const PKG_RE = /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$/;   // nama paket valid (cegah shell-injection)
+const PKG_RE = /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$/;
 
-/* ----------------------------- Backend ------------------------------ */
-const hasKsu = typeof ksu !== 'undefined';
 let _cb = 0;
 function exec(cmd) {
   return new Promise((resolve, reject) => {
@@ -336,19 +319,14 @@ async function sh(cmd) {
   return r.stdout || '';
 }
 
-const Real = {
+const B = {
   async readState() {
     const out = await sh(`mkdir -p '${PKGDIR}'; ls -1A '${PKGDIR}' 2>/dev/null; true`);
     const files = out.split('\n').map(s => s.trim()).filter(Boolean);
     return { all: files.includes('.all'), files: files.filter(f => f[0] !== '.' && f !== 'android') };
   },
+  // off | pending/pendinghb (belum reboot) | live/heartbeat (termuat) | offpending (dimatikan, belum reboot)
   async readSys() {
-    // 'live'       = mode PENUH (gpsz_sys=1) aktif & termuat di system_server: SEMUA app dispoof
-    // 'heartbeat' = mode 2 aktif & termuat: system_server hanya mengirim detak fix asli, hanya app terpilih yang dispoof
-    // 'pending'    = mode penuh dinyalakan, belum reboot
-    // 'pendinghb'  = mode heartbeat dinyalakan, belum reboot
-    // 'offpending' = dimatikan saat sedang live, belum reboot
-    // 'off'        = mati
     try {
       const out = await sh(`F='${PKGDIR}/android'; O='${PKGDIR}/.sysoff'; boot=$(( $(date +%s) - $(cut -d. -f1 /proc/uptime) )); g=$(settings get global gpsz_sys 2>/dev/null); ` +
         `if [ -e "$F" ] && { [ "$g" = 1 ] || [ "$g" = 2 ]; }; then mt=$(stat -c %Y "$F" 2>/dev/null || echo 0); if [ "$mt" -lt "$boot" ]; then if [ "$g" = 2 ]; then echo heartbeat; else echo live; fi; else if [ "$g" = 2 ]; then echo pendinghb; else echo pending; fi; fi; ` +
@@ -367,18 +345,13 @@ const Real = {
   },
   async reboot() { await exec('svc power reboot || reboot'); },
   async setSpoof(on) {
-    // gpsz.sh on|off mengubah enabled= di gpsz_cfg; titik lat/lng tetap. Daemon bridge tidak menimpa
-    // sampai pengaturan di app SetLoc benar-benar diubah.
     await sh(`sh '${MODDIR}/gpsz.sh' ${on ? 'on' : 'off'} 2>&1`);
   },
   async setPos(lat, lng) {
-    // lat/lng sudah divalidasi angka di UI & diperiksa lagi oleh gpsz.sh (isnum). Tulis ke gpsz_cfg, lalu samakan
-    // titik di app SetLoc (bridge.sh setpos) supaya tidak kembali ke titik lama saat app/daemon sinkron.
     await sh(`sh '${MODDIR}/gpsz.sh' set ${lat} ${lng} 2>&1`);
-    try { await exec(`sh '${MODDIR}/bridge.sh' setpos ${lat} ${lng} >/dev/null 2>&1`); } catch (e) { /* titik di cfg sudah tersimpan */ }
+    try { await exec(`sh '${MODDIR}/bridge.sh' setpos ${lat} ${lng} >/dev/null 2>&1`); } catch (e) {}
   },
   async readCfg() {
-    // sync = salin pengaturan terbaru dari app SetLoc (no-op bila tidak ada perubahan), lalu baca nilai akhir
     try { return await sh(`sh '${MODDIR}/bridge.sh' sync >/dev/null 2>&1; settings get global ${CFG_KEY}`); } catch (e) { return ''; }
   },
   async ensureDaemon() {
@@ -387,7 +360,7 @@ const Real = {
   },
   async listPkgs(type) {
     if (typeof ksu.listPackages === 'function') {
-      try { return JSON.parse(ksu.listPackages(type)); } catch (e) { /* fallback ke pm */ }
+      try { return JSON.parse(ksu.listPackages(type)); } catch (e) {}
     }
     const flag = type === 'system' ? '-s' : '-3';
     const out = await sh(`pm list packages ${flag}`);
@@ -400,7 +373,7 @@ const Real = {
       try {
         const arr = JSON.parse(ksu.getPackagesInfo(JSON.stringify(pkgs.slice(i, i + 120))));
         for (const it of (Array.isArray(arr) ? arr : [arr])) if (it && it.packageName) map[it.packageName] = it;
-      } catch (e) { /* label jatuh ke nama paket */ }
+      } catch (e) {}
       await new Promise(r => setTimeout(r, 0));
     }
     return map;
@@ -425,66 +398,35 @@ const Real = {
   }
 };
 
-/* Mock untuk pratinjau di browser biasa (tanpa KernelSU) */
-const Mock = (() => {
-  const user = [
-    ['com.google.android.apps.maps', 'Maps'], ['com.whatsapp', 'WhatsApp'], ['com.instagram.android', 'Instagram'],
-    ['com.gojek.app', 'Gojek'], ['com.grabtaxi.passenger', 'Grab'], ['com.shopee.id', 'Shopee'],
-    ['com.tokopedia.tkpd', 'Tokopedia'], ['com.telegram.messenger', 'Telegram'], ['com.spotify.music', 'Spotify'],
-    ['com.android.chrome', 'Chrome'], ['id.dana', 'DANA'], ['com.traveloka.android', 'Traveloka'],
-    ['org.mozilla.firefox', 'Firefox'], ['com.discord', 'Discord']
-  ];
-  const sys = [['com.android.settings', 'Settings'], ['com.google.android.gms', 'Google Play services'], ['com.android.vending', 'Google Play Store']];
-  let files = ['com.google.android.apps.maps', 'com.gojek.app'], all = false, appOn = false, sys_ = 'off', cfgOn = true, mlat = '-7.7956', mlng = '110.3695';
-  const wait = ms => new Promise(r => setTimeout(r, ms));
-  return {
-    async readState() { await wait(350); return { all, files: files.slice() }; },
-    async readCfg() { return `enabled=${cfgOn ? 1 : 0};lat=${mlat};lng=${mlng};acc=10;random=0`; },
-    async setPos(a, b) { await wait(150); mlat = a; mlng = b; },
-    async ensureDaemon() { return true; },
-    async listPkgs(t) { return (t === 'system' ? sys : user).map(x => x[0]); },
-    async info(p) { const m = {}; user.concat(sys).forEach(([k, v]) => { m[k] = { packageName: k, appLabel: v }; }); return m; },
-    async setFile(p, present) { await wait(150); files = files.filter(x => x !== p); if (present) files.push(p); },
-    async setAll(on) { await wait(150); all = on; },
-    async readSys() { return sys_; },
-    async setSys(on) { await wait(150); sys_ = on ? 'pending' : 'offpending'; },
-    async setHb() { await wait(150); sys_ = 'pendinghb'; },
-    async reboot() { await wait(200); },
-    async setSpoof(on) { await wait(200); cfgOn = on; },
-    async stop() {},
-    async isInstalled() { return true; },
-    async appInstalled() { return appOn; },
-    async launch() { await wait(200); },
-    async installApp() { await wait(900); appOn = true; }
-  };
-})();
-const B = hasKsu ? Real : Mock;
 
-/* ------------------------------ State ------------------------------- */
 const S = {
-  apps: [],            // {pkg,label,system,installed}
+  apps: [],
   files: new Set(),
   all: false,
-  sys: false,          // mode PENUH (system-wide) dinyalakan (live atau pending)
-  hb: false,           // mode HEARTBEAT dinyalakan (heartbeat atau pendinghb)
-  sysMode: 'off',      // off | pending | pendinghb | live | heartbeat | offpending
+  sys: false,
+  hb: false,
+  sysMode: 'off',
   tab: 'all',
   showSys: false,
   q: '',
-  order: new Map(),    // urutan awal (di-hook paling atas), stabil sampai muat ulang
+  order: new Map(),
   busy: new Set(),
   appOn: null,
   appBusy: false,
   spoofOn: false, spoofHas: false, spoofBusy: false,
-  daemon: null         // true/false = daemon sinkron app->gpsz_cfg hidup/mati; null = belum diketahui
+  daemon: null
 };
 try { S.showSys = localStorage.getItem('gpsz_showsys') === '1'; } catch (e) {}
 
 const hooked = pkg => S.all ? !S.files.has(pkg) : S.files.has(pkg);
 
-/* ------------------------------ Helpers ----------------------------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function applySys(m) {
+  S.sysMode = m;
+  S.sys = m === 'live' || m === 'pending';
+  S.hb = m === 'heartbeat' || m === 'pendinghb';
+}
 function toast(msg, err) {
   const t = $('#toast');
   t.textContent = msg; t.classList.toggle('err', !!err); t.classList.add('show');
@@ -497,7 +439,6 @@ function guessLabel(pkg) {
   return l.charAt(0).toUpperCase() + l.slice(1);
 }
 
-/* ------------------------------ Render ------------------------------ */
 function visible() {
   const q = S.q.trim().toLowerCase();
   return S.apps.filter(a => {
@@ -513,7 +454,7 @@ function rowHtml(a) {
   const on = hooked(a.pkg);
   const letter = esc((a.label || '?').trim().charAt(0).toUpperCase() || '?');
   const bg = `hsl(${hue(a.pkg)} 55% 52%)`;
-  const img = hasKsu && a.installed ? `<img loading="lazy" alt="" src="ksu://icon/${esc(a.pkg)}" onerror="this.remove()">` : '';
+  const img = a.installed ? `<img loading="lazy" alt="" src="ksu://icon/${esc(a.pkg)}" onerror="this.remove()">` : '';
   const tags = (a.system ? '<span class="tag">sistem</span>' : '') + (!a.installed ? '<span class="tag warn">tidak terpasang</span>' : '');
   return `<div class="row${on ? ' on' : ''}" data-pkg="${esc(a.pkg)}">
     <div class="avatar" style="background:${bg}">${letter}${img}</div>
@@ -536,7 +477,6 @@ function render() {
 
 function renderBanners() {
   const b = [];
-  if (!hasKsu) b.push('<div class="banner">Mode pratinjau: WebUI dibuka di luar KernelSU / APatch / manager WebUI, jadi data di bawah hanya contoh dan tidak mengubah apa pun.</div>');
   if (S.all) b.push('<div class="card syscard"><div class="dot on"></div><div class="grow"><div class="t">Mode semua app aktif</div></div><button class="btn stop" id="btnAllOff">Matikan</button></div>');
   if (S.sysMode === 'heartbeat') b.push('<div class="card syscard"><div class="dot on"></div><div class="grow"><div class="t">Mode heartbeat aktif</div></div><button class="btn stop" id="btnSysOff">Matikan</button></div>');
   else if (S.sysMode === 'live') b.push('<div class="card syscard"><div class="dot on"></div><div class="grow"><div class="t">System-wide aktif</div></div><button class="btn stop" id="btnSysOff">Matikan</button></div>');
@@ -573,22 +513,19 @@ function renderStatus(raw) {
   sub.innerHTML = has && cfg.lat && cfg.lng
     ? `${esc(cfg.lat)}, ${esc(cfg.lng)} · <b>ketuk untuk ubah</b>`
     : 'Titik lokasi belum ada · <b>ketuk untuk isi</b>';
-  $('#stBox').classList.add('edit');
 }
 
-/* ------------------------------- Load -------------------------------- */
 async function load() {
-  $('#list').innerHTML = '<div class="skel"></div>'.repeat(7).replace(/<\/div>/g, '</div>');
-  $('#list').style.gap = '8px';
+  $('#list').innerHTML = '<div class="skel"></div>'.repeat(7);
   try {
-    S.missing = hasKsu ? !(await B.isInstalled()) : false;
-    S.daemon = hasKsu ? await B.ensureDaemon().catch(() => null) : true;
+    S.missing = !(await B.isInstalled());
+    S.daemon = await B.ensureDaemon().catch(() => null);
     const [st, cfg, user, sys, sysOn] = await Promise.all([
       B.readState(), B.readCfg(),
       B.listPkgs('user').catch(() => []), B.listPkgs('system').catch(() => []),
       B.readSys().catch(() => 'off')
     ]);
-    S.all = st.all; S.sysMode = sysOn; S.sys = sysOn === 'live' || sysOn === 'pending'; S.hb = sysOn === 'heartbeat' || sysOn === 'pendinghb'; S.files = new Set(st.files);
+    S.all = st.all; applySys(sysOn); S.files = new Set(st.files);
     renderStatus(cfg);
     S.appOn = await B.appInstalled().catch(() => null);
     renderApp();
@@ -604,7 +541,6 @@ async function load() {
       installed: installed.has(pkg)
     }));
 
-    // urutan awal: di-hook dulu, lalu A-Z (stabil sampai muat ulang)
     S.apps.sort((a, b) => (hooked(b.pkg) - hooked(a.pkg)) || a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
     S.order = new Map(S.apps.map((a, i) => [a.pkg, i]));
   } catch (e) {
@@ -614,12 +550,11 @@ async function load() {
   render();
 }
 
-/* ------------------------------ Actions ------------------------------ */
 async function toggle(pkg) {
   if (!PKG_RE.test(pkg)) return toast('Nama paket tidak valid', true);
   if (S.busy.has(pkg)) return;
   const wasOn = hooked(pkg);
-  const wantFile = S.all ? wasOn : !wasOn;      // file ada = di-hook (normal) / dikecualikan (mode semua)
+  const wantFile = S.all ? wasOn : !wasOn;
   S.busy.add(pkg);
   try {
     await B.setFile(pkg, wantFile);
@@ -664,9 +599,7 @@ async function setAllMode(on, reopen = true) {
 async function setSysMode(on) {
   try {
     await B.setSys(on);
-    S.sysMode = await B.readSys();
-    S.sys = S.sysMode === 'live' || S.sysMode === 'pending';
-    S.hb = S.sysMode === 'heartbeat' || S.sysMode === 'pendinghb';
+    applySys(await B.readSys());
     toast(S.sysMode === 'off' ? 'System hook mati' : (S.sysMode === 'live' || S.sysMode === 'heartbeat') ? 'Mode diterapkan' : 'Reboot untuk menerapkan');
   } catch (e) { toast('Gagal: ' + e.message, true); }
   renderBanners(); openSheet();
@@ -675,15 +608,12 @@ async function setSysMode(on) {
 async function setHbMode() {
   try {
     await B.setHb();
-    S.sysMode = await B.readSys();
-    S.sys = S.sysMode === 'live' || S.sysMode === 'pending';
-    S.hb = S.sysMode === 'heartbeat' || S.sysMode === 'pendinghb';
+    applySys(await B.readSys());
     toast(S.sysMode === 'heartbeat' ? 'Mode diterapkan' : 'Reboot untuk menerapkan');
   } catch (e) { toast('Gagal: ' + e.message, true); }
   renderBanners(); openSheet();
 }
 
-/* ------------------------------ Sheet UI ------------------------------ */
 function theme() { try { return localStorage.getItem('gpsz_theme') || 'system'; } catch (e) { return 'system'; } }
 function applyTheme(t) {
   try { localStorage.setItem('gpsz_theme', t); } catch (e) {}
@@ -730,7 +660,6 @@ function openSheet() {
     </div>`);
 }
 
-/* ---- Ubah titik koordinat manual (hanya saat spoof tidak berjalan) ---- */
 function parseCoords(txt) {
   const m = String(txt).trim().replace(/[()]/g, '').split(/[\s,;]+/).filter(Boolean);
   if (m.length !== 2) return null;
@@ -756,8 +685,7 @@ function editCoords() {
   }
   coordSheet(S.lat && S.lng ? `${S.lat}, ${S.lng}` : '', '');
 }
-/* ---- Cari nama tempat (Photon/OSM, fallback Nominatim) ---- */
-let geoTimer = 0, geoSeq = 0;
+let geoTimer = 0, geoSeq = 0, geoList = [];
 async function jfetch(url) {
   const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 8000);
   try { const r = await fetch(url, { signal: ac.signal }); if (!r.ok) throw new Error('HTTP ' + r.status); return await r.json(); }
@@ -777,7 +705,7 @@ async function geocode(q, nominatimOnly) {
         return fmtPlace({ lat: c[1], lng: c[0], name: p.name || q, sub });
       });
       if (out.length) return out;
-    } catch (e) { /* lanjut ke Nominatim */ }
+    } catch (e) {}
   }
   const j = await jfetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&q=' + encodeURIComponent(q));
   return (j || []).map(r => {
@@ -792,7 +720,7 @@ async function liveSearch(q) {
   try {
     const res = await geocode(q);
     if (my !== geoSeq) return;
-    window.__geo = res;
+    geoList = res;
     showGeo(res.length ? res.map((r, i) => `<button class="geo-it" data-geo="${i}"><div class="t">${esc(r.name)}</div>${r.sub ? `<div class="s">${esc(r.sub)}</div>` : ''}<div class="c">${esc(r.lat)}, ${esc(r.lng)}</div></button>`).join('')
                            : '<div class="geo-msg">Tidak ditemukan. Coba nama lain.</div>');
   } catch (e) {
@@ -806,7 +734,7 @@ function onCoordInput(e) {
   geoTimer = setTimeout(() => liveSearch(v), 600);
 }
 function pickGeo(i) {
-  const r = (window.__geo || [])[i]; if (!r) return;
+  const r = geoList[i]; if (!r) return;
   geoSeq++;
   const inp = $('#coordIn'); inp.value = `${r.lat}, ${r.lng}`;
   showGeo('');
@@ -891,7 +819,6 @@ function confirmSys() {
     </div>`);
 }
 
-/* ------------------------------ Events ------------------------------- */
 $('#list').addEventListener('click', e => {
   const row = e.target.closest('.row'); if (!row) return;
   toggle(row.dataset.pkg);
@@ -949,12 +876,11 @@ try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () =
 applyTheme(theme());
 load();
 
-// Status spoof di-refresh otomatis (dulu hanya dibaca sekali saat load, jadi basi setelah Start/Stop di app)
 let _statusBusy = false;
 async function refreshStatus() {
-  if (_statusBusy || document.hidden || !hasKsu) return;
+  if (_statusBusy || document.hidden) return;
   _statusBusy = true;
-  try { renderStatus(await B.readCfg()); } catch (e) { /* abaikan */ }
+  try { renderStatus(await B.readCfg()); } catch (e) {}
   _statusBusy = false;
 }
 document.addEventListener('visibilitychange', refreshStatus);

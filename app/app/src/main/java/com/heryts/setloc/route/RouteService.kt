@@ -27,10 +27,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/**
- * Foreground service supaya perjalanan rute tetap jalan saat app di background / layar mati.
- * Logika posisi ada di [RouteRunner]; service ini hanya menjaga proses tetap hidup + notifikasi.
- */
 class RouteService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -44,19 +40,17 @@ class RouteService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             RouteRunner.stop()
-            // spoof ikut dimatikan, sama seperti tombol Stop di app
             PrefManager.updateNow(
                 false,
                 PrefManager.getLat,
                 PrefManager.getLng
             )
-            stopForeground(true)
+            stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
         }
 
         if (intent?.action == ACTION_POKE) {
-            // dibangunkan daemon karena proses app tertahan: cukup agar proses jalan lagi, ticker + notifikasi menyusul sendiri
             if (!RouteRunner.isRunning) stopSelf()
             return START_NOT_STICKY
         }
@@ -74,7 +68,7 @@ class RouteService : Service() {
         scope.launch {
             RouteRunner.state.collect { s ->
                 if (!s.running) {
-                    stopForeground(true)
+                    stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
                 } else if (s.progressPercent != lastPercent) {
                     lastPercent = s.progressPercent
@@ -94,12 +88,6 @@ class RouteService : Service() {
         super.onDestroy()
     }
 
-    /**
-     * Jendela overlay 1x1 piksel yang transparan dan tidak bisa disentuh. Selama ada, sistem menganggap
-     * proses app "terlihat" sehingga ticker rute tidak dibekukan/di-throttle ketika Google Maps di depan
-     * (perilaku yang sama dengan SetLoc di jendela melayang). Butuh izin "tampil di atas app lain":
-     * modul memberikannya lewat root (appops SYSTEM_ALERT_WINDOW); tanpa izin ini fungsi dilewati.
-     */
     private fun addKeepAliveOverlay() {
         if (keepAliveView != null || !Settings.canDrawOverlays(this)) return
         try {
@@ -124,11 +112,7 @@ class RouteService : Service() {
         }
     }
 
-    /**
-     * Izin overlay diberikan modul (root) sesaat SETELAH spoof menyala, jadi percobaan tunggal di onStartCommand bisa
-     * terlalu awal (terutama di rute pertama setelah flash/boot) dan overlay penjaga tidak pernah terpasang.
-     * Ulangi tiap 2 dtk (maks ~3 menit) sampai terpasang.
-     */
+    // Overlay 1x1 transparan agar proses tidak dibekukan saat Maps di depan; izin diberikan modul (root).
     private fun ensureKeepAliveOverlay() {
         if (keepAliveView != null || overlayJob?.isActive == true) return
         overlayJob = scope.launch {
@@ -185,7 +169,7 @@ class RouteService : Service() {
 
     companion object {
         const val ACTION_STOP = "com.heryts.setloc.route.STOP"
-        const val ACTION_POKE = "com.heryts.setloc.route.POKE"   // dikirim daemon (bridge.sh) bila app tertahan
+        const val ACTION_POKE = "com.heryts.setloc.route.POKE"
         private const val CHANNEL_ID = "set.route"
         private const val NOTIF_ID = 124
     }

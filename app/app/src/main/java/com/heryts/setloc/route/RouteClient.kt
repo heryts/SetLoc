@@ -13,30 +13,18 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
 
-/**
- * Ambil rute jalan dari Google Routes API (pengganti Directions API legacy).
- * Pakai API key yang sama dengan Maps SDK (meta-data com.google.android.geo.API_KEY),
- * jadi di Google Cloud Console "Routes API" harus diaktifkan & diizinkan di key tsb.
- */
 object RouteClient {
 
     class RouteException(message: String) : Exception(message)
 
     class Result(val points: List<LatLng>, val distanceM: Double, val durationS: Double)
 
-    /**
-     * Mode perjalanan: indeks sama dengan PrefManager.routeMode.
-     * Motor (indeks 2) sengaja memakai DRIVE, bukan TWO_WHEELER: TWO_WHEELER ditagih sebagai Enterprise
-     * (jatah gratis hanya 1.000/bulan), sedangkan DRIVE Essentials/Pro. Kecepatan motor tetap lewat AutoSpeed.
-     */
     private val MODES = arrayOf("WALK", "BICYCLE", "DRIVE", "DRIVE")
 
     private const val ENDPOINT = "https://routes.googleapis.com/directions/v2:computeRoutes"
 
-    /** Routes API: maksimal 25 titik perantara => 27 titik total (awal + perantara + tujuan). */
     const val MAX_POINTS = 27
 
-    /** [stops] = titik awal, titik-titik perantara (urut), titik tujuan. Minimal 2. */
     suspend fun fetch(context: Context, stops: List<LatLng>, mode: Int): Result =
         withContext(Dispatchers.IO) {
             if (stops.size < 2) throw RouteException("Minimal dua titik")
@@ -53,8 +41,6 @@ object RouteClient {
             .put("destination", waypoint(stops.last()))
             .put("travelMode", travelMode)
             .put("polylineEncoding", "ENCODED_POLYLINE")
-        // Opsional (Pengaturan, default mati): traffic-aware = SKU Pro, jatah gratis 5.000/bulan; hanya valid untuk DRIVE; durasi memperhitungkan lalu lintas
-        // saat ini sehingga kecepatan otomatis (AutoSpeed) mengikuti macet/lancar. Jalan kaki & sepeda tetap Essentials.
         if (travelMode == "DRIVE" && PrefManager.trafficAware) body.put("routingPreference", "TRAFFIC_AWARE")
         if (stops.size > 2) {
             val mid = JSONArray()
@@ -75,7 +61,6 @@ object RouteClient {
                 "X-Goog-FieldMask",
                 "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline"
             )
-            // Supaya key yang dibatasi "Android apps" tetap diterima
             conn.setRequestProperty("X-Android-Package", context.packageName)
             certSha1(context)?.let { conn.setRequestProperty("X-Android-Cert", it) }
 
@@ -93,7 +78,6 @@ object RouteClient {
             if (encoded.isEmpty()) throw RouteException("Rute tidak ditemukan")
             val points = decodePolyline(encoded)
             if (points.size < 2) throw RouteException("Rute tidak ditemukan")
-            // "duration" = string detik, mis. "1037s"
             val seconds = route.optString("duration").removeSuffix("s").toDoubleOrNull() ?: 0.0
             return Result(points, route.optDouble("distanceMeters", 0.0), seconds)
         } catch (e: RouteException) {
@@ -132,7 +116,6 @@ object RouteClient {
         null
     }
 
-    /** SHA-1 sertifikat penanda tangan APK, hex huruf besar tanpa pemisah. */
     @Suppress("DEPRECATION")
     internal fun certSha1(context: Context): String? = try {
         val pm = context.packageManager
@@ -151,7 +134,6 @@ object RouteClient {
         null
     }
 
-    /** Decoder Google encoded polyline (presisi 1e5). */
     fun decodePolyline(encoded: String): List<LatLng> {
         val out = ArrayList<LatLng>()
         var index = 0

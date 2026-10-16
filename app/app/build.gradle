@@ -3,11 +3,10 @@ plugins {
     id 'org.jetbrains.kotlin.android'
     id 'com.google.android.libraries.mapsplatform.secrets-gradle-plugin'
     id 'dagger.hilt.android.plugin'
-    id 'kotlin-kapt'
-    id 'kotlin-parcelize'
+    id 'com.google.devtools.ksp'
 }
 
-def tagName = '3.23'
+def tagName = '3.27'
 
 android {
     compileSdk 33
@@ -15,15 +14,11 @@ android {
         applicationId "com.heryts.setloc"
         minSdk 27
         targetSdk 33
-        versionCode 323
+        versionCode 327
         versionName tagName
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField("String", "TAG_NAME", "\"${tagName}\"")
     }
 
-
-    // Key rilis dibaca dari app/keystore.properties (di-ignore Git). Kalau tidak ada, pakai key debug
-    // supaya orang lain tetap bisa build sendiri.
+    // Key rilis dari app/keystore.properties; bila tidak ada, pakai key debug.
     def ksFile = rootProject.file('keystore.properties')
     def ksProps = new Properties()
     if (ksFile.exists()) ksFile.withInputStream { ksProps.load(it) }
@@ -69,40 +64,35 @@ dependencies {
     implementation 'com.google.android.material:material:1.9.0-alpha01'
     implementation 'androidx.activity:activity-ktx:1.6.1'
     implementation 'com.google.android.gms:play-services-maps:18.1.0'
-    implementation 'androidx.constraintlayout:constraintlayout:2.2.0-alpha05'
     implementation 'androidx.preference:preference:1.2.0'
-    implementation 'androidx.datastore:datastore-preferences:1.0.0'
 
-    testImplementation 'junit:junit:4.13.2'
-    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
-    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
-
-    //Lifecycle
     implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.0-alpha04"
     implementation "androidx.lifecycle:lifecycle-livedata-ktx:2.6.0-alpha04"
 
-    //Hilt
-    implementation "com.google.dagger:hilt-android:2.44.2"
-    kapt "com.google.dagger:hilt-compiler:2.44.2"
+    implementation "com.google.dagger:hilt-android:2.48"
+    ksp "com.google.dagger:hilt-compiler:2.48"
 
-    //Timber
-    implementation 'com.jakewharton.timber:timber:5.0.1'
-
-    //Room
     implementation 'androidx.room:room-runtime:2.5.0'
     implementation 'androidx.room:room-ktx:2.5.0'
-    kapt 'androidx.room:room-compiler:2.5.0'
-
-    // Retrofit
-    implementation 'com.squareup.retrofit2:retrofit:2.9.0'
-    implementation 'com.squareup.retrofit2:converter-gson:2.9.0'
+    ksp 'androidx.room:room-compiler:2.5.0'
 
     implementation ("dev.rikka.rikkax.material:material-preference:2.0.0") {
         exclude group: "dev.rikka.rikkax.appcompat", module: "appcompat"
     }
 }
 
-// Kotlin 1.8.0: task kaptGenerateStubs tidak ikut kotlinOptions di atas (target 1.8 vs Java 11) -> samakan semua task Kotlin.
+// Hilt 2.48 membawa kotlin-stdlib 1.9.0, sedangkan plugin Kotlin 1.8.0 dan lint AGP 7.4
+// (Kotlin 1.7.1) tidak bisa membaca metadata 1.9. Samakan stdlib dengan versi plugin.
+configurations.configureEach {
+    resolutionStrategy.eachDependency { details ->
+        if (details.requested.group == 'org.jetbrains.kotlin' &&
+                details.requested.name in ['kotlin-stdlib', 'kotlin-stdlib-common', 'kotlin-stdlib-jdk7', 'kotlin-stdlib-jdk8']) {
+            details.useVersion '1.8.0'
+        }
+    }
+}
+
+// Samakan jvmTarget semua task Kotlin (termasuk task KSP).
 tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
     kotlinOptions.jvmTarget = '11'
 }

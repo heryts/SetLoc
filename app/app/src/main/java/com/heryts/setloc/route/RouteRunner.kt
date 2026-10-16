@@ -20,10 +20,7 @@ import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-/**
- * Menjalankan "perjalanan" menyusuri rute: tiap ~1 detik menulis posisi berikutnya ke pref app.
- * Daemon bridge.sh menyalin pref -> gpsz_cfg, lalu hook membacanya. Modul Zygisk tidak berubah.
- */
+/** Perjalanan menyusuri rute: menulis posisi ke pref app; bridge.sh menyalinnya ke gpsz_cfg. */
 object RouteRunner {
 
     data class State(
@@ -31,7 +28,6 @@ object RouteRunner {
         val finished: Boolean = false,
         val position: LatLng? = null,
         val progressPercent: Int = 0,
-        /** true bila perjalanan selesai dan spoof otomatis dimatikan (setelah diam di tujuan). */
         val spoofOff: Boolean = false
     )
 
@@ -43,21 +39,16 @@ object RouteRunner {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val lock = Any()
     private var job: Job? = null
-    private var active = false   // dijaga lock: hanya bila true, tick boleh menulis ke pref
+    private var active = false
 
-    private const val TICK_MS = 500L   // 2x per detik: posisi rute lebih halus & delay ke app lain lebih kecil
-    /** Variasi kecepatan +-8% (seperti GPS asli), dihaluskan supaya tidak melompat. */
+    private const val TICK_MS = 500L
     private const val SPEED_VARIATION = 0.08
-    private const val SPEED_PULL = 0.1    // tarikan balik ke kecepatan rata-rata per tick (naik = lebih cepat kembali)
-    private const val SPEED_STEP = 0.22   // besar langkah acak per tick relatif terhadap variasi (naik = lebih gelisah)
+    private const val SPEED_PULL = 0.1
+    private const val SPEED_STEP = 0.22
 
-    /**
-     * Ketinggian (m) berjarak sama di sepanjang rute, diisi MapActivity dari [ElevationClient].
-     * Boleh diisi saat perjalanan sudah berjalan; null = pakai [PrefManager.altitudeManual].
-     */
     @Volatile var elevations: FloatArray? = null
 
-    private var lastBearing = -1f   // dijaga lock
+    private var lastBearing = -1f
 
     fun start(
         points: List<LatLng>, speedKmh: Float, waitAtStartMin: Float, waitAtEndMin: Float = 0f,
@@ -67,7 +58,6 @@ object RouteRunner {
         synchronized(lock) {
             job?.cancel()
             active = true
-            // titik awal ditulis sinkron: pref langsung start=true di posisi awal (diam, menghadap arah rute)
             lastBearing = bearing(points[0], points[1])
             PrefManager.updateNow(
                 true, points.first().latitude, points.first().longitude,
@@ -77,13 +67,12 @@ object RouteRunner {
             job = scope.launch {
                 run(
                     points, speedKmh.coerceAtLeast(0.5f), waitAtStartMin.coerceAtLeast(0f),
-                    waitAtEndMin.coerceAtLeast(0f), speedVarKmh
+                    waitAtEndMin, speedVarKmh
                 )
             }
         }
     }
 
-    /** Hentikan perjalanan. Tidak mengubah status Start/Stop di pref; pemanggil yang mengatur. */
     fun stop() {
         synchronized(lock) {
             active = false
@@ -93,20 +82,13 @@ object RouteRunner {
         }
     }
 
-    /** Satu titik pada timeline: posisi/kecepatan/arah/ketinggian pada tiap kelipatan [TICK_MS]. */
     private class Tick(val lat: Double, val lng: Double, val spd: Float, val brg: Float, val alt: Float, val pct: Int)
 
-    /**
-     * Seluruh perjalanan dihitung di muka (tanpa jam dinding): baris pertama = diam di titik awal, lalu satu baris per
-     * [TICK_MS] sampai tujuan, baris terakhir = berhenti di tujuan. Timeline ini dipakai app (UI/notifikasi) DAN
-     * ditulis ke file untuk daemon, sehingga keduanya selalu sama.
-     */
     private fun buildTimeline(points: List<LatLng>, speedKmh: Float, speedVarKmh: Float): List<Tick> {
         val cum = DoubleArray(points.size)
         for (i in 1 until points.size) cum[i] = cum[i - 1] + meters(points[i - 1], points[i])
         val total = cum.last()
         val speedMs = speedKmh / 3.6
-        // variasi +- (m/s): negatif = otomatis 8% dari kecepatan
         val varMs = if (speedVarKmh < 0f) speedMs * SPEED_VARIATION else speedVarKmh / 3.6
         val dt = TICK_MS / 1000.0
         val rnd = java.util.Random()
@@ -115,7 +97,7 @@ object RouteRunner {
         out.add(Tick(points[0].latitude, points[0].longitude, 0f, brg, altitudeAt(0.0), 0))
         var travelled = 0.0
         var seg = 1
-        var dev = 0.0   // selisih dari speedMs (m/s): random walk yang ditarik pelan ke rata-rata
+        var dev = 0.0
         while (travelled < total) {
             dev = dev * (1.0 - SPEED_PULL) + rnd.nextGaussian() * varMs * SPEED_STEP
             dev = dev.coerceIn(-varMs, varMs)
@@ -155,30 +137,27 @@ object RouteRunner {
         val ticks = buildTimeline(points, speedKmh, speedVarKmh)
         val n = ticks.size
         val waitMs = (waitAtStartMin * 60_000f).toLong()
-        val endWaitMs = (waitAtEndMin * 60_000f).toLong()
-        val t0 = SystemClock.elapsedRealtime() + waitMs   // saat tick bergerak pertama (diam di titik awal sebelum itu)
+        val autoStop = waitAtEndMin < 0f
+        val endWaitMs = if (autoStop) 0L else (waitAtEndMin * 60_000f).toLong()
+        val t0 = SystemClock.elapsedRealtime() + waitMs
 
-        // Daemon (root) memutar timeline ini sendiri berdasarkan jam boot, jadi posisi tetap bergerak walau proses app
-        // dibekukan sistem saat di background. Bila gagal menulis file, app jalan sendiri seperti sebelumnya.
         if (PrefManager.writeRouteTimeline(timelineText(ticks))) {
             val first = ticks[0]
             synchronized(lock) {
                 if (!active) return
-                PrefManager.beginPlayback(t0 / 10, TICK_MS, n, endWaitMs)
+                PrefManager.beginPlayback(t0 / 10, TICK_MS, n, if (autoStop) 1L else endWaitMs)
                 PrefManager.updateNow(
                     true, first.lat, first.lng, 0f, lastBearing, first.alt, routeActive = true, routePlay = true
                 )
             }
         }
 
-        // diam dulu di titik awal
         while (currentCoroutineContext().isActive) {
             val rem = t0 - SystemClock.elapsedRealtime()
             if (rem <= 0) break
             delay(min(rem, TICK_MS))
         }
 
-        // putar timeline sesuai jam (bukan per-delay): bila app sempat tertahan, langsung lompat ke baris yang benar
         var shown = -1
         while (currentCoroutineContext().isActive) {
             val now = SystemClock.elapsedRealtime()
@@ -194,12 +173,12 @@ object RouteRunner {
         }
         if (!currentCoroutineContext().isActive) return
 
-        // sudah sampai: kecepatan kembali 0 (arah tetap), baik sedang diam di tujuan maupun menunggu Stop
         val last = ticks[n - 1]
         if (!arrive(LatLng(last.lat, last.lng), last.alt)) return
 
-        // diam di tujuan; lalu spoof otomatis mati. 0 = tetap aktif sampai user menekan Stop.
-        if (endWaitMs > 0) {
+        if (autoStop) {
+            finish(points.last(), spoofOff = true)
+        } else if (endWaitMs > 0) {
             val endAt = t0 + (n - 1) * TICK_MS + endWaitMs
             while (currentCoroutineContext().isActive) {
                 val rem = endAt - SystemClock.elapsedRealtime()
@@ -226,7 +205,6 @@ object RouteRunner {
         true
     }
 
-    /** Ketinggian di posisi [fraction] (0..1) sepanjang rute; elevasi server, atau cadangan manual. */
     private fun altitudeAt(fraction: Double): Float {
         val e = elevations
         if (e == null || e.isEmpty()) return PrefManager.altitudeManual
@@ -237,7 +215,6 @@ object RouteRunner {
         return e[i] + (e[i + 1] - e[i]) * f
     }
 
-    /** Arah (derajat 0..360, utara = 0, searah jarum jam) dari a ke b. */
     fun bearing(a: LatLng, b: LatLng): Float {
         val la1 = Math.toRadians(a.latitude)
         val la2 = Math.toRadians(b.latitude)
@@ -252,7 +229,6 @@ object RouteRunner {
         if (active) {
             active = false
             job = null
-            // spoofOff=false: posisi tetap di tujuan dan spoof tetap aktif sampai user menekan Stop
             PrefManager.updateNow(!spoofOff, end.latitude, end.longitude, 0f, lastBearing, altitudeAt(1.0))
             _state.value = State(
                 running = false, finished = true, position = end,

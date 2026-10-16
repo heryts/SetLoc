@@ -35,5 +35,4 @@ import com.heryts.setloc.R
         notificationManager.cancelAll()
     }
 
-
 }

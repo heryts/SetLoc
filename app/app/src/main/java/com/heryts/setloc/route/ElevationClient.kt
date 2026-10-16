@@ -9,19 +9,12 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
 
-/**
- * Ketinggian (meter di atas permukaan laut) untuk altitude spoof.
- * 1) Google Elevation API (API key sama dengan Maps SDK; "Elevation API" harus diaktifkan di Google Cloud),
- * 2) cadangan tanpa key: Open-Meteo elevation (maks 100 titik per permintaan).
- * Hasil null bila keduanya gagal; pemanggil lalu memakai ketinggian manual.
- */
 object ElevationClient {
 
     private const val GOOGLE = "https://maps.googleapis.com/maps/api/elevation/json"
     private const val OPEN_METEO = "https://api.open-meteo.com/v1/elevation"
     private const val MAX_SAMPLES = 100
 
-    /** Satu ketinggian per titik, urutan sama. null bila gagal. */
     suspend fun fetch(context: Context, points: List<LatLng>): FloatArray? =
         withContext(Dispatchers.IO) {
             val pts = if (points.size > MAX_SAMPLES) points.subList(0, MAX_SAMPLES) else points
@@ -29,7 +22,6 @@ object ElevationClient {
             google(context.applicationContext, pts) ?: openMeteo(pts)
         }
 
-    /** Ambil [n] titik berjarak sama (menurut jarak tempuh) sepanjang polyline, termasuk ujung-ujungnya. */
     fun sample(points: List<LatLng>, n: Int): List<LatLng> {
         if (points.size < 2) return points
         val cnt = n.coerceIn(2, MAX_SAMPLES)
@@ -91,7 +83,6 @@ object ElevationClient {
         }
     }
 
-    /** Google encoded polyline (presisi 1e5), dipakai untuk parameter locations=enc:... */
     fun encodePolyline(points: List<LatLng>): String {
         val sb = StringBuilder()
         var pLat = 0

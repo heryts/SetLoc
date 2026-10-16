@@ -1,6 +1,5 @@
-# Pasang app SetLoc (apk/SetLoc.apk) langsung saat modul di-flash, tanpa menunggu reboot.
-# Disisipkan inject-install.sh SESUDAH 90-restore (yang meng-reset izin ke 0644), makanya set_perm di bawah ada di sini.
-# Gagal/dilewati tidak membatalkan instalasi: daemon bridge.sh mencoba lagi setelah boot (checksum .apk_sum).
+# Pasang app SetLoc (apk/SetLoc.apk) saat flash. Gagal/dilewati tidak membatalkan instalasi:
+# bridge.sh mencoba lagi setelah boot (checksum .apk_sum).
 
 ui_print "- Install app SetLoc"
 
@@ -20,6 +19,7 @@ else
       *Success*)
         md5sum "$APK_SRC" 2>/dev/null | cut -d' ' -f1 > "$MODPATH/.apk_sum"
         cmd appops set com.heryts.setloc SYSTEM_ALERT_WINDOW allow >/dev/null 2>&1
+        pm grant com.heryts.setloc android.permission.WRITE_SECURE_SETTINGS >/dev/null 2>&1
         ui_print "  app SetLoc terpasang" ;;
       *)
         ui_print "  ! pm install gagal: $APK_OUT"
@@ -29,9 +29,5 @@ else
     ui_print "  ! gagal menyalin APK, dicoba lagi setelah reboot"
   fi
 fi
-
-# izin eksekusi skrip modul (dijalankan terlepas dari APK terpasang atau tidak)
-set_perm "$MODPATH/service.sh" 0 0 0755
-set_perm "$MODPATH/bridge.sh" 0 0 0755
 
 unset APK_SRC APK_TMP APK_OUT
