@@ -93,66 +93,118 @@ object RouteRunner {
         }
     }
 
-    private suspend fun run(
-        points: List<LatLng>, speedKmh: Float, waitAtStartMin: Float, waitAtEndMin: Float, speedVarKmh: Float
-    ) {
+    /** Satu titik pada timeline: posisi/kecepatan/arah/ketinggian pada tiap kelipatan [TICK_MS]. */
+    private class Tick(val lat: Double, val lng: Double, val spd: Float, val brg: Float, val alt: Float, val pct: Int)
+
+    /**
+     * Seluruh perjalanan dihitung di muka (tanpa jam dinding): baris pertama = diam di titik awal, lalu satu baris per
+     * [TICK_MS] sampai tujuan, baris terakhir = berhenti di tujuan. Timeline ini dipakai app (UI/notifikasi) DAN
+     * ditulis ke file untuk daemon, sehingga keduanya selalu sama.
+     */
+    private fun buildTimeline(points: List<LatLng>, speedKmh: Float, speedVarKmh: Float): List<Tick> {
         val cum = DoubleArray(points.size)
         for (i in 1 until points.size) cum[i] = cum[i - 1] + meters(points[i - 1], points[i])
         val total = cum.last()
         val speedMs = speedKmh / 3.6
         // variasi +- (m/s): negatif = otomatis 8% dari kecepatan
         val varMs = if (speedVarKmh < 0f) speedMs * SPEED_VARIATION else speedVarKmh / 3.6
-
-        // diam dulu di titik awal
-        var waitMs = (waitAtStartMin * 60_000f).toLong()
-        while (waitMs > 0 && currentCoroutineContext().isActive) {
-            val step = min(TICK_MS, waitMs)
-            delay(step)
-            waitMs -= step
-        }
-
+        val dt = TICK_MS / 1000.0
+        val rnd = java.util.Random()
+        val out = ArrayList<Tick>()
+        var brg = bearing(points[0], points[1])
+        out.add(Tick(points[0].latitude, points[0].longitude, 0f, brg, altitudeAt(0.0), 0))
         var travelled = 0.0
         var seg = 1
-        var cur = 0.0   // kecepatan sesaat (m/s)
-        // variasi kecepatan: random walk yang ditarik pelan ke rata-rata (berubah bertahap, bukan loncat-loncat)
-        val rnd = java.util.Random()
-        var dev = 0.0   // selisih dari speedMs (m/s)
-        var last = SystemClock.elapsedRealtime()
-        while (currentCoroutineContext().isActive && travelled < total) {
-            delay(TICK_MS)
-            val now = SystemClock.elapsedRealtime()
+        var dev = 0.0   // selisih dari speedMs (m/s): random walk yang ditarik pelan ke rata-rata
+        while (travelled < total) {
             dev = dev * (1.0 - SPEED_PULL) + rnd.nextGaussian() * varMs * SPEED_STEP
             dev = dev.coerceIn(-varMs, varMs)
-            cur = (speedMs + dev).coerceAtLeast(0.3)
-            travelled = min(total, travelled + cur * (now - last) / 1000.0)
-            last = now
-
+            val cur = (speedMs + dev).coerceAtLeast(0.3)
+            travelled = min(total, travelled + cur * dt)
             while (seg < cum.size - 1 && cum[seg] < travelled) seg++
             val segLen = cum[seg] - cum[seg - 1]
             val f = if (segLen <= 0.0) 1.0 else ((travelled - cum[seg - 1]) / segLen).coerceIn(0.0, 1.0)
             val a = points[seg - 1]
             val b = points[seg]
-            val pos = LatLng(
-                a.latitude + (b.latitude - a.latitude) * f,
-                a.longitude + (b.longitude - a.longitude) * f
-            )
-            val pct = if (total > 0) (travelled / total * 100).toInt() else 100
-            val brg = if (segLen > 0.5) bearing(a, b) else -2f   // -2 = pertahankan arah terakhir
+            if (segLen > 0.5) brg = bearing(a, b)
             val frac = if (total > 0) travelled / total else 1.0
-            if (!write(pos, pct, cur.toFloat(), brg, altitudeAt(frac))) return
+            out.add(
+                Tick(
+                    a.latitude + (b.latitude - a.latitude) * f,
+                    a.longitude + (b.longitude - a.longitude) * f,
+                    cur.toFloat(), brg, altitudeAt(frac), (frac * 100).toInt()
+                )
+            )
+        }
+        val end = points.last()
+        out.add(Tick(end.latitude, end.longitude, 0f, brg, altitudeAt(1.0), 100))
+        return out
+    }
+
+    private fun timelineText(ticks: List<Tick>): String {
+        val sb = StringBuilder(ticks.size * 48)
+        for (t in ticks) {
+            sb.append(java.lang.String.format(java.util.Locale.US, "%.6f %.6f %.3f %.2f %.2f\n", t.lat, t.lng, t.spd, t.brg, t.alt))
+        }
+        return sb.toString()
+    }
+
+    private suspend fun run(
+        points: List<LatLng>, speedKmh: Float, waitAtStartMin: Float, waitAtEndMin: Float, speedVarKmh: Float
+    ) {
+        val ticks = buildTimeline(points, speedKmh, speedVarKmh)
+        val n = ticks.size
+        val waitMs = (waitAtStartMin * 60_000f).toLong()
+        val endWaitMs = (waitAtEndMin * 60_000f).toLong()
+        val t0 = SystemClock.elapsedRealtime() + waitMs   // saat tick bergerak pertama (diam di titik awal sebelum itu)
+
+        // Daemon (root) memutar timeline ini sendiri berdasarkan jam boot, jadi posisi tetap bergerak walau proses app
+        // dibekukan sistem saat di background. Bila gagal menulis file, app jalan sendiri seperti sebelumnya.
+        if (PrefManager.writeRouteTimeline(timelineText(ticks))) {
+            val first = ticks[0]
+            synchronized(lock) {
+                if (!active) return
+                PrefManager.beginPlayback(t0 / 10, TICK_MS, n, endWaitMs)
+                PrefManager.updateNow(
+                    true, first.lat, first.lng, 0f, lastBearing, first.alt, routeActive = true, routePlay = true
+                )
+            }
+        }
+
+        // diam dulu di titik awal
+        while (currentCoroutineContext().isActive) {
+            val rem = t0 - SystemClock.elapsedRealtime()
+            if (rem <= 0) break
+            delay(min(rem, TICK_MS))
+        }
+
+        // putar timeline sesuai jam (bukan per-delay): bila app sempat tertahan, langsung lompat ke baris yang benar
+        var shown = -1
+        while (currentCoroutineContext().isActive) {
+            val now = SystemClock.elapsedRealtime()
+            val k = ((now - t0) / TICK_MS).toInt().coerceAtLeast(0)
+            if (k >= n - 1) break
+            if (k != shown) {
+                shown = k
+                val t = ticks[k]
+                if (!write(LatLng(t.lat, t.lng), t.pct, t.spd, t.brg, t.alt)) return
+            }
+            val nextAt = t0 + (k + 1) * TICK_MS
+            delay((nextAt - SystemClock.elapsedRealtime()).coerceIn(20L, TICK_MS))
         }
         if (!currentCoroutineContext().isActive) return
 
         // sudah sampai: kecepatan kembali 0 (arah tetap), baik sedang diam di tujuan maupun menunggu Stop
-        if (!arrive(points.last(), altitudeAt(1.0))) return
+        val last = ticks[n - 1]
+        if (!arrive(LatLng(last.lat, last.lng), last.alt)) return
 
         // diam di tujuan; lalu spoof otomatis mati. 0 = tetap aktif sampai user menekan Stop.
-        var endWaitMs = (waitAtEndMin * 60_000f).toLong()
         if (endWaitMs > 0) {
-            while (endWaitMs > 0 && currentCoroutineContext().isActive) {
-                val step = min(TICK_MS, endWaitMs)
-                delay(step)
-                endWaitMs -= step
+            val endAt = t0 + (n - 1) * TICK_MS + endWaitMs
+            while (currentCoroutineContext().isActive) {
+                val rem = endAt - SystemClock.elapsedRealtime()
+                if (rem <= 0) break
+                delay(min(rem, TICK_MS))
             }
             finish(points.last(), spoofOff = true)
         } else {
@@ -163,14 +215,14 @@ object RouteRunner {
     private fun write(p: LatLng, pct: Int, speedMs: Float, brg: Float, alt: Float?): Boolean = synchronized(lock) {
         if (!active) return false
         if (brg >= 0f) lastBearing = brg
-        PrefManager.updateNow(true, p.latitude, p.longitude, speedMs, lastBearing, alt, routeActive = true)
+        PrefManager.updateNow(true, p.latitude, p.longitude, speedMs, lastBearing, alt, routeActive = true, routePlay = true)
         _state.value = State(running = true, position = p, progressPercent = pct)
         true
     }
 
     private fun arrive(end: LatLng, alt: Float?): Boolean = synchronized(lock) {
         if (!active) return false
-        PrefManager.updateNow(true, end.latitude, end.longitude, 0f, lastBearing, alt)
+        PrefManager.updateNow(true, end.latitude, end.longitude, 0f, lastBearing, alt, routePlay = true)
         true
     }
 

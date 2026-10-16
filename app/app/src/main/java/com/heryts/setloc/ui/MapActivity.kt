@@ -107,6 +107,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         super.onCreate(savedInstanceState)
         // bendera "rute berjalan" yang tertinggal (app dimatikan paksa saat rute) jangan menahan random position
         if (!RouteRunner.isRunning && PrefManager.routeActive) PrefManager.routeActive = false
+        if (!RouteRunner.isRunning && PrefManager.routePlay) PrefManager.routePlay = false   // app dimatikan di tengah rute: hentikan pemutaran daemon
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(binding.root)
         setSupportActionBar(binding.toolbar)

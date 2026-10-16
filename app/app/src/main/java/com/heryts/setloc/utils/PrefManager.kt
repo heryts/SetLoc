@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.heryts.setloc.BuildConfig
 import com.heryts.setloc.gsApp
+import java.io.File
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
@@ -40,6 +41,13 @@ object PrefManager   {
     private const val ALTITUDE_MANUAL = "altitude_manual"
     private const val ALTITUDE_VAR = "altitude_var"          // dibaca bridge.sh -> altv
     private const val RANDOM_RADIUS = "random_radius"        // dibaca bridge.sh -> rr
+    // pemutaran rute oleh daemon (bridge.sh): timeline di files/route_timeline.txt + parameter waktu
+    private const val ROUTE_PLAY = "route_play"
+    private const val ROUTE_T0 = "route_t0"               // senti-detik boot (elapsedRealtime/10) saat tick bergerak pertama
+    private const val ROUTE_TICK = "route_tick"           // ms per baris timeline
+    private const val ROUTE_N = "route_n"                 // jumlah baris timeline
+    private const val ROUTE_HOLD_END = "route_hold_end"   // ms diam di tujuan sebelum spoof mati (0 = sampai Stop)
+    private const val ROUTE_BC = "route_bc"               // boot_count saat dimulai (timeline basi setelah reboot diabaikan)
     private const val ROUTE_ACTIVE = "route_active"          // bridge.sh: true -> random position dinonaktifkan sementara
     private const val ALTITUDE_SERVER = "altitude_from_server"
 
@@ -164,6 +172,37 @@ object PrefManager   {
         get() = pref.getBoolean(ROUTE_ACTIVE, false)
         set(value) { pref.edit().putBoolean(ROUTE_ACTIVE, value).apply() }
 
+    /** true selama daemon boleh memutar timeline rute (lihat bridge.sh). Dimatikan oleh Stop / selesai / titik tunggal. */
+    var routePlay: Boolean
+        get() = pref.getBoolean(ROUTE_PLAY, false)
+        set(value) { pref.edit().putBoolean(ROUTE_PLAY, value).apply() }
+
+    /** Simpan timeline rute untuk daemon (atomik: tulis ke file sementara lalu rename). */
+    fun writeRouteTimeline(text: String): Boolean = try {
+        val dir = gsApp.filesDir
+        val tmp = File(dir, "route_timeline.tmp")
+        tmp.writeText(text)
+        tmp.renameTo(File(dir, "route_timeline.txt"))
+    } catch (e: Exception) {
+        false
+    }
+
+    /** Parameter pemutaran; panggil SEBELUM updateNow(routePlay = true) supaya daemon tidak membaca setengah-setengah. */
+    fun beginPlayback(t0Centis: Long, tickMs: Long, n: Int, holdEndMs: Long) {
+        val bc = try {
+            android.provider.Settings.Global.getInt(gsApp.contentResolver, android.provider.Settings.Global.BOOT_COUNT, -1)
+        } catch (e: Exception) {
+            -1
+        }
+        pref.edit()
+            .putLong(ROUTE_T0, t0Centis)
+            .putLong(ROUTE_TICK, tickMs)
+            .putInt(ROUTE_N, n)
+            .putLong(ROUTE_HOLD_END, holdEndMs)
+            .putInt(ROUTE_BC, bc)
+            .apply()
+    }
+
     /** Radius pergeseran acak posisi (meter) bila "Random position" aktif. Default 8. */
     var randomRadius: Float
         get() = pref.getFloat(RANDOM_RADIUS, 8f)
@@ -191,7 +230,7 @@ object PrefManager   {
     fun updateNow(
         start: Boolean, la: Double, ln: Double,
         speedMs: Float = 0f, bearing: Float = -1f, altitude: Float? = null,
-        routeActive: Boolean = false
+        routeActive: Boolean = false, routePlay: Boolean = false
     ) {
         // satu apply() untuk semuanya: bridge membaca posisi + kecepatan + arah + ketinggian yang konsisten
         val e = pref.edit()
@@ -201,6 +240,7 @@ object PrefManager   {
             .putFloat(SPEED_MS, speedMs.coerceAtLeast(0f))
             .putFloat(BEARING, bearing)          // negatif = tanpa arah
             .putBoolean(ROUTE_ACTIVE, routeActive)
+            .putBoolean(ROUTE_PLAY, routePlay)
         if (altitude != null) e.putFloat(ALTITUDE, altitude)
         e.apply()
     }
@@ -214,6 +254,7 @@ object PrefManager   {
             prefEditor.putFloat(SPEED_MS, 0f)    // titik tunggal = diam
             prefEditor.putFloat(BEARING, -1f)
             prefEditor.putBoolean(ROUTE_ACTIVE, false)
+            prefEditor.putBoolean(ROUTE_PLAY, false)
             prefEditor.apply()
         }
 

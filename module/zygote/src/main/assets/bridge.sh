@@ -25,16 +25,6 @@ log() {
 }
 
 
-# Jaga app SetLoc dari pembekuan/pembatasan saat di background (rute harus tetap berjalan walau Maps di depan).
-# Dijalankan di latar belakang & diam-diam: perintah yang tidak ada di ROM ini diabaikan.
-keepalive() {
-  ( cmd deviceidle whitelist +$APP
-    cmd appops set $APP RUN_ANY_IN_BACKGROUND allow
-    cmd appops set $APP RUN_IN_BACKGROUND allow
-    cmd appops set $APP SYSTEM_ALERT_WINDOW allow     # izin overlay 1x1 penjaga proses (RouteService)
-    cmd activity set-standby-bucket $APP active ) >/dev/null 2>&1 &
-}
-
 # Cari file pref app di semua lokasi yang mungkin (multi-user bisa mengalihkan
 # prefs, jadi /data/data/... bisa kosong/basi). Ambil yang paling baru diubah.
 find_pref() {
@@ -98,9 +88,40 @@ derive() {
   numok "$ALT" || ALT=0
   ALTV=$(fval float altitude_var); numok "$ALTV" || ALTV=0
   RR=$(fval float random_radius); numok "$RR" || RR=8
+  # --- Pemutaran rute oleh daemon: sistem bisa membekukan proses app saat di background, daemon (root) tidak. ---
+  # App menulis timeline (satu baris per tick: lat lng spd brg alt) + parameter waktu. Daemon memilih baris
+  # berdasarkan jam boot (/proc/uptime, satuan senti-detik), jadi posisi tetap bergerak walau app berhenti.
+  PL=""
+  if [ "$(fval boolean route_play)" = true ]; then
+    [ -z "$CURBC" ] && CURBC=$(sget boot_count)
+    T0=$(fval long route_t0); TK=$(fval long route_tick); NN=$(fval int route_n)
+    HE=$(fval long route_hold_end); BC=$(fval int route_bc); [ -z "$HE" ] && HE=0
+    TF="${PREF%/shared_prefs/*}/files/route_timeline.txt"
+    # BC harus sama dengan boot_count sekarang: timeline dari boot sebelumnya (jam boot beda) diabaikan
+    if [ -f "$TF" ] && [ "$BC" = "$CURBC" ] && numok "$T0" && numok "$TK" && numok "$NN" && numok "$HE" \
+       && [ "$TK" -gt 0 ] && [ "$NN" -gt 0 ]; then
+      read UP _ < /proc/uptime
+      EL=$(( (${UP%.*}${UP#*.} - T0) * 10 ))      # ms sejak tick bergerak pertama (negatif = masih diam di titik awal)
+      if [ $EL -lt 0 ]; then IDX=1; else IDX=$(( EL / TK + 1 )); fi
+      ENDED=0
+      if [ $IDX -ge $NN ]; then IDX=$NN; ENDED=1; fi
+      set -- $(sed -n "${IDX}{p;q}" "$TF")
+      if numok "$1" && numok "$2" && numok "$3" && numok "$4" && numok "$5"; then
+        LAT=$1; LNG=$2; SPD=$3; BRG=$4; ALT=$5
+        E=1; PL=";pl=1"
+        if [ $ENDED = 1 ]; then
+          R=0; [ "$RND" = true ] && R=1           # sudah sampai: random position kembali ke pengaturan pengguna
+          # diam di tujuan HE ms lalu spoof mati; HE=0 = tetap sampai user menekan Stop
+          if [ "$HE" -gt 0 ] && [ $EL -ge $(( (NN - 1) * TK + HE )) ]; then E=0; PL=""; fi
+        else
+          R=0                                       # sedang bergerak: random position dimatikan sementara
+        fi
+      fi
+    fi
+  fi
   X=";spd=$SPD;alt=$ALT;altv=$ALTV;rr=$RR"
   numok "$BRG" && X="$X;brg=$BRG"
-  echo "enabled=$E;lat=$LAT;lng=$LNG;acc=$ACC;random=$R$X"
+  echo "enabled=$E;lat=$LAT;lng=$LNG;acc=$ACC;random=$R$X$PL"
 }
 
 # $1 = force|""   Menimpa gpsz_cfg HANYA bila isi turunan dari app berubah
@@ -254,9 +275,9 @@ if ! app_installed || [ "$SUM" != "$(cat "$MODDIR/.apk_sum" 2>/dev/null)" ]; the
   install_app >/dev/null && echo "$SUM" > "$MODDIR/.apk_sum"
 fi
 PREFC=""; PREFC=$(find_pref)
+CURBC=$(sget boot_count)   # penanda boot untuk pemutaran rute (lihat derive)
 sync_cfg
 publish_live
-app_installed && keepalive     # izin overlay/whitelist sudah siap sebelum rute pertama dijalankan
 LAST=$(sig)
 log "daemon jalan, pantau $(find_pref deep)"
 # Polling cepat (0,2 dtk) selama spoof aktif supaya posisi rute tidak tertinggal; 0,5 dtk saat nonaktif.
@@ -268,8 +289,11 @@ while true; do
   # path pref di-cache; cari ulang tiap ~5 dtk atau bila file hilang
   if [ $((N % 20)) -eq 0 ] || [ ! -f "$PREFC" ]; then PREFC=""; PREFC=$(find_pref); fi
   S=$(sig)
-  if [ "$S" != "$LAST" ]; then      # juga memicu saat file baru muncul/hilang
-    sleep 0.1                       # beri waktu SharedPreferences selesai menulis file
+  PLAYING=0; case "$NEW" in *";pl=1") PLAYING=1 ;; esac
+  # sinkron bila pref berubah (juga file baru muncul/hilang) ATAU rute sedang diputar daemon (posisi bergerak tanpa
+  # menunggu app menulis pref)
+  if [ "$S" != "$LAST" ] || [ $PLAYING = 1 ]; then
+    [ "$S" != "$LAST" ] && sleep 0.1   # beri waktu SharedPreferences selesai menulis file
     # SharedPreferences menulis ulang file (sesaat hilang/kosong): ulangi cepat & diam-diam sebelum dianggap gagal
     OK=0
     for R in 1 2 3 4 5 6; do
@@ -284,7 +308,8 @@ while true; do
     fi
   fi
   case "$NEW" in
-    *enabled=1*) DELAY=0.2; [ "$WASON" != 1 ] && { WASON=1; keepalive; } ;;   # spoof baru menyala: jaga app
-    *) DELAY=0.5; WASON=0 ;;
+    *";pl=1") DELAY=0.25 ;;
+    *enabled=1*) DELAY=0.2 ;;
+    *) DELAY=0.5 ;;
   esac
 done
