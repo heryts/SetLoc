@@ -19,6 +19,7 @@ else
     case "$APK_OUT" in
       *Success*)
         md5sum "$APK_SRC" 2>/dev/null | cut -d' ' -f1 > "$MODPATH/.apk_sum"
+        cmd appops set com.heryts.setloc SYSTEM_ALERT_WINDOW allow >/dev/null 2>&1
         ui_print "  app SetLoc terpasang" ;;
       *)
         ui_print "  ! pm install gagal: $APK_OUT"

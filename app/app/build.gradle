@@ -7,7 +7,7 @@ plugins {
     id 'kotlin-parcelize'
 }
 
-def tagName = '3.21'
+def tagName = '3.23'
 
 android {
     compileSdk 33
@@ -15,7 +15,7 @@ android {
         applicationId "com.heryts.setloc"
         minSdk 27
         targetSdk 33
-        versionCode 321
+        versionCode 323
         versionName tagName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "TAG_NAME", "\"${tagName}\"")

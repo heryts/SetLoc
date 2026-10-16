@@ -25,6 +25,33 @@ log() {
 }
 
 
+# Jaga app SetLoc dari pembekuan/pembatasan saat di background (rute harus tetap berjalan walau Maps di depan).
+# Dijalankan di latar belakang & diam-diam: perintah yang tidak ada di ROM ini diabaikan.
+keepalive() {
+  ( cmd deviceidle whitelist +$APP
+    cmd appops set $APP RUN_ANY_IN_BACKGROUND allow
+    cmd appops set $APP RUN_IN_BACKGROUND allow
+    cmd appops set $APP SYSTEM_ALERT_WINDOW allow     # izin overlay 1x1 penjaga proses (RouteService)
+    cmd activity set-standby-bucket $APP active ) >/dev/null 2>&1 &
+}
+
+# Pemicu cadangan: saat rute diputar daemon dan app TERTAHAN (pref tidak ditulis > 4 dtk padahal seharusnya bergerak)
+# tapi prosesnya masih ada (mis. dibekukan ROM), bangunkan RouteService supaya ticker + notifikasi progres menyusul.
+# Normalnya (overlay aktif) tidak pernah terpicu, jadi tanpa biaya. App yang sudah mati tidak dihidupkan lagi.
+poke_check() {
+  PX=$(cat "$PREFC" 2>/dev/null)
+  T0=$(fval long route_t0); TK=$(fval long route_tick); NN=$(fval int route_n)
+  numok "$T0" && numok "$TK" && numok "$NN" || return 0
+  [ "$TK" -gt 0 ] || return 0
+  read UP _ < /proc/uptime
+  EL=$(( (${UP%.*}${UP#*.} - T0) * 10 ))
+  [ $EL -ge 0 ] && [ $EL -lt $(( (NN - 1) * TK )) ] || return 0          # hanya saat sedang bergerak (bukan diam di awal/akhir)
+  [ $(( $(date +%s) - $(stat -c %Y "$PREFC" 2>/dev/null || echo 0) )) -ge 4 ] || return 0
+  pidof $APP >/dev/null 2>&1 || return 0                                    # proses mati: jangan dihidupkan lagi
+  am startservice -n $APP/.route.RouteService -a $APP.route.POKE >/dev/null 2>&1 &
+  log "poke: app tertahan, RouteService dibangunkan"
+}
+
 # Cari file pref app di semua lokasi yang mungkin (multi-user bisa mengalihkan
 # prefs, jadi /data/data/... bisa kosong/basi). Ambil yang paling baru diubah.
 find_pref() {
@@ -278,6 +305,7 @@ PREFC=""; PREFC=$(find_pref)
 CURBC=$(sget boot_count)   # penanda boot untuk pemutaran rute (lihat derive)
 sync_cfg
 publish_live
+app_installed && keepalive     # izin overlay/whitelist sudah siap sebelum rute pertama dijalankan
 LAST=$(sig)
 log "daemon jalan, pantau $(find_pref deep)"
 # Polling cepat (0,2 dtk) selama spoof aktif supaya posisi rute tidak tertinggal; 0,5 dtk saat nonaktif.
@@ -307,9 +335,11 @@ while true; do
     elif sync_cfg; then LAST=$S     # tetap gagal: tercatat di log, dicoba lagi di putaran berikut
     fi
   fi
+  [ $PLAYING = 1 ] && [ $((N % 24)) -eq 0 ] && poke_check
   case "$NEW" in
-    *";pl=1") DELAY=0.25 ;;
-    *enabled=1*) DELAY=0.2 ;;
-    *) DELAY=0.5 ;;
+    *enabled=1*)
+      case "$NEW" in *";pl=1") DELAY=0.25 ;; *) DELAY=0.2 ;; esac
+      [ "$WASON" != 1 ] && { WASON=1; keepalive; } ;;   # spoof baru menyala: jaga app (notifikasi progres tetap jalan)
+    *) DELAY=0.5; WASON=0 ;;
   esac
 done
