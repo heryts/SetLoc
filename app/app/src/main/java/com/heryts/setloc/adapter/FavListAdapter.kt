@@ -11,8 +11,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.heryts.setloc.R
 import com.heryts.setloc.room.Favourite
 
-class FavListAdapter(
-    ) : ListAdapter<Favourite,FavListAdapter.ViewHolder>(FavListComparetor()) {
+class FavListAdapter : ListAdapter<Favourite, FavListAdapter.ViewHolder>(FavListComparetor()) {
     var onItemClick : ((Favourite) -> Unit)? = null
     var onItemDelete : ((Favourite) -> Unit)? = null
 
@@ -48,9 +47,6 @@ class FavListAdapter(
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        val item = getItem(position)
-        if (item != null){
-            holder.bind(item)
-        }
+        holder.bind(getItem(position))
     }
 }

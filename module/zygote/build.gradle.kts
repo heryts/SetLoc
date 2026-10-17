@@ -51,7 +51,6 @@ zygisk {
 }
 
 dependencies {
-    implementation(libs.androidx.annotation.jvm)
     implementation(libs.r8annotations)
 
     api(androidvmtools.panama.core)

@@ -70,9 +70,7 @@ final class LocationHooks {
                         handled = true;
                     }
                 }
-            } catch (Throwable t) {
-                Log.w(ZygoteEntry.TAG, "fake failed: " + t);
-            }
+            } catch (Throwable ignored) { }
             if (!handled) {
                 try {
                     Transformers.invokeExactNoChecks(original, frame);

@@ -34,9 +34,7 @@ class MainViewModel @Inject constructor(
     fun deleteFavourite(favourite: Favourite) = onIO { favouriteRepository.deleteFavourite(favourite) }
 
     fun storeFavorite(address: String, lat: Double, lon: Double, onResult: (Boolean) -> Unit) = onIO {
-        var slot = 0L
-        while (favouriteRepository.getSingleFavourite(slot) != null) slot++
-        val id = favouriteRepository.addNewFavourite(Favourite(id = slot, address = address, lat = lat, lng = lon))
+        val id = favouriteRepository.addNewFavourite(Favourite(address = address, lat = lat, lng = lon))
         withContext(Dispatchers.Main) { onResult(id != -1L) }
     }
 }

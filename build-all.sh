@@ -32,8 +32,10 @@ fi
 echo "== 1/3 build app =="
 TASKS="test assembleRelease"; [ -n "$SKIP_TESTS" ] && TASKS=assembleRelease
 ( cd app && with_jdk "$J17" sh ./gradlew $TASKS )
+APK=$(ls -t app/app/build/outputs/apk/release/*.apk 2>/dev/null | head -n 1)
+[ -n "$APK" ] || { echo "GAGAL: APK rilis tidak ditemukan"; exit 1; }
 mkdir -p module/zygote/src/main/assets/apk
-cp app/app/build/outputs/apk/release/*.apk module/zygote/src/main/assets/apk/SetLoc.apk
+cp "$APK" module/zygote/src/main/assets/apk/SetLoc.apk
 
 echo "== 2/3 siapkan AndroidVMTools =="
 ( cd module && sh setup.sh )

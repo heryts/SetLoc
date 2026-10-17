@@ -17,7 +17,4 @@ interface FavouriteDao {
 
     @Query("SELECT * FROM favourite ORDER BY id DESC")
     fun getAllFavourites(): Flow<List<Favourite>>
-
-    @Query("SELECT * FROM favourite WHERE id = :id")
-    fun getSingleFavourite(id: Long): Favourite?
 }

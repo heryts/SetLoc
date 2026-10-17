@@ -79,7 +79,6 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     private var mLatLng: LatLng? = null
     private var lat by Delegates.notNull<Double>()
     private var lon by Delegates.notNull<Double>()
-    private lateinit var alertDialog: MaterialAlertDialogBuilder
     private lateinit var dialog: AlertDialog
 
     private val routeWaypoints = mutableListOf<LatLng>()
@@ -109,6 +108,11 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         observeRoute()
     }
 
+    private fun setRunningUi(running: Boolean) {
+        binding.start.visibility = if (running) View.GONE else View.VISIBLE
+        binding.stop.visibility = if (running) View.VISIBLE else View.GONE
+    }
+
     private fun initializeMap() {
         val mapFragment = supportFragmentManager.findFragmentById(R.id.map) as SupportMapFragment?
         mapFragment?.getMapAsync(this)
@@ -116,8 +120,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
 
     private fun setFloatActionButton() {
         if (viewModel.isStarted) {
-            binding.start.visibility = View.GONE
-            binding.stop.visibility = View.VISIBLE
+            setRunningUi(true)
         }
 
         binding.start.setOnClickListener {
@@ -144,8 +147,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             }
             mMarker?.position = mLatLng!!
             mMarker?.isVisible = true
-            binding.start.visibility = View.GONE
-            binding.stop.visibility = View.VISIBLE
+            setRunningUi(true)
             lifecycleScope.launch {
                 mLatLng?.getAddress(this@MapActivity)?.let { address ->
                     address.collect{ value ->
@@ -160,8 +162,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             (mLatLng ?: LatLng(viewModel.getLat, viewModel.getLng))
                 .let { viewModel.update(false, it.latitude, it.longitude) }
             mMarker?.isVisible = false
-            binding.stop.visibility = View.GONE
-            binding.start.visibility = View.VISIBLE
+            setRunningUi(false)
             cancelNotification()
             showToast(getString(R.string.location_unset))
             updateRouteFab()
@@ -252,35 +253,40 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         }
     }
 
-    private fun clearRoute() {
+    private fun cancelRouteJobs() {
         routeJob?.cancel()
         routeJob = null
         elevationJob?.cancel()
         elevationJob = null
         routeLoading = false
-        routeMarkers.forEach { it.remove() }
-        routeMarkers.clear()
-        routeWaypoints.clear()
+    }
+
+    private fun clearRouteLine() {
         routeLine?.remove()
         routeLine = null
         routePoints = emptyList()
         RouteRunner.elevations = null
+    }
+
+    private fun dropLastWaypoint() {
+        routeWaypoints.removeAt(routeWaypoints.size - 1)
+        routeMarkers.removeAt(routeMarkers.size - 1).remove()
+    }
+
+    private fun clearRoute() {
+        cancelRouteJobs()
+        routeMarkers.forEach { it.remove() }
+        routeMarkers.clear()
+        routeWaypoints.clear()
+        clearRouteLine()
         updateRouteFab()
     }
 
     private fun removeLastWaypoint() {
         if (routeWaypoints.isEmpty() || RouteRunner.isRunning) return
-        routeJob?.cancel()
-        routeJob = null
-        elevationJob?.cancel()
-        elevationJob = null
-        routeLoading = false
-        routeWaypoints.removeAt(routeWaypoints.size - 1)
-        routeMarkers.removeAt(routeMarkers.size - 1).remove()
-        routeLine?.remove()
-        routeLine = null
-        routePoints = emptyList()
-        RouteRunner.elevations = null
+        cancelRouteJobs()
+        dropLastWaypoint()
+        clearRouteLine()
         refreshRouteMarkers()
         if (routeWaypoints.isNotEmpty() && !clearHintShown) {
             clearHintShown = true
@@ -337,8 +343,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     private fun routeFetchFailed(dropLast: Boolean) {
         routeLoading = false
         if (dropLast && routeWaypoints.size > 1) {
-            routeWaypoints.removeAt(routeWaypoints.size - 1)
-            routeMarkers.removeAt(routeMarkers.size - 1).remove()
+            dropLastWaypoint()
             refreshRouteMarkers()
         }
         if (routeWaypoints.size < 2) {
@@ -416,8 +421,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             PrefManager.routeWaitStart, PrefManager.routeWaitEnd, PrefManager.routeSpeedVarFor(speed)
         )
         ContextCompat.startForegroundService(this, Intent(this, RouteService::class.java))
-        binding.start.visibility = View.GONE
-        binding.stop.visibility = View.VISIBLE
+        setRunningUi(true)
         updateRouteFab()
         mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(first, 16f))
     }
@@ -439,22 +443,19 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
                             }
                             mMap.animateCamera(CameraUpdateFactory.newLatLng(pos))
                         }
-                        binding.start.visibility = View.GONE
-                        binding.stop.visibility = View.VISIBLE
+                        setRunningUi(true)
                     }
                     if (s.finished && wasRouteRunning) {
                         wasRouteRunning = false
                         showToast(getString(R.string.route_arrived))
                         if (s.spoofOff) {
                             mMarker?.isVisible = false
-                            binding.stop.visibility = View.GONE
-                            binding.start.visibility = View.VISIBLE
+                            setRunningUi(false)
                         }
                     } else if (!s.running && !s.finished && wasRouteRunning) {
                         wasRouteRunning = false
                         mMarker?.isVisible = false
-                        binding.stop.visibility = View.GONE
-                        binding.start.visibility = View.VISIBLE
+                        setRunningUi(false)
                     }
                     updateRouteFab()
                 }
@@ -637,7 +638,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             val typed: Float? = if (speedBlank || speedAuto) null else typedRaw
             val sp = typed ?: autoSpeedKmh()
             val wait = (waitEt.text.toString().toFloatOrNull() ?: 0f).coerceIn(0f, 600f)
-            val newMode = modeIds.indexOf(chips.checkedChipId).let { if (it < 0) oldMode else it }
+            val newMode = selectedMode()
             PrefManager.routeSpeed = typed ?: -1f
             PrefManager.speedVarUnit = varUnit
             PrefManager.routeSpeedVarRaw =
@@ -700,7 +701,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     }
 
     private fun aboutDialog(){
-        alertDialog = MaterialAlertDialogBuilder(this)
+        val alertDialog = MaterialAlertDialogBuilder(this)
         layoutInflater.inflate(R.layout.about,null).apply {
             val  tittle = findViewById<TextView>(R.id.design_about_title)
             val  version = findViewById<TextView>(R.id.design_about_version)
@@ -733,7 +734,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     }
 
     private fun searchDialog() {
-        alertDialog = MaterialAlertDialogBuilder(this)
+        val alertDialog = MaterialAlertDialogBuilder(this)
         val view = layoutInflater.inflate(R.layout.dialog_layout,null)
         val editText = view.findViewById<EditText>(R.id.search_edittxt)
         editText.hint = getString(R.string.search_hint)
@@ -744,7 +745,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             if (isNetworkConnected()) {
                 val getInput = editText.text.toString().trim()
                 if (getInput.isNotEmpty()) {
-                    lifecycleScope.launch(Dispatchers.Main) {
+                    lifecycleScope.launch {
                         getSearchAddress(getInput)
                             .catch { emit(SearchProgress.Fail(getString(R.string.address_not_found))) }
                             .collect { result ->
@@ -774,7 +775,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     }
 
     private fun addFavouriteDialog(){
-        alertDialog =  MaterialAlertDialogBuilder(this).apply {
+        MaterialAlertDialogBuilder(this).apply {
             val view = layoutInflater.inflate(R.layout.dialog_layout,null)
             val editText = view.findViewById<EditText>(R.id.search_edittxt)
             setTitle(getString(R.string.add_fav_dialog_title))
@@ -793,7 +794,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
 
     private fun openFavouriteListDialog() {
         getAllUpdatedFavList()
-        alertDialog = MaterialAlertDialogBuilder(this)
+        val alertDialog = MaterialAlertDialogBuilder(this)
         alertDialog.setTitle(getString(R.string.favourites))
         val view = layoutInflater.inflate(R.layout.fav,null)
         val  rcv = view.findViewById<RecyclerView>(R.id.favorites_list)

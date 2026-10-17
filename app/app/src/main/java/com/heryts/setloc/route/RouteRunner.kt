@@ -49,8 +49,7 @@ object RouteRunner {
     private var lastBearing = -1f
 
     fun start(
-        points: List<LatLng>, speedKmh: Float, waitAtStartMin: Float, waitAtEndMin: Float = 0f,
-        speedVarKmh: Float = -1f
+        points: List<LatLng>, speedKmh: Float, waitAtStartMin: Float, waitAtEndMin: Float, speedVarKmh: Float
     ) {
         if (points.size < 2) return
         synchronized(lock) {
@@ -123,7 +122,6 @@ object RouteRunner {
 
     private fun timelineText(ticks: List<Tick>): String {
         val sb = StringBuilder(ticks.size * 48)
-
         val fmt = java.util.Formatter(sb, java.util.Locale.US)
         for (t in ticks) fmt.format("%.6f %.6f %.3f %.2f %.2f\n", t.lat, t.lng, t.spd, t.brg, t.alt)
         return sb.toString()
@@ -189,7 +187,7 @@ object RouteRunner {
         }
     }
 
-    private fun write(p: LatLng, pct: Int, speedMs: Float, brg: Float, alt: Float?): Boolean = synchronized(lock) {
+    private fun write(p: LatLng, pct: Int, speedMs: Float, brg: Float, alt: Float): Boolean = synchronized(lock) {
         if (!active) return false
         if (brg >= 0f) lastBearing = brg
         PrefManager.updateNow(true, p.latitude, p.longitude, speedMs, lastBearing, alt, routeActive = true, routePlay = true)
@@ -197,7 +195,7 @@ object RouteRunner {
         true
     }
 
-    private fun arrive(end: LatLng, alt: Float?): Boolean = synchronized(lock) {
+    private fun arrive(end: LatLng, alt: Float): Boolean = synchronized(lock) {
         if (!active) return false
         PrefManager.updateNow(true, end.latitude, end.longitude, 0f, lastBearing, alt, routePlay = true)
         true
@@ -213,7 +211,7 @@ object RouteRunner {
         return e[i] + (e[i + 1] - e[i]) * f
     }
 
-    fun bearing(a: LatLng, b: LatLng): Float {
+    private fun bearing(a: LatLng, b: LatLng): Float {
         val la1 = Math.toRadians(a.latitude)
         val la2 = Math.toRadians(b.latitude)
         val dLng = Math.toRadians(b.longitude - a.longitude)

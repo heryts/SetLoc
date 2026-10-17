@@ -331,14 +331,8 @@ const B = {
       return m ? m[1] : 'off';
     } catch (e) { return 'off'; }
   },
-  async setHb() {
-    await sh(`mkdir -p '${PKGDIR}' && rm -f '${PKGDIR}/.sysoff' && { [ -e '${PKGDIR}/android' ] || : > '${PKGDIR}/android'; } && settings put global gpsz_sys 2`);
-  },
-  async setSys(on) {
-    if (on) await sh(`mkdir -p '${PKGDIR}' && rm -f '${PKGDIR}/.sysoff' && { [ -e '${PKGDIR}/android' ] || : > '${PKGDIR}/android'; } && settings put global gpsz_sys 1`);
-    else await sh(`F='${PKGDIR}/android'; live=0; if [ -e "$F" ]; then mt=$(stat -c %Y "$F" 2>/dev/null || echo 0); boot=$(( $(date +%s) - $(cut -d. -f1 /proc/uptime) )); [ "$mt" -lt "$boot" ] && live=1; fi; ` +
-      `rm -f "$F" '${PKGDIR}/.sysoff'; [ "$live" = 1 ] && : > '${PKGDIR}/.sysoff'; settings put global gpsz_sys 0`);
-  },
+  async setHb() { await sh(`sh '${MODDIR}/gpsz.sh' system heartbeat 2>&1`); },
+  async setSys(on) { await sh(`sh '${MODDIR}/gpsz.sh' system ${on ? 'on' : 'off'} 2>&1`); },
   async reboot() { await exec('svc power reboot || reboot'); },
   async setSpoof(on) {
     await sh(`sh '${MODDIR}/gpsz.sh' ${on ? 'on' : 'off'} 2>&1`);

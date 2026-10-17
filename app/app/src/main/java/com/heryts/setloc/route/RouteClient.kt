@@ -16,7 +16,7 @@ import java.security.MessageDigest
 object RouteClient {
     class RouteException(message: String) : Exception(message)
 
-    class Result(val points: List<LatLng>, val distanceM: Double, val durationS: Double)
+    class Result(val points: List<LatLng>, val durationS: Double)
 
     private val MODES = arrayOf("WALK", "BICYCLE", "DRIVE", "DRIVE")
 
@@ -27,9 +27,7 @@ object RouteClient {
     suspend fun fetch(context: Context, stops: List<LatLng>, mode: Int): Result =
         withContext(Dispatchers.IO) {
             if (stops.size < 2) throw RouteException("Minimal dua titik")
-            val appCtx = context.applicationContext
-            val wanted = mode.coerceIn(0, MODES.size - 1)
-            request(appCtx, stops, MODES[wanted])
+            request(context.applicationContext, stops, MODES[mode.coerceIn(0, MODES.size - 1)])
         }
 
     private fun request(context: Context, stops: List<LatLng>, travelMode: String): Result {
@@ -58,7 +56,7 @@ object RouteClient {
             conn.setRequestProperty("X-Goog-Api-Key", key)
             conn.setRequestProperty(
                 "X-Goog-FieldMask",
-                "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline"
+                "routes.duration,routes.polyline.encodedPolyline"
             )
             conn.setRequestProperty("X-Android-Package", context.packageName)
             certSha1(context)?.let { conn.setRequestProperty("X-Android-Cert", it) }
@@ -78,7 +76,7 @@ object RouteClient {
             val points = decodePolyline(encoded)
             if (points.size < 2) throw RouteException("Rute tidak ditemukan")
             val seconds = route.optString("duration").removeSuffix("s").toDoubleOrNull() ?: 0.0
-            return Result(points, route.optDouble("distanceMeters", 0.0), seconds)
+            return Result(points, seconds)
         } catch (e: RouteException) {
             throw e
         } catch (e: java.io.IOException) {

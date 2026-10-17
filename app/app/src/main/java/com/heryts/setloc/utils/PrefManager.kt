@@ -28,7 +28,6 @@ object PrefManager   {
     private const val SPEED_UNIT_MPH = "speed_unit_mph"
     private const val SPEED_VAR_UNIT = "speed_var_unit"
     private const val ROUTE_WAIT_END = "route_wait_end"
-    private const val WAIT_END_AUTO_MIGRATED = "route_wait_end_auto_migrated"
     private const val SPEED_MS = "speed_ms"
     private const val BEARING = "bearing"
     private const val ALTITUDE = "altitude"
@@ -94,7 +93,7 @@ object PrefManager   {
         set(value) { pref.edit().putFloat(ROUTE_SPEED_VAR, value).apply() }
 
     var speedVarUnit: Int
-        get() = pref.getInt(SPEED_VAR_UNIT, if (routeSpeedVarRaw >= 0f) 1 else 0)
+        get() = pref.getInt(SPEED_VAR_UNIT, 0)
         set(value) { pref.edit().putInt(SPEED_VAR_UNIT, value).apply() }
 
     fun routeSpeedVarFor(speedKmh: Float): Float {
@@ -112,14 +111,7 @@ object PrefManager   {
         set(value) { pref.edit().putFloat(ROUTE_WAIT, value).apply() }
 
     var routeWaitEnd: Float
-        get() {
-            if (!pref.getBoolean(WAIT_END_AUTO_MIGRATED, false)) {
-                val e = pref.edit().putBoolean(WAIT_END_AUTO_MIGRATED, true)
-                if (pref.contains(ROUTE_WAIT_END) && pref.getFloat(ROUTE_WAIT_END, -1f) == 0f) e.remove(ROUTE_WAIT_END)
-                e.apply()
-            }
-            return pref.getFloat(ROUTE_WAIT_END, -1f)
-        }
+        get() = pref.getFloat(ROUTE_WAIT_END, -1f)
         set(value) { pref.edit().putFloat(ROUTE_WAIT_END, value).apply() }
 
     var altitudeM: Float

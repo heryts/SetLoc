@@ -11,6 +11,4 @@ class FavouriteRepository @Inject constructor(private val favouriteDao: Favourit
     suspend fun addNewFavourite(favourite: Favourite): Long = favouriteDao.insertToRoomDatabase(favourite)
 
     suspend fun deleteFavourite(favourite: Favourite) = favouriteDao.deleteSingleFavourite(favourite)
-
-    fun getSingleFavourite(id: Long): Favourite? = favouriteDao.getSingleFavourite(id)
 }

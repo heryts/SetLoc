@@ -40,7 +40,7 @@ chmod +x "$T/bin/"*
 PATH="$T/bin:$PATH"; export PATH
 
 echo "[sintaks]"
-for f in "$A"/*.sh "$A"/customize.d/*.sh "$A/../../../../setup.sh" "$A/../../../../inject-install.sh"; do
+for f in "$A"/*.sh "$A"/customize.d/*.sh "$A/../../../../setup.sh"; do
   [ -f "$f" ] && check "sh -n $(basename "$f")" "sh -n '$f'"
 done
 
@@ -131,6 +131,16 @@ printf '%s\n' "<map>" '    <boolean name="start" value="false" />' "</map>" > "$
   pref_set boolean start true; pref_set float latitude -7.5 )
 check "pref_set mengubah nilai yang ada" 'grep -q "name=\"start\" value=\"true\"" "$T/p.xml"'
 check "pref_set menambah kunci yang belum ada" 'grep -q "name=\"latitude\" value=\"-7.5\"" "$T/p.xml"'
+
+echo "[40-install-apk.sh]"
+mkdir -p "$M/apk"; echo apk > "$M/apk/SetLoc.apk"
+printf '#!/bin/sh\n[ "$1" = install ] && echo Success\nexit 0\n' > "$T/bin/pm"
+out=$( ui_print() { echo "$*"; }; MODPATH="$M"; . "$A/customize.d/40-install-apk.sh" )
+check "install sukses: pesan terpasang dan .apk_sum dibuat" 'echo "$out" | grep -q terpasang && [ -s "$M/.apk_sum" ]'
+rm -f "$M/.apk_sum"
+printf '#!/bin/sh\n[ "$1" = install ] && echo "Failure [INSTALL_FAILED]"\nexit 0\n' > "$T/bin/pm"
+out=$( ui_print() { echo "$*"; }; MODPATH="$M"; . "$A/customize.d/40-install-apk.sh" )
+check "install gagal: pesan gagal, .apk_sum tidak dibuat" 'echo "$out" | grep -q "pm install gagal" && [ ! -e "$M/.apk_sum" ]'
 
 echo "[hook: Config.checkBeat (beat daemon)]"
 TD="$(cd "$(dirname "$0")" && pwd)"

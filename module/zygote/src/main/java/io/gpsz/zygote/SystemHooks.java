@@ -268,8 +268,7 @@ final class SystemHooks {
                             break;
                     }
                 }
-            } catch (Throwable t) {
-                Log.w(TAG, "system fake failed: " + t);
+            } catch (Throwable ignored) {
                 handled = false;
             }
             if (!handled) {
@@ -364,16 +363,12 @@ final class SystemHooks {
                             if (fix == null) continue;
                             Object res = wrap(fix);
                             if (res != null) lpmOnReport.invoke(mgr, res);
-                        } catch (Throwable t) {
-                            Log.w(TAG, "fake fix to " + name + " failed: " + t);
-                        }
+                        } catch (Throwable ignored) { }
                     }
                     lastGpsReport = now;
                 } catch (InterruptedException e) {
                     return;
-                } catch (Throwable t) {
-                    Log.w(TAG, "generator tick error: " + t);
-                }
+                } catch (Throwable ignored) { }
             }
         }, "gpsz-fixgen");
         th.setDaemon(true);

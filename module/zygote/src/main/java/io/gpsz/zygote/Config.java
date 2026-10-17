@@ -208,9 +208,7 @@ final class Config {
                         onReady.run();
                         publishLive(app);
                     }
-                } catch (Throwable t) {
-                    Log.w(ZygoteEntry.TAG, "config read failed: " + t);
-                }
+                } catch (Throwable ignored) { }
                 sleep(250);
             }
         }, "gpsz-config");

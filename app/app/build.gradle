@@ -40,7 +40,6 @@ android {
         release {
             signingConfig ksFile.exists() ? signingConfigs.release : signingConfigs.debug
             minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
     compileOptions {
@@ -67,7 +66,6 @@ dependencies {
     implementation 'androidx.preference:preference:1.2.0'
 
     implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.0-alpha04"
-    implementation "androidx.lifecycle:lifecycle-livedata-ktx:2.6.0-alpha04"
 
     implementation "com.google.dagger:hilt-android:2.51.1"
     ksp "com.google.dagger:hilt-compiler:2.51.1"
@@ -81,8 +79,4 @@ dependencies {
     implementation ("dev.rikka.rikkax.material:material-preference:2.0.0") {
         exclude group: "dev.rikka.rikkax.appcompat", module: "appcompat"
     }
-}
-
-tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
-    kotlinOptions.jvmTarget = '11'
 }

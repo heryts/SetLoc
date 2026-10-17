@@ -133,16 +133,12 @@ sync_cfg() {
   fi
   [ -e "$MODDIR/.last_err" ] && rm -f "$MODDIR/.last_err"
   PREV=; { read -r PREV < "$LASTF"; } 2>/dev/null
-  if [ "$1" = force ] || [ "$NEW" != "$PREV" ]; then
-    sput $KEY "$NEW" || { log "settings put GAGAL"; return 1; }
-    echo "$NEW" > "$LASTF"
-  else
+  if [ "$1" != force ] && [ "$NEW" = "$PREV" ]; then
     CUR=$(sget $KEY)
-    if [ -z "$CUR" ] || [ "$CUR" = null ]; then
-      sput $KEY "$NEW" || { log "settings put GAGAL"; return 1; }
-      echo "$NEW" > "$LASTF"
-    fi
+    [ -n "$CUR" ] && [ "$CUR" != null ] && return 0
   fi
+  sput $KEY "$NEW" || { log "settings put GAGAL"; return 1; }
+  echo "$NEW" > "$LASTF"
   return 0
 }
 
@@ -161,26 +157,29 @@ pref_set() {
   rm -f "$TMP"
 }
 
+app_pref() {
+  PREF=$(find_pref)
+  [ -n "$PREF" ] && [ -f "$PREF" ] || { log "$1: pref app tidak ditemukan"; return 1; }
+}
+
+remember() { NEW=$(derive) && echo "$NEW" > "$LASTF"; return 0; }
+
 set_app_start() {
   V=false; [ "$1" = 1 ] && V=true
-  PREF=$(find_pref)
-  [ -n "$PREF" ] && [ -f "$PREF" ] || { log "setstart: pref app tidak ditemukan"; return 1; }
+  app_pref setstart || return 1
   [ "$(pval boolean start)" = "$V" ] && return 0
   am force-stop "$APP" >/dev/null 2>&1
   pref_set boolean start "$V"
-  NEW=$(derive) && echo "$NEW" > "$LASTF"
-  return 0
+  remember
 }
 
 set_app_pos() {
   numok "$1" && numok "$2" || { log "setpos: koordinat tidak valid"; return 1; }
-  PREF=$(find_pref)
-  [ -n "$PREF" ] && [ -f "$PREF" ] || { log "setpos: pref app tidak ditemukan"; return 1; }
+  app_pref setpos || return 1
   am force-stop "$APP" >/dev/null 2>&1
   pref_set float latitude "$1"; pref_set float longitude "$2"
   pref_set float speed_ms 0; pref_set float bearing -1
-  NEW=$(derive) && echo "$NEW" > "$LASTF"
-  return 0
+  remember
 }
 
 publish_live() {
@@ -270,11 +269,8 @@ case "$1" in
   setstart) set_app_start "$2"; exit $? ;;
   setpos)  set_app_pos "$2" "$3"; exit $? ;;
   ensure)
-    if daemon_running; then echo "daemon=running"; rm -f "$MODDIR/.super_fail"; exit 0; fi
-    if [ -z "$(ls "$LOCKD" 2>/dev/null)" ]; then
-      sleep 2
-      if daemon_running; then echo "daemon=running"; rm -f "$MODDIR/.super_fail"; exit 0; fi
-    fi
+    daemon_running || { [ -z "$(ls "$LOCKD" 2>/dev/null)" ] && sleep 2; daemon_running; } \
+      && { echo "daemon=running"; rm -f "$MODDIR/.super_fail"; exit 0; }
     if [ "$2" = super ]; then
       STALEP=$(ls "$LOCKD" 2>/dev/null | grep '^[0-9][0-9]*$' | tr '\n' ' ')
       STALEP=${STALEP% }
@@ -304,6 +300,8 @@ case "$1" in
   *) echo "usage: bridge.sh ensure [super]|sync|force|setstart 0|1|setpos <lat> <lng>|status|install"; exit 1 ;;
 esac
 
+yield_lock() { lock_fast || { log "daemon: kalah arbitrasi dari pid $WIN, keluar"; exit 0; }; }
+
 acquire_lock || exit 0
 on_exit() {
   RC=$1
@@ -318,12 +316,12 @@ trap 'on_sig INT 130' INT
 trap 'on_exit $?' EXIT
 log "daemon start (pid $$)"
 until [ "$(getprop sys.boot_completed)" = 1 ]; do
-  lock_fast || { log "daemon: kalah arbitrasi dari pid $WIN, keluar"; exit 0; }
+  yield_lock
   sleep 1
 done
 for _ in 1 2 3 4 5; do
   sleep 1
-  lock_fast || { log "daemon: kalah arbitrasi dari pid $WIN, keluar"; exit 0; }
+  yield_lock
 done
 SUM=$(md5sum "$APK" 2>/dev/null | cut -d' ' -f1)
 if ! app_installed || [ "$SUM" != "$(cat "$MODDIR/.apk_sum" 2>/dev/null)" ]; then
@@ -340,7 +338,7 @@ DELAY=0.5; N=0
 while true; do
   sleep $DELAY
   N=$((N+1))
-  lock_fast || { log "daemon: kalah arbitrasi dari pid $WIN, keluar"; exit 0; }
+  yield_lock
   if [ $((N % 100)) -eq 0 ]; then lock_clean; publish_live; fi
   if [ $((N % 20)) -eq 0 ] || [ ! -f "$PREFC" ]; then PREFC=""; PREFC=$(find_pref); fi
   S=$(sig)
