@@ -7,6 +7,7 @@ local.properties
 keystore.properties
 
 # Build
+module/external/
 build/
 .gradle/
 .cxx/
@@ -14,5 +15,3 @@ build/
 *.zip
 .idea/
 .DS_Store
-module/external/
-external/
