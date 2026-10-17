@@ -6,15 +6,17 @@ plugins {
     id 'com.google.devtools.ksp'
 }
 
-def tagName = '3.27'
+def ver = new Properties()
+file('../../version.properties').withInputStream { ver.load(it) }
+def tagName = ver['versionName']
 
 android {
-    compileSdk 33
+    compileSdk 34
     defaultConfig {
         applicationId "com.heryts.setloc"
         minSdk 27
         targetSdk 33
-        versionCode 327
+        versionCode ver['versionCode'] as int
         versionName tagName
     }
 
@@ -54,7 +56,6 @@ android {
         buildConfig true
     }
     namespace 'com.heryts.setloc'
-    buildToolsVersion '33.0.0'
 }
 
 dependencies {
@@ -69,26 +70,17 @@ dependencies {
     implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.0-alpha04"
     implementation "androidx.lifecycle:lifecycle-livedata-ktx:2.6.0-alpha04"
 
-    implementation "com.google.dagger:hilt-android:2.48"
-    ksp "com.google.dagger:hilt-compiler:2.48"
+    implementation "com.google.dagger:hilt-android:2.51.1"
+    ksp "com.google.dagger:hilt-compiler:2.51.1"
 
-    implementation 'androidx.room:room-runtime:2.5.0'
-    implementation 'androidx.room:room-ktx:2.5.0'
-    ksp 'androidx.room:room-compiler:2.5.0'
+    implementation 'androidx.room:room-runtime:2.6.1'
+    implementation 'androidx.room:room-ktx:2.6.1'
+    ksp 'androidx.room:room-compiler:2.6.1'
+
+    testImplementation 'junit:junit:4.13.2'
 
     implementation ("dev.rikka.rikkax.material:material-preference:2.0.0") {
         exclude group: "dev.rikka.rikkax.appcompat", module: "appcompat"
-    }
-}
-
-// Hilt 2.48 membawa kotlin-stdlib 1.9.0, sedangkan plugin Kotlin 1.8.0 dan lint AGP 7.4
-// (Kotlin 1.7.1) tidak bisa membaca metadata 1.9. Samakan stdlib dengan versi plugin.
-configurations.configureEach {
-    resolutionStrategy.eachDependency { details ->
-        if (details.requested.group == 'org.jetbrains.kotlin' &&
-                details.requested.name in ['kotlin-stdlib', 'kotlin-stdlib-common', 'kotlin-stdlib-jdk7', 'kotlin-stdlib-jdk8']) {
-            details.useVersion '1.8.0'
-        }
     }
 }
 

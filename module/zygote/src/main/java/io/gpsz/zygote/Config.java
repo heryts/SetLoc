@@ -1,6 +1,7 @@
 package io.gpsz.zygote;
 
 import android.app.Application;
+import android.content.ContentResolver;
 import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.Log;
@@ -8,6 +9,7 @@ import android.util.Log;
 import com.v7878.unsafe.Reflection;
 
 import java.lang.reflect.Method;
+import java.util.Objects;
 import java.util.Random;
 
 /** Konfigurasi dari Settings.Global "gpsz_cfg" (ditulis root), mis. enabled=1;lat=-6.2;lng=106.8;acc=10;random=0. */
@@ -42,9 +44,14 @@ final class Config {
     private static volatile double altNoise = 0.0;
     private static volatile long altAt = 0;
 
-    static volatile double snapLat = Double.NaN;
-    static volatile double snapLng = Double.NaN;
-    private static long snapAt = 0;
+    /** Titik (lat, lng) yang tidak bisa berubah + waktu dibuat: lat/lng yang dibaca selalu dari satu snapshot yang sama. */
+    static final class Pt {
+        final double lat, lng;
+        final long at;
+        Pt(double lat, double lng, long at) { this.lat = lat; this.lng = lng; this.at = at; }
+    }
+
+    private static volatile Pt snap;
 
     // Status pemeriksaan detak; hanya disentuh thread polling. Memakai jam hook sendiri (elapsedRealtime),
     // bukan jam absolut, jadi sisa detak dari boot sebelumnya tidak berpengaruh.
@@ -53,10 +60,17 @@ final class Config {
     private static long lastPollAt = 0;
     private static boolean beatArmed = false;
 
-    /** Satu titik (dengan jitter bila aktif) dipakai ulang 200 ms supaya lat/lng yang dibaca berurutan sama. */
-    static synchronized void refreshSnapshot() {
+    /** Satu titik (dengan jitter bila aktif) dipakai ulang 200 ms supaya lat/lng yang dibaca berurutan sama. Jalur cepat tanpa lock. */
+    static Pt snapshot() {
+        Pt p = snap;
+        if (p != null && SystemClock.elapsedRealtime() - p.at < 200) return p;
+        return renewSnapshot();
+    }
+
+    private static synchronized Pt renewSnapshot() {
         long now = SystemClock.elapsedRealtime();
-        if (now - snapAt < 200 && !Double.isNaN(snapLat)) return;
+        Pt p = snap;
+        if (p != null && now - p.at < 200) return p;
         double la = lat, lo = lng;
         if (jitter) {
             double c = Math.cos(Math.toRadians(la));
@@ -64,7 +78,9 @@ final class Config {
             la += meters() / 111320.0;
             lo += meters() / (111320.0 * c);
         }
-        snapLat = la; snapLng = lo; snapAt = now;
+        p = new Pt(la, lo, now);
+        snap = p;
+        return p;
     }
 
     private static double meters() {
@@ -151,7 +167,7 @@ final class Config {
             return;
         }
         // awal pemutaran, atau proses ini sendiri baru bangun/dibekukan: mulai hitung dari nol (masa tenggang)
-        if (!beatArmed || gap || !java.util.Objects.equals(beat, beatSeen)) {
+        if (!beatArmed || gap || !Objects.equals(beat, beatSeen)) {
             beatArmed = true;
             beatSeen = beat;
             beatChangedAt = now;
@@ -192,12 +208,13 @@ final class Config {
                 if (app == null) sleep(50);
             }
             if (app == null) { Log.w(ZygoteEntry.TAG, "no Application"); return; }
+            final ContentResolver cr = app.getContentResolver();
             boolean readyRan = false;
             for (;;) {
                 try {
-                    parse(Settings.Global.getString(app.getContentResolver(), KEY));
-                    checkBeat(Settings.Global.getString(app.getContentResolver(), KEY_BEAT));
-                    String sv = Settings.Global.getString(app.getContentResolver(), KEY_SYS);
+                    parse(Settings.Global.getString(cr, KEY));
+                    checkBeat(Settings.Global.getString(cr, KEY_BEAT));
+                    String sv = Settings.Global.getString(cr, KEY_SYS);
                     system = "1".equals(sv) || "2".equals(sv);
                     sysHeartbeat = "2".equals(sv);
                     if (onReady != null && !readyRan && system) {

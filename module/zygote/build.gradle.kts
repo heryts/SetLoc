@@ -1,10 +1,13 @@
 import com.v7878.zygisk.gradle.ZygoteLoader
 import kotlin.io.path.Path
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.agp.app)
     alias(libs.plugins.zygoteloader)
 }
+
+val ver = Properties().apply { file("../../version.properties").inputStream().use { load(it) } }
 
 android {
     namespace = "io.gpsz.zygote"
@@ -14,8 +17,8 @@ android {
         applicationId = namespace
         minSdk = 26
         targetSdk = 36
-        versionCode = 327
-        versionName = "3.27"
+        versionCode = ver.getProperty("versionCode").toInt()
+        versionName = ver.getProperty("versionName")
     }
 
     sourceSets {

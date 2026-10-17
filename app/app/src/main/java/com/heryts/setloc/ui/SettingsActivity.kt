@@ -8,7 +8,6 @@ import android.text.method.DigitsKeyListener
 import android.view.MenuItem
 import android.widget.EditText
 import android.widget.Toast
-import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.preference.EditTextPreference
@@ -85,20 +84,12 @@ class SettingsActivity : AppCompatActivity() {
                 .commit()
         }
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
-
-        onBackPressedDispatcher.addCallback(
-            this,
-            object : OnBackPressedCallback(true) {
-                override fun handleOnBackPressed() {
-                    finish()
-                }
-            }
-        )
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         if (item.itemId == android.R.id.home) {
-            onBackPressedDispatcher.onBackPressed()
+            finish()
+            return true
         }
         return super.onOptionsItemSelected(item)
     }

@@ -98,8 +98,8 @@ final class LocationHooks {
         long ms = l.getTime();
         Snap e = PER_OBJ.get(l);
         if (e != null && e.ns == ns && e.ms == ms) return e;
-        Config.refreshSnapshot();
-        e = new Snap(Config.snapLat, Config.snapLng, ns, ms);
+        Config.Pt p = Config.snapshot();
+        e = new Snap(p.lat, p.lng, ns, ms);
         PER_OBJ.put(l, e);
         return e;
     }

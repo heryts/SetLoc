@@ -1,6 +1,5 @@
 package com.heryts.setloc.utils
 
-import android.annotation.SuppressLint
 import android.content.Context
 import android.content.SharedPreferences
 import android.provider.Settings
@@ -13,7 +12,6 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import rikka.material.app.DayNightDelegate
 
-@SuppressLint("WorldReadableFiles")
 object PrefManager   {
 
     private const val START = "start"
@@ -47,16 +45,9 @@ object PrefManager   {
     private const val ROUTE_ACTIVE = "route_active"
     private const val ALTITUDE_SERVER = "altitude_from_server"
 
+    // Dibaca daemon modul sebagai root, jadi MODE_PRIVATE cukup (MODE_WORLD_READABLE selalu ditolak di target API 24+).
     private val pref: SharedPreferences by lazy {
-        val prefsFile = "${BuildConfig.APPLICATION_ID}_prefs"
-        try {
-            // Sengaja: modul Zygisk membaca pref ini dari proses lain.
-            @Suppress("DEPRECATION")
-            gsApp.getSharedPreferences(prefsFile, Context.MODE_WORLD_READABLE)
-        } catch (e: SecurityException) {
-            gsApp.getSharedPreferences(prefsFile, Context.MODE_PRIVATE)
-        }
-
+        gsApp.getSharedPreferences("${BuildConfig.APPLICATION_ID}_prefs", Context.MODE_PRIVATE)
     }
 
     val isStarted : Boolean
@@ -204,17 +195,7 @@ object PrefManager   {
 
     @OptIn(DelicateCoroutinesApi::class)
     fun update(start: Boolean, la: Double, ln: Double) {
-        GlobalScope.launch(Dispatchers.IO) {
-            val e = pref.edit()
-                .putFloat(LATITUDE, la.toFloat())
-                .putFloat(LONGITUDE, ln.toFloat())
-                .putBoolean(START, start)
-                .putFloat(SPEED_MS, 0f)
-                .putFloat(BEARING, -1f)
-                .putBoolean(ROUTE_ACTIVE, false)
-                .putBoolean(ROUTE_PLAY, false)
-            save(e, start, la, ln)
-        }
+        GlobalScope.launch(Dispatchers.IO) { updateNow(start, la, ln) }
     }
 
     /** Stop: pref ditulis ke disk (commit) dulu, lalu gpsz_cfg dimatikan langsung tanpa menunggu daemon. */

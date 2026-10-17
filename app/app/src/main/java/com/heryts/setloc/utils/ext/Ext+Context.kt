@@ -13,16 +13,8 @@ fun Context.showToast(msg: String) {
 
 fun Context.isNetworkConnected(): Boolean {
     val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-    val caps = cm.getNetworkCapabilities(cm.activeNetwork)
-    return intArrayOf(
-        NetworkCapabilities.TRANSPORT_BLUETOOTH,
-        NetworkCapabilities.TRANSPORT_CELLULAR,
-        NetworkCapabilities.TRANSPORT_ETHERNET,
-        NetworkCapabilities.TRANSPORT_LOWPAN,
-        NetworkCapabilities.TRANSPORT_VPN,
-        NetworkCapabilities.TRANSPORT_WIFI,
-        NetworkCapabilities.TRANSPORT_WIFI_AWARE
-    ).any { caps?.hasTransport(it) ?: false }
+    val caps = cm.getNetworkCapabilities(cm.activeNetwork ?: return false)
+    return caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
 }
 
 fun Context.checkSinglePermission(permission: String): Boolean =

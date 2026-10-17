@@ -34,6 +34,8 @@ class RouteService : Service() {
     private var lastPercent = -1
     private var keepAliveView: View? = null
     private var overlayJob: Job? = null
+    private var stateJob: Job? = null
+    private var channelReady = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -65,7 +67,8 @@ class RouteService : Service() {
         addKeepAliveOverlay()
         ensureKeepAliveOverlay()
 
-        scope.launch {
+        stateJob?.cancel()
+        stateJob = scope.launch {
             RouteRunner.state.collect { s ->
                 if (!s.running) {
                     stopForeground(STOP_FOREGROUND_REMOVE)
@@ -144,10 +147,13 @@ class RouteService : Service() {
     }
 
     private fun buildNotification(percent: Int): Notification {
-        NotificationChannelCompat.Builder(CHANNEL_ID, NotificationManager.IMPORTANCE_LOW)
-            .setName(getString(R.string.route_channel_name))
-            .build()
-            .also { NotificationManagerCompat.from(this).createNotificationChannel(it) }
+        if (!channelReady) {
+            NotificationChannelCompat.Builder(CHANNEL_ID, NotificationManager.IMPORTANCE_LOW)
+                .setName(getString(R.string.route_channel_name))
+                .build()
+                .also { NotificationManagerCompat.from(this).createNotificationChannel(it) }
+            channelReady = true
+        }
 
         val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         val open = PendingIntent.getActivity(this, 0, Intent(this, MapActivity::class.java), flags)

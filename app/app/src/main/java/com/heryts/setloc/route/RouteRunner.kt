@@ -125,9 +125,9 @@ object RouteRunner {
 
     private fun timelineText(ticks: List<Tick>): String {
         val sb = StringBuilder(ticks.size * 48)
-        for (t in ticks) {
-            sb.append(java.lang.String.format(java.util.Locale.US, "%.6f %.6f %.3f %.2f %.2f\n", t.lat, t.lng, t.spd, t.brg, t.alt))
-        }
+        // Satu Formatter dipakai ulang: String.format per tick membuat Formatter baru ratusan ribu kali di rute panjang.
+        val fmt = java.util.Formatter(sb, java.util.Locale.US)
+        for (t in ticks) fmt.format("%.6f %.6f %.3f %.2f %.2f\n", t.lat, t.lng, t.spd, t.brg, t.alt)
         return sb.toString()
     }
 

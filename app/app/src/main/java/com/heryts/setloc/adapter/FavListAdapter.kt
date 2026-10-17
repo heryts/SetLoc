@@ -35,7 +35,7 @@ class FavListAdapter(
 
     class FavListComparetor : DiffUtil.ItemCallback<Favourite>() {
         override fun areItemsTheSame(oldItem: Favourite, newItem: Favourite): Boolean {
-            return oldItem.address == newItem.address
+            return oldItem.id == newItem.id
         }
 
         override fun areContentsTheSame(oldItem: Favourite, newItem: Favourite): Boolean {

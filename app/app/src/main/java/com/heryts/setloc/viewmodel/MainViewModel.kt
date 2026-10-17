@@ -21,10 +21,11 @@ class MainViewModel @Inject constructor(
     private val prefManager: PrefManager
 ) : ViewModel() {
 
-    val getLat = prefManager.getLat
-    val getLng = prefManager.getLng
-    val isStarted = prefManager.isStarted
-    val mapType = prefManager.mapType
+    // Getter (bukan nilai sekali baca): ViewModel bertahan lewat rotasi, padahal rute/Stop mengubah pref di luar Activity.
+    val getLat get() = prefManager.getLat
+    val getLng get() = prefManager.getLng
+    val isStarted get() = prefManager.isStarted
+    val mapType get() = prefManager.mapType
 
     val allFavList: StateFlow<List<Favourite>> = favouriteRepository.getAllFavourites
         .catch { emit(emptyList()) }

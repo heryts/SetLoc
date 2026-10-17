@@ -32,6 +32,10 @@ final class SystemHooks {
     private static final String LMS = "com.android.server.location.LocationManagerService";
     private static final String LPM = "com.android.server.location.provider.LocationProviderManager";
 
+    private static final String[] PROVIDERS = {
+        LocationManager.GPS_PROVIDER, LocationManager.FUSED_PROVIDER, LocationManager.NETWORK_PROVIDER
+    };
+
     private static final int K_LAST = 0, K_BLOCK_VOID = 1, K_BLOCK_BOOL = 2, K_ARG_LOCATION = 3, K_ARG_RESULT = 4;
 
     private static boolean installed = false;
@@ -46,7 +50,6 @@ final class SystemHooks {
     private static Field lpmEmergency;
     private static final Map<String, Object> managers = new ConcurrentHashMap<>();
     private static volatile long lastGpsReport = 0;
-    private static boolean generatorStarted = false;
 
     static synchronized void install() {
         if (installed) return;
@@ -60,7 +63,7 @@ final class SystemHooks {
             prepareReflection(cl);
             hookClass(cl, LPM, false);
             hookClass(cl, LMS, true);
-            startGenerator(cl);
+            startGenerator();
         } catch (Throwable t) {
             Log.e(TAG, "system hooks failed", t);
         }
@@ -316,28 +319,38 @@ final class SystemHooks {
         }
     }
 
+    /** Method isInEmergency hasil refleksi, di-cache per kelas helper (dipanggil tiap laporan fix dan tiap tick generator). */
+    private static final class EmergencyCall {
+        final Class<?> type;
+        final Method method;
+        EmergencyCall(Class<?> type, Method method) { this.type = type; this.method = method; }
+    }
+
+    private static volatile EmergencyCall emergencyCall;
+
     /** Jangan beri layanan darurat fix palsu. */
     private static boolean inEmergency(Object manager) {
         try {
             if (lpmEmergency == null || manager == null) return false;
             Object helper = lpmEmergency.get(manager);
             if (helper == null) return false;
-            Method m = findMethod(helper.getClass(), "isInEmergency", long.class);
-            return m != null && (Boolean) m.invoke(helper, 0L);
+            EmergencyCall c = emergencyCall;
+            if (c == null || c.type != helper.getClass()) {
+                c = new EmergencyCall(helper.getClass(), findMethod(helper.getClass(), "isInEmergency", long.class));
+                emergencyCall = c;
+            }
+            return c.method != null && (Boolean) c.method.invoke(helper, 0L);
         } catch (Throwable t) {
             return false;
         }
     }
 
-    private static void startGenerator(final ClassLoader cl) {
-        if (generatorStarted || lpmOnReport == null || resultWrap == null) {
-            if (lpmOnReport == null || resultWrap == null) {
-                Log.w(TAG, "system hooks: fix generator disabled (onReportLocation=" + (lpmOnReport != null)
-                        + " wrap=" + (resultWrap != null) + ")");
-            }
+    private static void startGenerator() {
+        if (lpmOnReport == null || resultWrap == null) {
+            Log.w(TAG, "system hooks: fix generator disabled (onReportLocation=" + (lpmOnReport != null)
+                    + " wrap=" + (resultWrap != null) + ")");
             return;
         }
-        generatorStarted = true;
         Thread th = new Thread(() -> {
             long lastScan = 0;
             for (;;) {
@@ -354,8 +367,7 @@ final class SystemHooks {
                     boolean emergency = false;
                     for (Object m : managers.values()) if (inEmergency(m)) { emergency = true; break; }
                     if (emergency) continue;
-                    for (String name : new String[]{LocationManager.GPS_PROVIDER,
-                            LocationManager.FUSED_PROVIDER, LocationManager.NETWORK_PROVIDER}) {
+                    for (String name : PROVIDERS) {
                         Object mgr = managers.get(name);
                         if (mgr == null) continue;
                         try {
@@ -394,8 +406,7 @@ final class SystemHooks {
             if (lms == null || !lmsClass.isInstance(lms)) return;
             Method getLpm = findMethod(lmsClass, "getLocationProviderManager", String.class);
             if (getLpm != null) {
-                for (String n : new String[]{LocationManager.GPS_PROVIDER, LocationManager.FUSED_PROVIDER,
-                        LocationManager.NETWORK_PROVIDER}) {
+                for (String n : PROVIDERS) {
                     try { register(getLpm.invoke(lms, n)); } catch (Throwable ignored) { }
                 }
             }
@@ -435,9 +446,9 @@ final class SystemHooks {
     private static Location spoof(Location orig) {
         if (orig == null) return null;
         Location l = new Location(orig);
-        Config.refreshSnapshot();
-        l.setLatitude(Config.snapLat);
-        l.setLongitude(Config.snapLng);
+        Config.Pt p = Config.snapshot();
+        l.setLatitude(p.lat);
+        l.setLongitude(p.lng);
         l.setAccuracy(Math.max(1f, Config.acc)); // validate() menolak accuracy <= 0
         applyMotion(l);
         clearMock(l);
@@ -446,9 +457,9 @@ final class SystemHooks {
 
     private static Location freshFix(String provider) {
         Location l = new Location(provider);
-        Config.refreshSnapshot();
-        l.setLatitude(Config.snapLat);
-        l.setLongitude(Config.snapLng);
+        Config.Pt p = Config.snapshot();
+        l.setLatitude(p.lat);
+        l.setLongitude(p.lng);
         l.setAccuracy(Math.max(1f, Config.acc));
         applyMotion(l);
         l.setTime(System.currentTimeMillis() - 300);

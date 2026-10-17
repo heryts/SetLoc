@@ -388,6 +388,11 @@ const B = {
   },
   async stop(pkg) { await exec(`am force-stop '${pkg}' >/dev/null 2>&1; true`); },
   async isInstalled() { const r = await exec(`test -d '${MODDIR}'`); return r.errno === 0; },
+  async secureGranted() {
+    const r = await exec(`dumpsys package ${APP_PKG} 2>/dev/null | grep -q 'WRITE_SECURE_SETTINGS: granted=true'`);
+    return r.errno === 0;
+  },
+  async grantSecure() { await sh(`pm grant ${APP_PKG} android.permission.WRITE_SECURE_SETTINGS 2>&1`); },
   async appInstalled() { const r = await exec(`pm path ${APP_PKG} 2>/dev/null`); return /^package:/m.test(r.stdout || ''); },
   async launch() {
     await sh(`am start --user 0 -n ${APP_PKG}/${APP_PKG}.ui.MapActivity >/dev/null 2>&1 || monkey -p ${APP_PKG} -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1`);
@@ -412,6 +417,7 @@ const S = {
   order: new Map(),
   busy: new Set(),
   appOn: null,
+  secure: null,
   appBusy: false,
   spoofOn: false, spoofHas: false, spoofBusy: false,
   daemon: null
@@ -484,6 +490,7 @@ function renderBanners() {
   else if (S.sysMode === 'pending') b.push('<div class="banner danger"><b>System-wide dinyalakan.</b> Perlu reboot.<button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');
   else if (S.sysMode === 'offpending') b.push('<div class="banner danger"><b>System hook dimatikan.</b> Perlu reboot.<button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');
   if (S.daemon === false) b.push('<div class="banner danger">Daemon sinkronisasi (app SetLoc → modul) tidak berjalan, jadi tombol Start/Stop di app belum terbaca modul. Tekan muat ulang; bila tetap gagal, lihat <span class="mono">' + esc(MODDIR) + '/bridge.log</span>.</div>');
+  if (S.appOn && S.secure === false) b.push('<div class="banner danger"><b>Izin Stop langsung belum terpasang.</b> Tombol Stop di app masih bergantung pada daemon.<button class="btn-reboot" id="btnGrant">Beri izin</button></div>');
   if (S.missing) b.push('<div class="banner danger">Folder modul tidak ditemukan di ' + esc(MODDIR) + '. Pastikan id modul = <b>' + MODID + '</b> dan sudah reboot setelah flash.</div>');
   $('#banners').innerHTML = b.join('');
 }
@@ -528,6 +535,7 @@ async function load() {
     S.all = st.all; applySys(sysOn); S.files = new Set(st.files);
     renderStatus(cfg);
     S.appOn = await B.appInstalled().catch(() => null);
+    S.secure = S.appOn ? await B.secureGranted().catch(() => null) : null;
     renderApp();
 
     const sysSet = new Set(sys);
@@ -582,9 +590,20 @@ async function appAction() {
   try {
     await B.installApp();
     S.appOn = true;
+    S.secure = await B.secureGranted().catch(() => null);
+    renderBanners();
     toast('SetLoc terpasang');
   } catch (e) { toast('Gagal memasang: ' + e.message, true); }
   S.appBusy = false; renderApp();
+}
+
+async function grantSecure() {
+  try {
+    await B.grantSecure();
+    S.secure = await B.secureGranted().catch(() => null);
+    toast(S.secure ? 'Izin diberikan' : 'Izin belum terpasang', !S.secure);
+  } catch (e) { toast('Gagal: ' + e.message, true); }
+  renderBanners();
 }
 
 async function setAllMode(on, reopen = true) {
@@ -596,13 +615,13 @@ async function setAllMode(on, reopen = true) {
   renderBanners(); render(); if (reopen) openSheet();
 }
 
-async function setSysMode(on) {
+async function setSysMode(on, reopen = true) {
   try {
     await B.setSys(on);
     applySys(await B.readSys());
     toast(S.sysMode === 'off' ? 'System hook mati' : (S.sysMode === 'live' || S.sysMode === 'heartbeat') ? 'Mode diterapkan' : 'Reboot untuk menerapkan');
   } catch (e) { toast('Gagal: ' + e.message, true); }
-  renderBanners(); openSheet();
+  renderBanners(); if (reopen) openSheet();
 }
 
 async function setHbMode() {
@@ -833,8 +852,9 @@ $('#q').addEventListener('input', e => { S.q = e.target.value; render(); });
 $('#btnReload').addEventListener('click', load);
 $('#banners').addEventListener('click', e => {
   if (e.target.closest('#btnReboot')) B.reboot().catch(err => toast('Gagal reboot: ' + err.message, true));
-  else if (e.target.closest('#btnSysOff')) setSysMode(false);
+  else if (e.target.closest('#btnSysOff')) setSysMode(false, false);
   else if (e.target.closest('#btnAllOff')) setAllMode(false, false);
+  else if (e.target.closest('#btnGrant')) grantSecure();
 });
 $('#btnApp').addEventListener('click', appAction);
 $('#stBox').addEventListener('click', editCoords);

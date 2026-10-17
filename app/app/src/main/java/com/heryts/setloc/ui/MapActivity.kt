@@ -158,7 +158,8 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         }
         binding.stop.setOnClickListener {
             RouteRunner.stop()
-            mLatLng!!.let { viewModel.update(false, it.latitude, it.longitude) }
+            (mLatLng ?: LatLng(viewModel.getLat, viewModel.getLng))
+                .let { viewModel.update(false, it.latitude, it.longitude) }
             mMarker?.isVisible = false
             binding.stop.visibility = View.GONE
             binding.start.visibility = View.VISIBLE
@@ -660,9 +661,8 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             PrefManager.altitudeVariation = altVar
             PrefManager.altitudeFromServer = fromServer
             if (!fromServer) PrefManager.altitudeM = alt
-            if (fromServer && routePoints.size >= 2 && (serverChanged || RouteRunner.elevations == null)) {
-                fetchElevations(routePoints)
-            } else if (!fromServer) {
+            // fetchElevations() sendiri mengosongkan elevasi bila "dari server" mati.
+            if (!fromServer || (routePoints.size >= 2 && (serverChanged || RouteRunner.elevations == null))) {
                 fetchElevations(routePoints)
             }
             val trafficChanged = trafficCb.isChecked != PrefManager.trafficAware
@@ -694,6 +694,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     }
 
     private fun moveMapToNewLocation() {
+        if (!::mMap.isInitialized) return
         val latLng = LatLng(lat, lon)
         mLatLng = latLng
         mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(latLng, 12.0f))
@@ -762,7 +763,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
                                         progressBar.dismissSafe()
                                         lat = result.lat
                                         lon = result.lon
-                                        if (::mMap.isInitialized) moveMapToNewLocation()
+                                        moveMapToNewLocation()
                                     }
                                     is SearchProgress.Fail -> {
                                         progressBar.dismissSafe()
@@ -786,9 +787,9 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             setTitle(getString(R.string.add_fav_dialog_title))
             setPositiveButton(getString(R.string.dialog_button_add)) { _, _ ->
                 val s = editText.text.toString()
-                if (!mMarker?.isVisible!!){
-                  showToast("Location not select")
-                }else{
+                if (mMarker?.isVisible != true) {
+                    showToast("Location not select")
+                } else {
                     viewModel.storeFavorite(s, lat, lon) { ok -> showToast(getString(if (ok) R.string.record_saved else R.string.cant_save)) }
                 }
             }

@@ -5,7 +5,7 @@ sh "$MODDIR/bridge.sh" ensure >/dev/null 2>&1 &
 (
   while true; do
     sleep 10
-    sh "$MODDIR/bridge.sh" ensure super >/dev/null 2>&1
+    [ -f "$MODDIR/disable_super" ] || sh "$MODDIR/bridge.sh" ensure super >/dev/null 2>&1
   done
 ) >/dev/null 2>&1 &
 # Default system hook = heartbeat (gpsz_sys=2), dipasang sekali per flash (.hb_default); setelah itu pilihan manual dihormati.

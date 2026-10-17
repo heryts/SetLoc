@@ -83,7 +83,7 @@ numok() { case "$1" in ''|*[!0-9.eE+-]*) return 1 ;; *) return 0 ;; esac; }
 # Hitung nilai gpsz_cfg dari pref app. Saat rute diputar daemon, baris timeline dipilih dari uptime
 # (app boleh dibekukan sistem), jadi posisi tetap bergerak.
 derive() {
-  PREF=$(find_pref)
+  if [ -n "$PREFC" ] && [ -f "$PREFC" ]; then PREF=$PREFC; else PREF=$(find_pref); fi
   [ -n "$PREF" ] && [ -f "$PREF" ] || return 2
   PX=$(cat "$PREF" 2>/dev/null)
   START=$(fval boolean start)
@@ -140,8 +140,8 @@ sync_cfg() {
     [ "$QUIET" != 1 ] && [ "$(cat "$MODDIR/.last_err" 2>/dev/null)" != "$MSG" ] && { log "sync gagal: $MSG"; echo "$MSG" > "$MODDIR/.last_err"; }
     return 1
   fi
-  rm -f "$MODDIR/.last_err"
-  PREV=$(cat "$LASTF" 2>/dev/null)
+  [ -e "$MODDIR/.last_err" ] && rm -f "$MODDIR/.last_err"
+  PREV=; { read -r PREV < "$LASTF"; } 2>/dev/null
   if [ "$1" = force ] || [ "$NEW" != "$PREV" ]; then
     sput $KEY "$NEW" || { log "settings put GAGAL"; return 1; }
     echo "$NEW" > "$LASTF"
@@ -264,6 +264,7 @@ acquire_lock() {
   sleep 0.3
   lock_clean
   lock_fast && return 0
+  log "daemon: kalah arbitrasi dari pid $WIN saat start (pid $$), keluar"
   rm -f "$LOCKD/$$" 2>/dev/null
   return 1
 }
@@ -279,7 +280,8 @@ start_daemon() {
   daemon_running
 }
 
-sig() { P=$(find_pref); [ -n "$P" ] && echo "$P $(stat -c '%i %y %s' "$P" 2>/dev/null)"; }
+# PREFC dijaga loop utama (dicari ulang bila berkas hilang), jadi tidak perlu find_pref (fork) tiap putaran.
+sig() { [ -n "$PREFC" ] && echo "$PREFC $(stat -c '%i %y %s' "$PREFC" 2>/dev/null)"; }
 
 case "$1" in
   install) install_app; exit $? ;;
@@ -289,14 +291,17 @@ case "$1" in
   setpos)  set_app_pos "$2" "$3"; exit $? ;;
   ensure)
     if daemon_running; then echo "daemon=running"; rm -f "$MODDIR/.super_fail"; exit 0; fi
-    # Kunci tampak hilang, tapi daemon yang masih hidup memulihkannya sendiri dalam < 1 dtk (cek tiap putaran loop).
-    # Beri waktu dulu supaya daemon kedua tidak dinyalakan hanya karena folder kunci sempat terhapus. Daemon yang
-    # benar-benar mati hanya telat dinyalakan 2 dtk.
-    sleep 2
-    if daemon_running; then echo "daemon=running"; rm -f "$MODDIR/.super_fail"; exit 0; fi
+    # Folder kunci kosong/hilang: mungkin daemon yang masih hidup sedang memulihkannya sendiri (cek tiap <= 1 dtk).
+    # Beri waktu dulu supaya daemon kedua tidak dinyalakan hanya karena folder kunci sempat terhapus.
+    # Kalau masih ada berkas PID lama (daemon dibunuh, mis. SIGKILL), daemon pasti mati: langsung restart tanpa menunggu.
+    if [ -z "$(ls "$LOCKD" 2>/dev/null)" ]; then
+      sleep 2
+      if daemon_running; then echo "daemon=running"; rm -f "$MODDIR/.super_fail"; exit 0; fi
+    fi
     if [ "$2" = super ]; then
       # PID file masih ada padahal prosesnya mati = daemon dibunuh tanpa sempat menjalankan trap (SIGKILL/OOM).
       STALEP=$(ls "$LOCKD" 2>/dev/null | grep '^[0-9][0-9]*$' | tr '\n' ' ')
+      STALEP=${STALEP% }
       if [ -n "$STALEP" ]; then log "supervisor: daemon (pid $STALEP) mati TANPA baris exit -> SIGKILL/OOM; restart"
       else log "supervisor: daemon tidak berjalan (alasan: lihat baris 'daemon exit' di atas); restart"; fi
     fi
@@ -311,6 +316,7 @@ case "$1" in
   status)
     daemon_running && echo "daemon=running" || echo "daemon=stopped"
     app_installed && echo "app=installed" || echo "app=missing"
+    dumpsys package $APP 2>/dev/null | grep -q 'WRITE_SECURE_SETTINGS: granted=true' && echo "secure_settings=granted" || echo "secure_settings=missing"
     PREF=$(find_pref deep)
     if [ -n "$PREF" ] && [ -f "$PREF" ]; then echo "pref=found"; echo "pref_path=$PREF"; echo "pref_mtime=$(stat -c %y "$PREF" 2>/dev/null)"
       echo "pref_start=$(pval boolean start) lat=$(pval float latitude) lng=$(pval float longitude)"
@@ -339,10 +345,12 @@ trap 'on_exit $?' EXIT
 log "daemon start (pid $$)"
 until [ "$(getprop sys.boot_completed)" = 1 ]; do
   lock_fast || { log "daemon: kalah arbitrasi dari pid $WIN, keluar"; exit 0; }
-  sleep 5
+  sleep 1
 done
-sleep 5
-lock_fast || { log "daemon: kalah arbitrasi dari pid $WIN, keluar"; exit 0; }
+for _ in 1 2 3 4 5; do
+  sleep 1
+  lock_fast || { log "daemon: kalah arbitrasi dari pid $WIN, keluar"; exit 0; }
+done
 SUM=$(md5sum "$APK" 2>/dev/null | cut -d' ' -f1)
 if ! app_installed || [ "$SUM" != "$(cat "$MODDIR/.apk_sum" 2>/dev/null)" ]; then
   log "pasang APK modul (sum $SUM)"
@@ -360,8 +368,7 @@ while true; do
   N=$((N+1))
   # Tiap putaran: pulihkan kunci bila folder terhapus, dan keluar bila ada daemon lain yang lebih dulu hidup.
   lock_fast || { log "daemon: kalah arbitrasi dari pid $WIN, keluar"; exit 0; }
-  [ $((N % 100)) -eq 0 ] && lock_clean
-  [ $((N % 100)) -eq 0 ] && publish_live
+  if [ $((N % 100)) -eq 0 ]; then lock_clean; publish_live; fi
   if [ $((N % 20)) -eq 0 ] || [ ! -f "$PREFC" ]; then PREFC=""; PREFC=$(find_pref); fi
   S=$(sig)
   is_playing && PLAYING=1 || PLAYING=0

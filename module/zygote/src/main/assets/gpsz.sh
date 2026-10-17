@@ -3,7 +3,8 @@
 MODDIR=$(cd "$(dirname "$0")" && pwd)
 PKGDIR="$MODDIR/packages"
 KEY=gpsz_cfg
-case "$1" in sync|check|status) ;; *) sh "$MODDIR/bridge.sh" sync >/dev/null 2>&1 ;; esac
+# Perintah baca-saja/diagnosa tidak boleh memicu sync, supaya tidak menimpa gpsz_cfg yang sedang diselidiki.
+case "$1" in sync|check|status|doctor|super) ;; *) sh "$MODDIR/bridge.sh" sync >/dev/null 2>&1 ;; esac
 RAW=$(settings get global $KEY 2>/dev/null)
 get() { echo "$RAW" | tr ';' '\n' | sed -n "s/^$1=//p" | head -1; }
 E=$(get enabled);  [ -z "$E" ] && E=0
@@ -91,5 +92,17 @@ case "$1" in
     echo "log inject terakhir (logcat -s GpsZ):"
     logcat -d -s GpsZ:I 2>/dev/null | grep "injected into $2" | tail -3 | sed 's/^/  /'
     echo "  (kosong = proses ini TIDAK pernah ter-inject sejak buffer log terakhir)" ;;
-  *)      echo "on|off|toggle|set <lat> <lng> [acc]|random 0|1|show|pkg ...|system on|heartbeat|off|status|sync|status|check <pkg>" ;;
+  super)
+    case "$2" in
+      off) : > "$MODDIR/disable_super"; echo "supervisor dimatikan (daemon yang di-kill tidak dinyalakan lagi)" ;;
+      on)  rm -f "$MODDIR/disable_super"; echo "supervisor aktif" ;;
+      *)   [ -f "$MODDIR/disable_super" ] && echo "supervisor=dimatikan" || echo "supervisor=aktif" ;;
+    esac ;;
+  doctor)
+    sh "$MODDIR/bridge.sh" status 2>&1
+    [ -f "$MODDIR/disable_super" ] && echo "supervisor=dimatikan (disable_super)" || echo "supervisor=aktif"
+    echo "gpsz_sys=$(settings get global gpsz_sys 2>/dev/null) gpsz_beat=$(settings get global gpsz_beat 2>/dev/null) uptime=$(cut -d' ' -f1 /proc/uptime)"
+    echo "--- bridge.log (10 baris terakhir)"
+    tail -n 10 "$MODDIR/bridge.log" 2>/dev/null ;;
+  *)      echo "on|off|toggle|set <lat> <lng> [acc]|random 0|1|show|pkg ...|system on|heartbeat|off|status|sync|check <pkg>|super on|off|doctor" ;;
 esac
