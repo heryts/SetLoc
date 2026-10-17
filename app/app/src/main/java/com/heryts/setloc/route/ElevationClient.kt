@@ -10,7 +10,6 @@ import java.net.URL
 import java.util.Locale
 
 object ElevationClient {
-
     private const val GOOGLE = "https://maps.googleapis.com/maps/api/elevation/json"
     private const val OPEN_METEO = "https://api.open-meteo.com/v1/elevation"
     private const val MAX_SAMPLES = 100

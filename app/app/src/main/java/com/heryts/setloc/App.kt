@@ -10,7 +10,6 @@ lateinit var gsApp: App
 
 @HiltAndroidApp
 class App : Application() {
-
     override fun onCreate() {
         super.onCreate()
         gsApp = this

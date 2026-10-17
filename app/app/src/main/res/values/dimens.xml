@@ -2,6 +2,5 @@
 <resources>
     <dimen name="padding_16">16dp</dimen>
 
-    <!-- lebar kotak variasi (kecepatan & altitude disamakan) -->
     <dimen name="route_var_box_width">68dp</dimen>
 </resources>

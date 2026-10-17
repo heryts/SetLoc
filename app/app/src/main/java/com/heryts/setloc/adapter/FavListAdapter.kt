@@ -13,12 +13,10 @@ import com.heryts.setloc.room.Favourite
 
 class FavListAdapter(
     ) : ListAdapter<Favourite,FavListAdapter.ViewHolder>(FavListComparetor()) {
-
     var onItemClick : ((Favourite) -> Unit)? = null
     var onItemDelete : ((Favourite) -> Unit)? = null
 
    inner class ViewHolder(view: View): RecyclerView.ViewHolder(view) {
-
         private val address: TextView = view.findViewById(R.id.address)
         private val delete: ImageView = itemView.findViewById(R.id.del)
 
@@ -41,7 +39,6 @@ class FavListAdapter(
         override fun areContentsTheSame(oldItem: Favourite, newItem: Favourite): Boolean {
             return oldItem == newItem
         }
-
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -54,9 +51,6 @@ class FavListAdapter(
         val item = getItem(position)
         if (item != null){
             holder.bind(item)
-
         }
-
     }
-
 }

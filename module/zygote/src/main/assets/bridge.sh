@@ -1,17 +1,10 @@
 #!/system/bin/sh
-# Sinkron pref app SetLoc -> settings global gpsz_cfg, plus daemon pemantaunya.
-# Pakai: bridge.sh ensure [super]|sync|force|setstart 0|1|setpos <lat> <lng>|status|install
 MODDIR=$(cd "$(dirname "$0")" && pwd)
 APP=com.heryts.setloc
 APK="$MODDIR/apk/SetLoc.apk"
 PREFNAME="${APP}_prefs.xml"
 KEY=gpsz_cfg
 LOG="$MODDIR/bridge.log"
-# Kunci daemon = arbitrase deterministik, BUKAN rebutan mkdir. Tiap daemon mendaftar dengan berkas $LOCKD/<pid> berisi
-# kunci urut (uptime dalam centidetik saat ia mulai). Pemenang selalu daemon hidup dengan (kunci, pid) terkecil, yaitu yang
-# paling dulu berjalan. Semua daemon menghitung aturan yang sama dari daftar yang sama, jadi seberapa pun urutan interleave,
-# stall, atau penghapusan folder, hasilnya konvergen ke satu daemon; tidak ada langkah "hapus kunci basi lalu ambil" yang bisa
-# saling menimpa.
 LOCKD="$MODDIR/.daemon.lock"
 BEATKEY=gpsz_beat
 PKGDIR="$MODDIR/packages"
@@ -80,8 +73,6 @@ sget() { cmd settings get global "$1" 2>/dev/null || settings get global "$1" 2>
 sput() { cmd settings put global "$1" "$2" >/dev/null 2>&1 || settings put global "$1" "$2"; }
 numok() { case "$1" in ''|*[!0-9.eE+-]*) return 1 ;; *) return 0 ;; esac; }
 
-# Hitung nilai gpsz_cfg dari pref app. Saat rute diputar daemon, baris timeline dipilih dari uptime
-# (app boleh dibekukan sistem), jadi posisi tetap bergerak.
 derive() {
   if [ -n "$PREFC" ] && [ -f "$PREFC" ]; then PREF=$PREFC; else PREF=$(find_pref); fi
   [ -n "$PREF" ] && [ -f "$PREF" ] || return 2
@@ -170,8 +161,6 @@ pref_set() {
   rm -f "$TMP"
 }
 
-# App di-force-stop dulu supaya tidak menimpa perubahan dengan nilai lamanya; file diubah di tempat (cat >)
-# agar pemilik/label SELinux tetap milik app. LASTF diperbarui supaya daemon tidak menganggapnya perubahan dari app.
 set_app_start() {
   V=false; [ "$1" = 1 ] && V=true
   PREF=$(find_pref)
@@ -209,7 +198,6 @@ is_playing() { case "$NEW" in *";pl=1") return 0 ;; *) return 1 ;; esac; }
 
 is_daemon_pid() { [ -r "/proc/$1/cmdline" ] && tr '\0' ' ' < "/proc/$1/cmdline" | grep -q 'bridge.sh daemon'; }
 
-# Ada daemon hidup terdaftar? (dipakai ensure/status/supervisor)
 daemon_running() {
   for F in "$LOCKD"/*; do
     Q=${F##*/}
@@ -219,7 +207,6 @@ daemon_running() {
   return 1
 }
 
-# Daftar/pulihkan berkas milik kita. Ditulis ke nama sementara lalu mv (atomik): pembaca tidak pernah melihat berkas setengah jadi.
 lock_reg() {
   for _ in 1 2 3; do
     mkdir -p "$LOCKD" 2>/dev/null
@@ -228,10 +215,7 @@ lock_reg() {
   return 1
 }
 
-# Buang pendaftaran daemon yang sudah mati (nama berkas = PID pemiliknya, jadi tidak mungkin menghapus milik daemon lain
-# yang hidup) dan berkas "pid" format lama.
 lock_clean() {
-  rm -f "$LOCKD/pid" 2>/dev/null
   for F in "$LOCKD"/*; do
     Q=${F##*/}
     case "$Q" in ''|*[!0-9]*|"$$") continue ;; esac
@@ -239,8 +223,6 @@ lock_clean() {
   done
 }
 
-# Murah (builtin, tanpa fork selama sendirian), dipanggil tiap putaran. 0 = kita pemenang (kunci milik kita dipulihkan bila
-# terhapus), 1 = ada daemon hidup yang lebih dulu; PID-nya di $WIN. Fork hanya dilakukan untuk memastikan calon pemenang.
 lock_fast() {
   [ -f "$LOCKD/$$" ] || lock_reg
   for F in "$LOCKD"/*; do
@@ -256,7 +238,6 @@ lock_fast() {
   return 0
 }
 
-# Ambil kunci: daftar, beri waktu pesaing lain mendaftar, lalu hitung pemenang. 0 = kita menang, 1 = kalah (keluar).
 acquire_lock() {
   read UP _ < /proc/uptime
   MYK=${UP%.*}${UP#*.}
@@ -280,7 +261,6 @@ start_daemon() {
   daemon_running
 }
 
-# PREFC dijaga loop utama (dicari ulang bila berkas hilang), jadi tidak perlu find_pref (fork) tiap putaran.
 sig() { [ -n "$PREFC" ] && echo "$PREFC $(stat -c '%i %y %s' "$PREFC" 2>/dev/null)"; }
 
 case "$1" in
@@ -291,15 +271,11 @@ case "$1" in
   setpos)  set_app_pos "$2" "$3"; exit $? ;;
   ensure)
     if daemon_running; then echo "daemon=running"; rm -f "$MODDIR/.super_fail"; exit 0; fi
-    # Folder kunci kosong/hilang: mungkin daemon yang masih hidup sedang memulihkannya sendiri (cek tiap <= 1 dtk).
-    # Beri waktu dulu supaya daemon kedua tidak dinyalakan hanya karena folder kunci sempat terhapus.
-    # Kalau masih ada berkas PID lama (daemon dibunuh, mis. SIGKILL), daemon pasti mati: langsung restart tanpa menunggu.
     if [ -z "$(ls "$LOCKD" 2>/dev/null)" ]; then
       sleep 2
       if daemon_running; then echo "daemon=running"; rm -f "$MODDIR/.super_fail"; exit 0; fi
     fi
     if [ "$2" = super ]; then
-      # PID file masih ada padahal prosesnya mati = daemon dibunuh tanpa sempat menjalankan trap (SIGKILL/OOM).
       STALEP=$(ls "$LOCKD" 2>/dev/null | grep '^[0-9][0-9]*$' | tr '\n' ' ')
       STALEP=${STALEP% }
       if [ -n "$STALEP" ]; then log "supervisor: daemon (pid $STALEP) mati TANPA baris exit -> SIGKILL/OOM; restart"
@@ -329,8 +305,6 @@ case "$1" in
 esac
 
 acquire_lock || exit 0
-# Satu handler untuk semua jalur keluar; sinyal harus diakhiri exit supaya trap EXIT (bersihkan lock) tetap jalan.
-# SIGKILL tidak bisa di-trap: kalau daemon mati tanpa baris "daemon exit", itulah penyebabnya.
 on_exit() {
   RC=$1
   rm -f "$LOCKD/$$" "$LOCKD/.t$$" 2>/dev/null
@@ -366,7 +340,6 @@ DELAY=0.5; N=0
 while true; do
   sleep $DELAY
   N=$((N+1))
-  # Tiap putaran: pulihkan kunci bila folder terhapus, dan keluar bila ada daemon lain yang lebih dulu hidup.
   lock_fast || { log "daemon: kalah arbitrasi dari pid $WIN, keluar"; exit 0; }
   if [ $((N % 100)) -eq 0 ]; then lock_clean; publish_live; fi
   if [ $((N % 20)) -eq 0 ] || [ ! -f "$PREFC" ]; then PREFC=""; PREFC=$(find_pref); fi
@@ -381,11 +354,8 @@ while true; do
       sleep 0.05
       PREFC=""; PREFC=$(find_pref)
     done
-    # LAST=$S (bukan sig baru): perubahan yang masuk saat sync terdeteksi di putaran berikut
     [ $OK = 1 ] && LAST=$S || { sync_cfg && LAST=$S; }
   fi
-  # Detak daemon untuk hook: ditulis dari timer di loop utama (bukan dari sync_cfg), tiap detik, hanya saat rute diputar.
-  # Hook menganggap daemon mati bila nilai ini berhenti berubah (beku 10 dtk, spoof mati 60 dtk).
   is_playing && PLAYING=1 || PLAYING=0
   if [ $PLAYING = 1 ]; then
     read UP _ < /proc/uptime

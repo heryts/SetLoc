@@ -9,7 +9,6 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface FavouriteDao {
-
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertToRoomDatabase(favourite: Favourite): Long
 

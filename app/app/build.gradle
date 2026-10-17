@@ -20,7 +20,6 @@ android {
         versionName tagName
     }
 
-    // Key rilis dari app/keystore.properties; bila tidak ada, pakai key debug.
     def ksFile = rootProject.file('keystore.properties')
     def ksProps = new Properties()
     if (ksFile.exists()) ksFile.withInputStream { ksProps.load(it) }
@@ -84,7 +83,6 @@ dependencies {
     }
 }
 
-// Samakan jvmTarget semua task Kotlin (termasuk task KSP).
 tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
     kotlinOptions.jvmTarget = '11'
 }

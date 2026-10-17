@@ -13,7 +13,6 @@ import kotlinx.coroutines.launch
 import rikka.material.app.DayNightDelegate
 
 object PrefManager   {
-
     private const val START = "start"
     private const val LATITUDE = "latitude"
     private const val LONGITUDE = "longitude"
@@ -45,7 +44,6 @@ object PrefManager   {
     private const val ROUTE_ACTIVE = "route_active"
     private const val ALTITUDE_SERVER = "altitude_from_server"
 
-    // Dibaca daemon modul sebagai root, jadi MODE_PRIVATE cukup (MODE_WORLD_READABLE selalu ditolak di target API 24+).
     private val pref: SharedPreferences by lazy {
         gsApp.getSharedPreferences("${BuildConfig.APPLICATION_ID}_prefs", Context.MODE_PRIVATE)
     }
@@ -198,7 +196,6 @@ object PrefManager   {
         GlobalScope.launch(Dispatchers.IO) { updateNow(start, la, ln) }
     }
 
-    /** Stop: pref ditulis ke disk (commit) dulu, lalu gpsz_cfg dimatikan langsung tanpa menunggu daemon. */
     private fun save(e: SharedPreferences.Editor, start: Boolean, la: Double, ln: Double) {
         if (start) {
             e.apply()
@@ -208,7 +205,6 @@ object PrefManager   {
         }
     }
 
-    /** Butuh WRITE_SECURE_SETTINGS (diberikan modul lewat pm grant); tanpa izin, jalur daemon tetap berlaku. */
     private fun pushOff(la: Double, ln: Double) {
         try {
             val acc = accuracy?.toFloatOrNull() ?: 10f

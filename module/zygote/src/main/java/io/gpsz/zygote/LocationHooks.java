@@ -16,7 +16,6 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.WeakHashMap;
 
-/** Hook getter android.location.Location dan LocationManager.getLastKnownLocation di proses app. */
 final class LocationHooks {
     private static final int K_LAT = 0, K_LNG = 1, K_ACC = 2, K_MOCK = 3, K_LAST_KNOWN = 4;
     private static final int K_DIST = 11, K_BEARING_TO = 12;
@@ -84,7 +83,6 @@ final class LocationHooks {
         };
     }
 
-    /** Koordinat palsu per objek Location: tiap fix "membeku" saat pertama dibaca, fix baru (cap waktu beda) dapat titik terbaru. */
     private static final class Snap {
         final double lat, lng;
         final long ns, ms;

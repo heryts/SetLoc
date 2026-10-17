@@ -19,7 +19,6 @@ import com.heryts.setloc.utils.PrefManager
 import rikka.preference.SimpleMenuPreference
 
 class SettingsActivity : AppCompatActivity() {
-
     private val binding by lazy {
         SettingsActivityBinding.inflate(layoutInflater)
     }
@@ -95,7 +94,6 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     class SettingsPreferenceFragment : PreferenceFragmentCompat() {
-
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
             preferenceManager?.preferenceDataStore = SettingPreferenceDataStore()
             setPreferencesFromResource(R.xml.setting, rootKey)

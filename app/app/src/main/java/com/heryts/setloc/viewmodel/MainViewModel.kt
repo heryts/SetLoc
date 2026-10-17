@@ -20,8 +20,6 @@ class MainViewModel @Inject constructor(
     private val favouriteRepository: FavouriteRepository,
     private val prefManager: PrefManager
 ) : ViewModel() {
-
-    // Getter (bukan nilai sekali baca): ViewModel bertahan lewat rotasi, padahal rute/Stop mengubah pref di luar Activity.
     val getLat get() = prefManager.getLat
     val getLng get() = prefManager.getLng
     val isStarted get() = prefManager.isStarted

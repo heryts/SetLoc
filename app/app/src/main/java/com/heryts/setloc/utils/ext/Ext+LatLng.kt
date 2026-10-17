@@ -1,6 +1,5 @@
 package com.heryts.setloc.utils.ext
 
-
 import android.content.Context
 import android.location.Geocoder
 import com.google.android.gms.maps.model.LatLng
@@ -9,7 +8,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import java.util.Locale
-
 
 fun LatLng.getAddress(context: Context): Flow<String> = flow {
     val sb = StringBuilder()

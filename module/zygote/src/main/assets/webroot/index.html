@@ -87,7 +87,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .dot.on { background: var(--ok); box-shadow: 0 0 0 4px rgba(34,197,94,.22); }
 .status .t { font-weight: 600; }
 .status .s { font-size: 12.5px; color: var(--text2); overflow-wrap: anywhere; }
-.status .grow.edit { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.status .grow.edit { cursor: pointer; }
 .status .grow.edit .s b { color: var(--primary); font-weight: 600; white-space: nowrap; }
 .field { width: 100%; height: 46px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--chip); outline: 0; font-size: 15px; }
 .field:focus { border-color: var(--primary); }
@@ -120,7 +120,6 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .syscard { margin-top: 10px; padding: 14px 16px; display: flex; gap: 12px; align-items: center; }
 .syscard .t { font-weight: 600; }
 .syscard .grow { flex: 1; min-width: 0; }
-.syscard .s { font-size: 12px; opacity: .7; margin-top: 2px; }
 .syscard .btn { flex: none; min-width: 74px; }
 
 .toolbar { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
@@ -269,7 +268,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
     <div class="chips">
       <button class="chip active" data-tab="all">Semua</button>
       <button class="chip" data-tab="hooked">Di-hook</button>
-      <button class="chip ghost" id="chipSys">App sistem</button>
+      <button class="chip" id="chipSys">App sistem</button>
     </div>
   </div>
 
@@ -289,14 +288,12 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 <script>
 'use strict';
 
-// Modul membaca packages/<pkg> tiap app start: di-hook = (file ada) XOR (.all ada).
 const MODID  = 'setloc_zygisk';
 const MODDIR = '/data/adb/modules/' + MODID;
 const PKGDIR = MODDIR + '/packages';
 const CFG_KEY = 'gpsz_cfg';
 const APP_PKG = 'com.heryts.setloc';
 
-// Paket yang tidak boleh di-force-stop (sistem / manager yang menjalankan WebUI).
 const NO_STOP = new Set([
   'android', 'system', 'com.android.systemui', 'com.android.phone',
   'me.weishu.kernelsu', 'com.rifsxd.ksunext', 'me.bmax.apatch', 'com.topjohnwu.magisk',
@@ -325,7 +322,6 @@ const B = {
     const files = out.split('\n').map(s => s.trim()).filter(Boolean);
     return { all: files.includes('.all'), files: files.filter(f => f[0] !== '.' && f !== 'android') };
   },
-  // off | pending/pendinghb (belum reboot) | live/heartbeat (termuat) | offpending (dimatikan, belum reboot)
   async readSys() {
     try {
       const out = await sh(`F='${PKGDIR}/android'; O='${PKGDIR}/.sysoff'; boot=$(( $(date +%s) - $(cut -d. -f1 /proc/uptime) )); g=$(settings get global gpsz_sys 2>/dev/null); ` +
@@ -402,7 +398,6 @@ const B = {
     if (r.errno !== 0 || !/Success/.test(r.stdout || '')) throw new Error(((r.stdout || '') + (r.stderr || '')).trim().split('\n').pop() || 'pm install gagal');
   }
 };
-
 
 const S = {
   apps: [],
@@ -539,7 +534,7 @@ async function load() {
     renderApp();
 
     const sysSet = new Set(sys);
-    const names = Array.from(new Set([...user, ...sys, ...st.files])).filter(p => p !== 'android'); // 'android' = system_server, diatur lewat saklar System-wide
+    const names = Array.from(new Set([...user, ...sys, ...st.files])).filter(p => p !== 'android');
     const info = await B.info(names);
     const installed = new Set([...user, ...sys]);
     S.apps = names.map(pkg => ({
@@ -713,19 +708,17 @@ async function jfetch(url) {
 function fmtPlace(a) {
   return { lat: String(Number(a.lat.toFixed(6))), lng: String(Number(a.lng.toFixed(6))), name: a.name, sub: a.sub };
 }
-async function geocode(q, nominatimOnly) {
+async function geocode(q) {
   q = q.trim();
-  if (!nominatimOnly) {
-    try {
-      const j = await jfetch('https://photon.komoot.io/api/?limit=5&q=' + encodeURIComponent(q));
-      const out = (j.features || []).map(f => {
-        const p = f.properties || {}, c = f.geometry.coordinates;
-        const sub = [p.city || p.county, p.state, p.country].filter((v, i, arr) => v && v !== p.name && arr.indexOf(v) === i).join(', ');
-        return fmtPlace({ lat: c[1], lng: c[0], name: p.name || q, sub });
-      });
-      if (out.length) return out;
-    } catch (e) {}
-  }
+  try {
+    const j = await jfetch('https://photon.komoot.io/api/?limit=5&q=' + encodeURIComponent(q));
+    const out = (j.features || []).map(f => {
+      const p = f.properties || {}, c = f.geometry.coordinates;
+      const sub = [p.city || p.county, p.state, p.country].filter((v, i, arr) => v && v !== p.name && arr.indexOf(v) === i).join(', ');
+      return fmtPlace({ lat: c[1], lng: c[0], name: p.name || q, sub });
+    });
+    if (out.length) return out;
+  } catch (e) {}
   const j = await jfetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&q=' + encodeURIComponent(q));
   return (j || []).map(r => {
     const parts = String(r.display_name).split(', ');
@@ -775,7 +768,7 @@ function coordSheet(val, err) {
 async function saveCoords() {
   const raw = $('#coordIn').value;
   let p = parseCoords(raw);
-  const btn = $('#cdYes'); 
+  const btn = $('#cdYes');
   if (!p) {
     const q = raw.trim();
     if (q.length < 2 || /^[-\d\s.,;()]+$/.test(q)) return coordSheet(raw, 'Koordinat tidak valid. Contoh: -7.804541, 110.48315 (lintang -90..90, bujur -180..180).');

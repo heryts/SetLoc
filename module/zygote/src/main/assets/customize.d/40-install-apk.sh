@@ -1,6 +1,3 @@
-# Pasang app SetLoc (apk/SetLoc.apk) saat flash. Gagal/dilewati tidak membatalkan instalasi:
-# bridge.sh mencoba lagi setelah boot (checksum .apk_sum).
-
 ui_print "- Install app SetLoc"
 
 APK_SRC="$MODPATH/apk/SetLoc.apk"

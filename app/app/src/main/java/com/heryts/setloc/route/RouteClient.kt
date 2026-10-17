@@ -14,7 +14,6 @@ import java.net.URL
 import java.security.MessageDigest
 
 object RouteClient {
-
     class RouteException(message: String) : Exception(message)
 
     class Result(val points: List<LatLng>, val distanceM: Double, val durationS: Double)

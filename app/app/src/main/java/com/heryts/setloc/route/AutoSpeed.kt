@@ -1,6 +1,5 @@
 package com.heryts.setloc.route
 
-/** Kecepatan auto per mode (0 jalan kaki, 1 sepeda, 2 motor, 3 mobil), km/jam. */
 object AutoSpeed {
     private val DEFAULT = floatArrayOf(5f, 15f, 40f, 50f)
     private val MIN = floatArrayOf(3f, 8f, 15f, 10f)

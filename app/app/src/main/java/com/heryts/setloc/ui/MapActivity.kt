@@ -70,7 +70,6 @@ import kotlin.properties.Delegates
 @AndroidEntryPoint
 class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClickListener,
     GoogleMap.OnMapLongClickListener {
-
     private val binding by lazy { ActivityMapBinding.inflate(layoutInflater) }
     private lateinit var mMap: GoogleMap
     private val viewModel by viewModels<MainViewModel>()
@@ -240,7 +239,6 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         }
     }
 
-    /** Hijau = awal, biru = tujuan (titik terakhir), kuning = titik perantara. */
     private fun refreshRouteMarkers() {
         val last = routeMarkers.size - 1
         routeMarkers.forEachIndexed { i, m ->
@@ -270,7 +268,6 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         updateRouteFab()
     }
 
-    /** Hapus titik terakhir saja (undo); rute dihitung ulang dari titik yang tersisa. */
     private fun removeLastWaypoint() {
         if (routeWaypoints.isEmpty() || RouteRunner.isRunning) return
         routeJob?.cancel()
@@ -354,10 +351,9 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         updateRouteFab()
     }
 
-    /** Ketinggian sepanjang rute (Elevation API); dipakai RouteRunner untuk altitude. Gagal = pakai altitude manual. */
     private fun fetchElevations(points: List<LatLng>) {
         elevationJob?.cancel()
-        if (!PrefManager.altitudeFromServer) {   // "Get altitude from server" mati: pakai altitude manual
+        if (!PrefManager.altitudeFromServer) {
             RouteRunner.elevations = null
             return
         }
@@ -373,14 +369,12 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         binding.routeDelete.setOnLongClickListener { clearRoute(); true }
     }
 
-    /** Tombol centang hanya tampil bila rute siap, belum jalan, dan Play sedang tampil. */
     private fun updateRouteFab() {
         val idle = !RouteRunner.isRunning && binding.start.visibility == View.VISIBLE
         binding.route.visibility = if (routeReady && idle) View.VISIBLE else View.GONE
         binding.routeDelete.visibility = if (routeWaypoints.isNotEmpty() && idle) View.VISIBLE else View.GONE
     }
 
-    /** Routing butuh system hook modul (gpsz_sys 1 atau 2). Bila tidak terbaca, anggap aktif. */
     private fun systemModeActive(): Boolean = try {
         val v = Settings.Global.getString(contentResolver, "gpsz_sys")
         val enabled = v == "1" || v == "2"
@@ -661,7 +655,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             PrefManager.altitudeVariation = altVar
             PrefManager.altitudeFromServer = fromServer
             if (!fromServer) PrefManager.altitudeM = alt
-            // fetchElevations() sendiri mengosongkan elevasi bila "dari server" mati.
+
             if (!fromServer || (routePoints.size >= 2 && (serverChanged || RouteRunner.elevations == null))) {
                 fetchElevations(routePoints)
             }
@@ -736,7 +730,6 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             else -> super.onOptionsItemSelected(item)
         }
         return true
-
     }
 
     private fun searchDialog() {

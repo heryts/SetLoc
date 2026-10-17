@@ -7,7 +7,6 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-/** Geocoder tanpa API deprecated: listener di API 33+, versi sync (di-suppress) di bawahnya. */
 suspend fun Geocoder.fromLocation(lat: Double, lng: Double, max: Int): List<Address>? =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         suspendCancellableCoroutine { c ->

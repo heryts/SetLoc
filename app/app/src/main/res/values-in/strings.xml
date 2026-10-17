@@ -10,8 +10,6 @@
     <string name="favourites">Favorit</string>
     <string name="address_not_found">Alamat tidak ditemukan</string>
 
-    <!-- About -->
-
     <string name="about">Tentang</string>
     <string name="about_info">Atur lokasi sesuai keinginan</string>
 
@@ -26,8 +24,6 @@
     <string name="no_internet">Tidak ada internet</string>
     <string name="search_hint">"cari mis. jakarta atau 37.7749,-122.4194"</string>
 
-    <!-- SettingActivity -->
-
     <string name="settings_location">Lokasi</string>
     <string name="settings">Pengaturan</string>
     <string name="settings_of_accuracy">Akurasi</string>
@@ -36,7 +32,6 @@
     <string name="delete_favourite_item">Hapus favorit</string>
     <string name="title_activity_settings">Pengaturan</string>
 
-    <!-- Route -->
     <string name="route_options">Opsi rute</string>
     <string name="route_channel_name">Simulasi rute</string>
     <string name="route_running">Mengikuti rute…</string>

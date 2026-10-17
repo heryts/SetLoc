@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- MapType Preference -->
 
     <string-array name="map_type">
         <item>Normal</item>

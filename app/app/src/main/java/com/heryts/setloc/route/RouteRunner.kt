@@ -20,9 +20,7 @@ import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-/** Perjalanan menyusuri rute: menulis posisi ke pref app; bridge.sh menyalinnya ke gpsz_cfg. */
 object RouteRunner {
-
     data class State(
         val running: Boolean = false,
         val finished: Boolean = false,
@@ -125,7 +123,7 @@ object RouteRunner {
 
     private fun timelineText(ticks: List<Tick>): String {
         val sb = StringBuilder(ticks.size * 48)
-        // Satu Formatter dipakai ulang: String.format per tick membuat Formatter baru ratusan ribu kali di rute panjang.
+
         val fmt = java.util.Formatter(sb, java.util.Locale.US)
         for (t in ticks) fmt.format("%.6f %.6f %.3f %.2f %.2f\n", t.lat, t.lng, t.spd, t.brg, t.alt)
         return sb.toString()

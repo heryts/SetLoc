@@ -21,12 +21,6 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
-/**
- * Hook system_server (LocationManagerService / LocationProviderManager): mengganti fix asli, memblokir GNSS,
- * dan mengirim fix 1 Hz (palsu pada mode penuh, salinan fix asli pada mode heartbeat).
- * API tersembunyi dicari lewat find*() (fallback com.v7878.unsafe.Reflection). Setiap langkah di-try/catch:
- * kegagalan hanya dicatat (tag GpsZ) dan tidak boleh melempar ke system_server.
- */
 final class SystemHooks {
     private static final String TAG = ZygoteEntry.TAG;
     private static final String LMS = "com.android.server.location.LocationManagerService";
@@ -203,12 +197,10 @@ final class SystemHooks {
                 || n.equals("addGnssNavigationMessageListener");
     }
 
-    /** Mode penuh (gpsz_sys=1): semua app yang membaca lokasi lewat sistem mendapat lokasi palsu. */
     private static boolean active() {
         return Config.enabled && Config.system && !Config.sysHeartbeat && !Double.isNaN(Config.lat) && !Double.isNaN(Config.lng);
     }
 
-    /** Mode heartbeat (gpsz_sys=2): lokasi app lain TIDAK diubah; sistem hanya mengulang fix asli tiap detik. */
     private static boolean beat() {
         return Config.enabled && Config.system && Config.sysHeartbeat;
     }
@@ -290,7 +282,6 @@ final class SystemHooks {
         };
     }
 
-    /** Menimpa setiap Location di result langsung; fallback ke LocationResult.map. */
     private static Object spoofResult(Object result) throws Throwable {
         if (result == null || resultClass == null || !resultClass.isInstance(result)) return null;
         if (resultSize != null && resultGet != null) {
@@ -319,7 +310,6 @@ final class SystemHooks {
         }
     }
 
-    /** Method isInEmergency hasil refleksi, di-cache per kelas helper (dipanggil tiap laporan fix dan tiap tick generator). */
     private static final class EmergencyCall {
         final Class<?> type;
         final Method method;
@@ -328,7 +318,6 @@ final class SystemHooks {
 
     private static volatile EmergencyCall emergencyCall;
 
-    /** Jangan beri layanan darurat fix palsu. */
     private static boolean inEmergency(Object manager) {
         try {
             if (lpmEmergency == null || manager == null) return false;
@@ -396,7 +385,6 @@ final class SystemHooks {
         return resultWrap.invoke(null, (Object) new Location[]{l});
     }
 
-    /** Cari LocationProviderManager sebelum fix asli pertama mengungkapkannya (binder "location" = LMS). */
     private static void scanForManagers() {
         try {
             Class<?> sm = Class.forName("android.os.ServiceManager");
@@ -436,11 +424,9 @@ final class SystemHooks {
         l.setSpeed(Config.spd);
         float b = Config.brg;
         if (Float.isNaN(b)) l.removeBearing(); else l.setBearing(b);
-        if (Build.VERSION.SDK_INT >= 26) {
-            l.removeSpeedAccuracy();
-            l.removeBearingAccuracy();
-            l.removeVerticalAccuracy();
-        }
+        l.removeSpeedAccuracy();
+        l.removeBearingAccuracy();
+        l.removeVerticalAccuracy();
     }
 
     private static Location spoof(Location orig) {
@@ -449,7 +435,7 @@ final class SystemHooks {
         Config.Pt p = Config.snapshot();
         l.setLatitude(p.lat);
         l.setLongitude(p.lng);
-        l.setAccuracy(Math.max(1f, Config.acc)); // validate() menolak accuracy <= 0
+        l.setAccuracy(Math.max(1f, Config.acc));
         applyMotion(l);
         clearMock(l);
         return l;

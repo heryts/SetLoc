@@ -9,8 +9,6 @@
     <string name="favourites">Favoris</string>
     <string name="address_not_found">Addresse introuvable</string>
 
-    <!-- About -->
-
     <string name="about">A propos</string>
     <string name="about_info">Un module qui définira votre localisation où que vous le vouliez sans activer la localisation.</string>
 
@@ -25,8 +23,6 @@
     <string name="no_internet">Pas d\’internet</string>
     <string name="search_hint">"rechercher par exemple new york ou 37.7749,-122.4194"</string>
 
-    <!-- SettingActivity -->
-
     <string name="settings_location">Location</string>
     <string name="settings">Réglages</string>
     <string name="settings_of_accuracy">Précision</string>
@@ -35,7 +31,6 @@
     <string name="delete_favourite_item">Supprimer favoris</string>
     <string name="title_activity_settings">Réglges</string>
 
-    <!-- Route -->
     <string name="route_options">Options de l\’itinéraire</string>
     <string name="route_channel_name">Simulation d\’itinéraire</string>
     <string name="route_running">Itinéraire en cours…</string>

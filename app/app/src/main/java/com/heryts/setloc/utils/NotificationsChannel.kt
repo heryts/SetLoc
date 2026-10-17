@@ -8,7 +8,6 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.heryts.setloc.R
  class NotificationsChannel{
-
     private fun createChannelIfNeeded(context: Context) {
         NotificationChannelCompat.Builder("set.location", NotificationManager.IMPORTANCE_DEFAULT).apply {
             setName(context.getString(R.string.title))
@@ -34,5 +33,4 @@ import com.heryts.setloc.R
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.cancelAll()
     }
-
 }

@@ -1,9 +1,7 @@
 #!/system/bin/sh
-# su -c "sh /data/adb/modules/setloc_zygisk/gpsz.sh <cmd>"; perintah lengkap: jalankan tanpa argumen.
 MODDIR=$(cd "$(dirname "$0")" && pwd)
 PKGDIR="$MODDIR/packages"
 KEY=gpsz_cfg
-# Perintah baca-saja/diagnosa tidak boleh memicu sync, supaya tidak menimpa gpsz_cfg yang sedang diselidiki.
 case "$1" in sync|check|status|doctor|super) ;; *) sh "$MODDIR/bridge.sh" sync >/dev/null 2>&1 ;; esac
 RAW=$(settings get global $KEY 2>/dev/null)
 get() { echo "$RAW" | tr ';' '\n' | sed -n "s/^$1=//p" | head -1; }
@@ -45,7 +43,6 @@ case "$1" in
           [ -e "$PKGDIR/.all" ] && echo "packages: ALL apps (listed ones below are EXCLUDED)"
           ls -1A "$PKGDIR" 2>/dev/null | grep -v '^\.\(all\|sysoff\)$' | sed 's/^/  pkg: /' ;;
   pkg)
-    # ZygoteLoader membaca packages/<nama> tiap app start: di-hook = (file ada) XOR (.all ada)
     case "$2" in
       add)  validpkg "$3" || { echo "usage: pkg add <package>"; exit 1; }
             mkdir -p "$PKGDIR" && : > "$PKGDIR/$3" && am force-stop "$3" 2>/dev/null

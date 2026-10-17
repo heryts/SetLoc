@@ -12,25 +12,24 @@ import java.lang.reflect.Method;
 import java.util.Objects;
 import java.util.Random;
 
-/** Konfigurasi dari Settings.Global "gpsz_cfg" (ditulis root), mis. enabled=1;lat=-6.2;lng=106.8;acc=10;random=0. */
 final class Config {
     static final String KEY = "gpsz_cfg";
-    /** 1 = system hook penuh, 2 = heartbeat. Key terpisah supaya tidak ikut tertimpa bridge.sh. */
+
     static final String KEY_SYS = "gpsz_sys";
-    /** Detak daemon bridge.sh (angka yang berubah tiap ~1 dtk saat rute diputar, pl=1). */
+
     static final String KEY_BEAT = "gpsz_beat";
-    /** Detak berhenti >= ini: posisi dibekukan (speed 0). */
+
     private static final long FREEZE_MS = 10_000;
-    /** Detak berhenti >= ini: spoof dimatikan sepenuhnya (lokasi asli kembali). */
+
     private static final long OFF_MS = 60_000;
-    /** Jarak antar-poll lebih dari ini = proses sendiri yang dibekukan/tidur, bukan daemon yang mati. */
+
     private static final long GAP_MS = 2_000;
 
     static volatile boolean enabled;
     static volatile boolean jitter;
     static volatile boolean system;
     static volatile boolean sysHeartbeat;
-    /** pl=1: rute sedang diputar daemon; hanya saat ini detak daemon diperiksa. */
+
     static volatile boolean playing;
     static volatile double lat = Double.NaN;
     static volatile double lng = Double.NaN;
@@ -44,7 +43,6 @@ final class Config {
     private static volatile double altNoise = 0.0;
     private static volatile long altAt = 0;
 
-    /** Titik (lat, lng) yang tidak bisa berubah + waktu dibuat: lat/lng yang dibaca selalu dari satu snapshot yang sama. */
     static final class Pt {
         final double lat, lng;
         final long at;
@@ -53,14 +51,11 @@ final class Config {
 
     private static volatile Pt snap;
 
-    // Status pemeriksaan detak; hanya disentuh thread polling. Memakai jam hook sendiri (elapsedRealtime),
-    // bukan jam absolut, jadi sisa detak dari boot sebelumnya tidak berpengaruh.
     private static String beatSeen = null;
     private static long beatChangedAt = 0;
     private static long lastPollAt = 0;
     private static boolean beatArmed = false;
 
-    /** Satu titik (dengan jitter bila aktif) dipakai ulang 200 ms supaya lat/lng yang dibaca berurutan sama. Jalur cepat tanpa lock. */
     static Pt snapshot() {
         Pt p = snap;
         if (p != null && SystemClock.elapsedRealtime() - p.at < 200) return p;
@@ -87,7 +82,6 @@ final class Config {
         return (RND.nextDouble() * 2.0 - 1.0) * rr;
     }
 
-    /** Altitude + derau halus (+-altVar) yang berubah ~1 detik sekali, seperti GPS asli. */
     static double altitudeNow() {
         float v = altVar;
         if (v <= 0f) return alt;
@@ -101,7 +95,6 @@ final class Config {
         return alt + altNoise;
     }
 
-    /** Tandai system hook termuat di boot ini: gpsz_sys_live = boot_count. */
     private static void publishLive(Application app) {
         try {
             int bc = Settings.Global.getInt(app.getContentResolver(), Settings.Global.BOOT_COUNT, -1);
@@ -120,7 +113,7 @@ final class Config {
         boolean en = false, jit = false, pl = false;
         double la = lat, lo = lng;
         float ac = acc;
-        // field gerak direset tiap parse: kunci yang tidak ada = nilai awal
+
         float sp = 0f, br = Float.NaN, av = 0f, rad = 8f;
         double al = 0.0;
         for (String kv : s.split(";")) {
@@ -152,12 +145,6 @@ final class Config {
         lat = la; lng = lo; acc = ac; spd = sp; brg = br; alt = al; altVar = av; rr = rad; jitter = jit; enabled = en; playing = pl;
     }
 
-    /**
-     * Dipanggil sesudah parse() di tiap poll. Saat rute diputar (pl=1) dan detak daemon berhenti berubah:
-     * >= 10 dtk -> speed 0 (posisi diam, tidak tampak "melaju" di titik terakhir); >= 60 dtk -> spoof mati.
-     * Detak berubah lagi (daemon dinyalakan ulang supervisor) -> kembali normal di poll berikutnya.
-     * Spoof titik tunggal (pl tidak ada) tidak disentuh sama sekali.
-     */
     static void checkBeat(String beat) {
         long now = SystemClock.elapsedRealtime();
         boolean gap = lastPollAt != 0 && now - lastPollAt > GAP_MS;
@@ -166,7 +153,7 @@ final class Config {
             beatArmed = false;
             return;
         }
-        // awal pemutaran, atau proses ini sendiri baru bangun/dibekukan: mulai hitung dari nol (masa tenggang)
+
         if (!beatArmed || gap || !Objects.equals(beat, beatSeen)) {
             beatArmed = true;
             beatSeen = beat;
@@ -199,7 +186,6 @@ final class Config {
 
     static void startPolling() { startPolling(null); }
 
-    /** onReady (boleh null) jalan sekali di thread polling begitu Application ada dan gpsz_sys terbaca aktif. */
     static void startPolling(final Runnable onReady) {
         Thread th = new Thread(() -> {
             Application app = null;

@@ -28,7 +28,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class RouteService : Service() {
-
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var wakeLock: PowerManager.WakeLock? = null
     private var lastPercent = -1
@@ -115,7 +114,6 @@ class RouteService : Service() {
         }
     }
 
-    // Overlay 1x1 transparan agar proses tidak dibekukan saat Maps di depan; izin diberikan modul (root).
     private fun ensureKeepAliveOverlay() {
         if (keepAliveView != null || overlayJob?.isActive == true) return
         overlayJob = scope.launch {

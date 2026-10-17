@@ -8,7 +8,6 @@ import com.v7878.r8.annotations.DoNotShrink;
 import com.v7878.r8.annotations.DoNotShrinkType;
 import com.v7878.zygisk.ZygoteLoader;
 
-/** Dipanggil ZygoteLoader di setiap proses yang di-inject. */
 @DoNotObfuscateType
 @DoNotShrinkType
 public final class ZygoteEntry {
