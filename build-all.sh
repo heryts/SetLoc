@@ -22,8 +22,9 @@ find_jdk() {
 
 with_jdk() { jh=$1; shift; JAVA_HOME=$jh PATH="$jh/bin:$PATH" "$@"; }
 
-J17=$(find_jdk 17 "$JAVA17_HOME") || exit 1
 J21=$(find_jdk 21 "$JAVA21_HOME") || exit 1
+JAPP=$J21
+if [ -n "$JAVA17_HOME" ]; then JAPP=$(find_jdk 17 "$JAVA17_HOME") || exit 1; fi
 
 if [ -n "$MAPS_API_KEY" ]; then
   grep -q '^MAPS_API_KEY=' app/local.properties 2>/dev/null || echo "MAPS_API_KEY=$MAPS_API_KEY" >> app/local.properties
@@ -31,7 +32,7 @@ fi
 
 echo "== 1/3 build app =="
 TASKS="test assembleRelease"; [ -n "$SKIP_TESTS" ] && TASKS=assembleRelease
-( cd app && with_jdk "$J17" sh ./gradlew $TASKS )
+( cd app && with_jdk "$JAPP" sh ./gradlew $TASKS )
 APK=$(ls -t app/app/build/outputs/apk/release/*.apk 2>/dev/null | head -n 1)
 [ -n "$APK" ] || { echo "GAGAL: APK rilis tidak ditemukan"; exit 1; }
 mkdir -p module/zygote/src/main/assets/apk

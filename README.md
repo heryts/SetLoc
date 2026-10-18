@@ -1,23 +1,67 @@
 # SetLoc Zygisk
 
-Pemalsu lokasi berbasis Zygisk: modul meng-hook `system_server` sehingga lokasi palsu berlaku untuk seluruh sistem, dan app SetLoc dipakai untuk memilih titik atau memutar rute.
+Versi Zygisk dari pemalsu lokasi. Pilih titik atau putar rute dari app SetLoc, dan lokasi palsunya dipakai app lain.
 
-## Struktur
-- `app/` app Android (peta, favorit, rute, pengaturan)
-- `module/` modul Zygisk (hook Java, `bridge.sh` daemon, `gpsz.sh` CLI, WebUI)
-- `module/test/run.sh` uji sandbox: sintaks skrip, `bridge.sh`, `gpsz.sh`, dan `Config` (butuh JDK untuk tes Java)
+## Syarat
+- Android 8.1 ke atas dengan root dan Zygisk aktif
+- Manajer root yang bisa memasang modul (Magisk, KernelSU, APatch, atau sejenisnya)
 
-## Build
+## Pasang
+1. Flash zip modul lewat manajer root.
+2. Reboot.
+3. Buka app SetLoc. Modul memasangnya sendiri saat di-flash, atau otomatis setelah reboot kalau Android belum berjalan penuh.
+
+Memperbarui versi cukup flash zip yang baru. Daftar app dan pengaturan lama dipertahankan.
+
+## Cara pakai
+- Ketuk peta untuk memilih titik, lalu aktifkan. Favorit, pencarian nama tempat, dan pengaturan akurasi, posisi acak, serta ketinggian ada di app.
+- Tekan lama di peta untuk menambah titik rute, lalu putar. Rute tetap berjalan walau app dibekukan atau ditutup, karena diputar oleh daemon root.
+- WebUI modul bisa dibuka dari manajer root untuk mengubah titik dan daftar app.
+
+Mode spoof:
+
+| Mode | Efek |
+|---|---|
+| Per-app | Hanya app di daftar yang mendapat lokasi palsu |
+| System-wide | Semua app mendapat lokasi palsu |
+| Heartbeat | Sistem mengulang lokasi asli tiap 1 detik agar app yang menunggu callback (mis. Google Maps) tetap menerima pembaruan. App di daftar tetap dipalsukan, app lain tidak |
+
+System-wide dan Heartbeat butuh reboot kalau belum aktif. Kalau terjadi bootloop, buat file `disable` di folder modul dari recovery.
+
+## Kalau tidak jalan
 ```
-MAPS_API_KEY=... sh build-all.sh
+sh /data/adb/modules/setloc_zygisk/gpsz.sh doctor
 ```
-Butuh JDK 17 dan JDK 21. Hasilnya zip modul yang di-flash lewat manajer root. `SKIP_TESTS=1` melewati unit test app. `make-keystore.sh` membuat keystore rilis, `update.sh` menyalin source dari zip ke repo.
+Perintah ini mendiagnosa modul, hook, dan konfigurasi. Untuk status mode system: `gpsz.sh system status`.
 
 ## CLI (root)
 ```
-sh /data/adb/modules/setloc_zygisk/gpsz.sh doctor     # diagnosa lengkap
 sh /data/adb/modules/setloc_zygisk/gpsz.sh set <lat> <lng>
 sh /data/adb/modules/setloc_zygisk/gpsz.sh on|off|toggle|show
 sh /data/adb/modules/setloc_zygisk/gpsz.sh system on|heartbeat|off|status
-sh /data/adb/modules/setloc_zygisk/gpsz.sh pkg add|rm|list|all <paket>
+sh /data/adb/modules/setloc_zygisk/gpsz.sh pkg add|rm|list <paket>
+sh /data/adb/modules/setloc_zygisk/gpsz.sh pkg all on|off
 ```
+`pkg all on` menyuntikkan modul ke semua app. Pakai hati-hati.
+
+## Build
+Butuh JDK 21, `git`, dan koneksi internet (AndroidVMTools di-clone dan dependensi Gradle diunduh).
+
+```
+MAPS_API_KEY=... sh build-all.sh
+```
+
+Hasilnya `module/zygote/build/outputs/magisk/release/SetLocZygisk-release.zip`.
+
+- `MAPS_API_KEY` adalah API key Google Maps untuk peta di app.
+- `SKIP_TESTS=1` melewati unit test app.
+- `JAVA21_HOME` menunjuk JDK 21 tertentu kalau ada lebih dari satu JDK.
+- Tanpa `app/keystore.properties`, APK ditandatangani dengan debug key. Untuk rilis, buat keystore dengan `sh make-keystore.sh <release-key.pem> <release-cert.pem>`.
+
+## Struktur
+- `app/` app Android (peta, favorit, rute, pengaturan)
+- `module/` modul Zygisk: hook Java, daemon `bridge.sh`, CLI `gpsz.sh`, WebUI
+- `module/test/run.sh` uji sandbox untuk skrip dan `Config`
+
+## Kredit
+Terinspirasi dari GPS Setter. Hook Java tanpa native memakai [ZygoteLoader](https://github.com/aerath-stuff/ZygoteLoader) dan [AndroidVMTools](https://github.com/aerath-stuff/AndroidVMTools).
