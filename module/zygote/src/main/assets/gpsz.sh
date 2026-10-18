@@ -25,7 +25,22 @@ injected() {
   mt=$(stat -c %Y "$PKGDIR/android" 2>/dev/null || echo 0)
   [ "$mt" -lt $(( $(date +%s) - $(cut -d. -f1 /proc/uptime) )) ]
 }
-sysmode() { mkdir -p "$PKGDIR" && rm -f "$PKGDIR/.sysoff" && { [ -e "$PKGDIR/android" ] || : > "$PKGDIR/android"; } && settings put global gpsz_sys $1; }
+bootts() { echo $(( $(date +%s) - $(cut -d. -f1 /proc/uptime) )); }
+sysmode() {
+  mkdir -p "$PKGDIR" || return 1
+  keep=0
+  if [ -f "$PKGDIR/.sysoff" ] && [ -f "$PKGDIR/.sysmt" ]; then
+    so=$(stat -c %Y "$PKGDIR/.sysoff" 2>/dev/null || echo 0)
+    [ "$so" -ge "$(bootts)" ] && keep=1
+  fi
+  rm -f "$PKGDIR/.sysoff"
+  if [ ! -e "$PKGDIR/android" ]; then
+    : > "$PKGDIR/android"
+    [ "$keep" = 1 ] && touch -r "$PKGDIR/.sysmt" "$PKGDIR/android"
+  fi
+  rm -f "$PKGDIR/.sysmt"
+  settings put global gpsz_sys $1
+}
 isnum() { case "$1" in ''|*[!0-9.-]*) return 1 ;; *) return 0 ;; esac; }
 validpkg() { case "$1" in ''|.*|*[!A-Za-z0-9._]*) return 1 ;; *) return 0 ;; esac; }
 
@@ -41,7 +56,7 @@ case "$1" in
   random) RND=$2; save ;;
   show)   echo "enabled=$E lat=$LAT lng=$LNG acc=$ACC random=$RND spd=${SPD:-0} brg=${BRG:--} alt=${ALT:-0} altv=${ALTV:-0} rr=${RR:-8}"
           [ -e "$PKGDIR/.all" ] && echo "packages: ALL apps (listed ones below are EXCLUDED)"
-          ls -1A "$PKGDIR" 2>/dev/null | grep -v '^\.\(all\|sysoff\)$' | sed 's/^/  pkg: /' ;;
+          ls -1A "$PKGDIR" 2>/dev/null | grep -v '^\.\(all\|sysoff\|sysmt\)$' | sed 's/^/  pkg: /' ;;
   pkg)
     case "$2" in
       add)  validpkg "$3" || { echo "usage: pkg add <package>"; exit 1; }
@@ -62,9 +77,18 @@ case "$1" in
            echo "system hook ON (mode PENUH: semua app dispoof). REBOOT dibutuhkan bila belum live. Bootloop? buat file $MODDIR/disable dari recovery." ;;
       heartbeat) sysmode 2
            echo "system hook mode HEARTBEAT: sistem hanya mengulang fix asli 1 Hz, lokasi app lain TIDAK diubah (spoof hanya app di packages/). Bila sudah live, berlaku tanpa reboot; bila belum, REBOOT." ;;
-      off) injected && live=1 || live=0
-           rm -f "$PKGDIR/android" "$PKGDIR/.sysoff"; [ "$live" = 1 ] && : > "$PKGDIR/.sysoff"
-           settings put global gpsz_sys 0
+      off) if [ -e "$PKGDIR/android" ]; then
+             if injected; then
+               touch -r "$PKGDIR/android" "$PKGDIR/.sysmt"
+               rm -f "$PKGDIR/android" "$PKGDIR/.sysoff"; : > "$PKGDIR/.sysoff"
+             else
+               rm -f "$PKGDIR/android" "$PKGDIR/.sysoff" "$PKGDIR/.sysmt"
+               settings put global gpsz_sys 0
+             fi
+           else
+             so=0; [ -f "$PKGDIR/.sysoff" ] && so=$(stat -c %Y "$PKGDIR/.sysoff" 2>/dev/null || echo 0)
+             [ "$so" -ge "$(bootts)" ] || settings put global gpsz_sys 0
+           fi
            echo "system hook OFF. Reboot agar system_server tidak lagi di-inject." ;;
       status) [ -e "$PKGDIR/android" ] && F=ya || F=tidak
            ST=off
