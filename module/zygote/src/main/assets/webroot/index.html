@@ -42,7 +42,7 @@
   --chip: #263449;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-html, body { background: var(--bg); color: var(--text); color-scheme: light; }
+html, body { background: var(--bg); color: var(--text); color-scheme: light; overscroll-behavior-y: none; }
 html.dark, html.dark body { color-scheme: dark; }
 body {
   font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -898,23 +898,58 @@ applyTheme(theme());
 load();
 
 const EdgeGuard = (() => {
-  const EDGE = 72;
-  let saved = null;
+  let EDGE = 48;
+  const probe = document.createElement('div');
+  probe.style.cssText = 'position:fixed;left:0;bottom:0;width:0;visibility:hidden;pointer-events:none;height:var(--inset-bottom)';
+  document.body.appendChild(probe);
+  function measure() {
+    const h = probe.getBoundingClientRect().height;
+    EDGE = Math.min(Math.max(Math.round(h) + 8, 32), 72);
+  }
+  measure();
+  window.addEventListener('resize', measure);
+  window.addEventListener('orientationchange', measure);
+  setTimeout(measure, 300);
+  const HOLD = 350;
+  const RESUME = 4000;
+  let active = false, hold = false, savedY = 0, stamp = 0, timer = 0;
+  const cur = () => window.scrollY || document.documentElement.scrollTop || 0;
+  function apply() { if (cur() !== savedY) window.scrollTo(0, savedY); }
+  function release() {
+    active = false;
+    hold = true;
+    clearTimeout(timer);
+    timer = setTimeout(() => { apply(); hold = false; }, HOLD);
+  }
   function restore() {
-    if (saved === null) return;
-    const y = saved;
-    saved = null;
-    window.scrollTo(0, y);
+    if (!stamp || Date.now() - stamp > RESUME) return;
+    apply();
+    requestAnimationFrame(apply);
+    setTimeout(apply, 80); setTimeout(apply, 250); setTimeout(apply, 600);
   }
   window.addEventListener('touchstart', e => {
     const t = e.touches && e.touches[0];
-    saved = t && t.clientY > window.innerHeight - EDGE ? window.scrollY : null;
+    clearTimeout(timer);
+    if (t && t.clientY > window.innerHeight - EDGE) {
+      if (!active && !hold) savedY = cur();
+      active = true; hold = false; stamp = Date.now();
+    } else {
+      active = false; hold = false; stamp = 0;
+    }
   }, { passive: true, capture: true });
-  window.addEventListener('touchend', () => { saved = null; }, { passive: true, capture: true });
-  window.addEventListener('touchcancel', restore, { passive: true, capture: true });
+  window.addEventListener('touchmove', e => {
+    if (!active) return;
+    if (e.cancelable) e.preventDefault();
+    stamp = Date.now();
+  }, { passive: false, capture: true });
+  window.addEventListener('touchend', () => { if (active) { stamp = Date.now(); release(); } }, { passive: true, capture: true });
+  window.addEventListener('touchcancel', () => { if (active) { stamp = Date.now(); apply(); release(); } }, { passive: true, capture: true });
+  window.addEventListener('scroll', () => { if (active || hold) apply(); }, { passive: true });
   window.addEventListener('pagehide', restore);
-  window.addEventListener('blur', restore);
-  document.addEventListener('visibilitychange', () => { if (document.hidden) restore(); });
+  window.addEventListener('pageshow', restore);
+  window.addEventListener('blur', () => { if (active || hold) { stamp = Date.now(); apply(); } });
+  window.addEventListener('focus', restore);
+  document.addEventListener('visibilitychange', () => { if (stamp) restore(); });
 })();
 
 let _statusBusy = false;
