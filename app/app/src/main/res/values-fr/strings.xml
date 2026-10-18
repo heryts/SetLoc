@@ -72,4 +72,7 @@
     <string name="settings_route">Itinéraire</string>
     <string name="settings_traffic_aware">Trafic en temps réel</string>
     <string name="settings_traffic_aware_summary">L\’itinéraire suit le trafic actuel</string>
+    <string name="map_not_ready">Carte non prête</string>
+    <string name="location_not_selected">Aucune localisation sélectionnée</string>
+    <string name="search_dialog_title">Rechercher</string>
 </resources>

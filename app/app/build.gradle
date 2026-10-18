@@ -18,6 +18,7 @@ android {
         targetSdk 33
         versionCode ver['versionCode'] as int
         versionName tagName
+        resourceConfigurations.addAll(["en", "in", "id", "fr"])
     }
 
     def ksFile = rootProject.file('keystore.properties')
@@ -39,7 +40,9 @@ android {
     buildTypes {
         release {
             signingConfig ksFile.exists() ? signingConfigs.release : signingConfigs.debug
-            minifyEnabled false
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
     compileOptions {
@@ -59,13 +62,11 @@ android {
 dependencies {
 
     implementation 'androidx.core:core-ktx:1.9.0'
-    implementation 'androidx.appcompat:appcompat:1.7.0-alpha01'
-    implementation 'com.google.android.material:material:1.9.0-alpha01'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'com.google.android.material:material:1.12.0'
     implementation 'androidx.activity:activity-ktx:1.6.1'
     implementation 'com.google.android.gms:play-services-maps:18.1.0'
     implementation 'androidx.preference:preference:1.2.0'
-
-    implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.0-alpha04"
 
     implementation "com.google.dagger:hilt-android:2.51.1"
     ksp "com.google.dagger:hilt-compiler:2.51.1"

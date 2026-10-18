@@ -82,7 +82,7 @@ object ElevationClient {
         }
     }
 
-    fun encodePolyline(points: List<LatLng>): String {
+    private fun encodePolyline(points: List<LatLng>): String {
         val sb = StringBuilder()
         var pLat = 0
         var pLng = 0

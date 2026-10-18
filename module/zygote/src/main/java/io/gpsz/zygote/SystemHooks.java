@@ -33,6 +33,9 @@ final class SystemHooks {
     private static final int K_LAST = 0, K_BLOCK_VOID = 1, K_BLOCK_BOOL = 2, K_ARG_LOCATION = 3, K_ARG_RESULT = 4;
 
     private static boolean installed = false;
+    private static boolean live = false;
+    private static boolean generatorStarted = false;
+    private static int lpmHooks = 0, lmsHooks = 0, lmsTries = 0;
 
     private static Class<?> resultClass;
     private static Method resultMap, resultSize, resultGet, resultWrap;
@@ -45,22 +48,32 @@ final class SystemHooks {
     private static final Map<String, Object> managers = new ConcurrentHashMap<>();
     private static volatile long lastGpsReport = 0;
 
-    static synchronized void install() {
-        if (installed) return;
+    static synchronized boolean install() {
+        boolean first = !installed;
         installed = true;
         if (Build.VERSION.SDK_INT < 33) {
-            Log.w(TAG, "system hooks: Android < 13 tidak didukung");
-            return;
+            if (first) Log.w(TAG, "system hooks: Android < 13 tidak didukung");
+            return false;
         }
+        if (live && (lmsHooks > 0 || lmsTries >= 12)) return true;
+        int lpm0 = lpmHooks, lms0 = lmsHooks;
         try {
             ClassLoader cl = systemLoader();
-            prepareReflection(cl);
-            hookClass(cl, LPM, false);
-            hookClass(cl, LMS, true);
-            startGenerator();
+            if (first || lpmClass == null) prepareReflection(cl);
+            if (lpmHooks == 0) lpmHooks = hookClass(cl, LPM, false);
+            if (lmsHooks == 0) { lmsTries++; lmsHooks = hookClass(cl, LMS, true); }
+            if (!generatorStarted && (first || (lpmOnReport != null && resultWrap != null))) {
+                generatorStarted = lpmOnReport != null && resultWrap != null;
+                startGenerator();
+            }
         } catch (Throwable t) {
             Log.e(TAG, "system hooks failed", t);
         }
+        live = lpmHooks > 0;
+        if (first || lpm0 != lpmHooks || lms0 != lmsHooks) {
+            Log.i(TAG, "system hooks: lpm=" + lpmHooks + " lms=" + lmsHooks + " live=" + live);
+        }
+        return live;
     }
 
     private static Method findMethod(Class<?> c, String name, Class<?>... ps) {
@@ -152,14 +165,15 @@ final class SystemHooks {
         }
     }
 
-    private static void hookClass(ClassLoader cl, String name, boolean isLms) {
+    private static int hookClass(ClassLoader cl, String name, boolean isLms) {
         Class<?> c;
         try {
             c = Class.forName(name, false, cl);
         } catch (Throwable t) {
             Log.w(TAG, "system hooks: class not found " + name + ": " + t);
-            return;
+            return 0;
         }
+        int hooked = 0;
         for (Method m : c.getDeclaredMethods()) {
             int mod = m.getModifiers();
             if (Modifier.isAbstract(mod) || Modifier.isNative(mod) || Modifier.isStatic(mod)) continue;
@@ -184,11 +198,13 @@ final class SystemHooks {
             if (kind < 0) continue;
             try {
                 Hooks.hook(m, Hooks.EntryPointType.DIRECT, transformer(kind, argIdx), Hooks.EntryPointType.DIRECT);
+                hooked++;
                 Log.i(TAG, "system hook: " + c.getSimpleName() + "." + n + " (kind " + kind + ")");
             } catch (Throwable t) {
                 Log.e(TAG, "system hook failed: " + c.getSimpleName() + "." + n, t);
             }
         }
+        return hooked;
     }
 
     private static boolean isGnssBlockTarget(String n) {

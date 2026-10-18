@@ -1,12 +1,9 @@
-# Kunci & rahasia - JANGAN di-commit
 *.pem
 *.jks
 *.keystore
 *.p12
 local.properties
 keystore.properties
-
-# Build
 module/external/
 build/
 .gradle/

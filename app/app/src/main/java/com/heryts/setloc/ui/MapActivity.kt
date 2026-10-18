@@ -65,7 +65,6 @@ import java.io.IOException
 import java.util.Locale
 import java.util.regex.Matcher
 import java.util.regex.Pattern
-import kotlin.properties.Delegates
 
 @AndroidEntryPoint
 class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClickListener,
@@ -77,8 +76,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     private var favListAdapter: FavListAdapter = FavListAdapter()
     private var mMarker: Marker? = null
     private var mLatLng: LatLng? = null
-    private var lat by Delegates.notNull<Double>()
-    private var lon by Delegates.notNull<Double>()
+
     private lateinit var dialog: AlertDialog
 
     private val routeWaypoints = mutableListOf<LatLng>()
@@ -125,7 +123,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
 
         binding.start.setOnClickListener {
             if (mLatLng == null || !::mMap.isInitialized) {
-                showToast("Map belum siap")
+                showToast(getString(R.string.map_not_ready))
                 return@setOnClickListener
             }
             if (routeReady) {
@@ -136,24 +134,20 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
                 if (!routeLoading) fetchRoute(dropLastOnFail = false)
                 return@setOnClickListener
             }
-            viewModel.update(true, lat, lon)
+            val here = mLatLng!!
+            viewModel.update(true, here.latitude, here.longitude)
             PrefManager.altitudeM = PrefManager.altitudeManual
             if (PrefManager.altitudeFromServer) {
-                val here = LatLng(lat, lon)
-                lifecycleScope.launch {
+            lifecycleScope.launch {
                     ElevationClient.fetch(this@MapActivity, listOf(here))?.firstOrNull()
                         ?.let { PrefManager.altitudeM = it }
                 }
             }
-            mMarker?.position = mLatLng!!
+            mMarker?.position = here
             mMarker?.isVisible = true
             setRunningUi(true)
             lifecycleScope.launch {
-                mLatLng?.getAddress(this@MapActivity)?.let { address ->
-                    address.collect{ value ->
-                        showStartNotification(value)
-                    }
-                }
+                here.getAddress(this@MapActivity).collect { showStartNotification(it) }
             }
             showToast(getString(R.string.location_set))
         }
@@ -175,9 +169,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         with(mMap){
             mapType = viewModel.mapType
             val zoom = 12.0f
-            lat = viewModel.getLat
-            lon  = viewModel.getLng
-            mLatLng = LatLng(lat, lon)
+            mLatLng = LatLng(viewModel.getLat, viewModel.getLng)
             mMarker = addMarker(
                 MarkerOptions().position(mLatLng!!).draggable(false)
                     .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)).visible(false)
@@ -214,8 +206,6 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             it.position = latLng
             it.isVisible = true
             mMap.animateCamera(CameraUpdateFactory.newLatLng(latLng))
-            lat = latLng.latitude
-            lon = latLng.longitude
         }
     }
 
@@ -403,8 +393,6 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         if (!routeReady) return
         val first = routePoints.first()
         mLatLng = first
-        lat = first.latitude
-        lon = first.longitude
         mMarker?.apply {
             position = first
             isVisible = true
@@ -434,8 +422,6 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
                     val pos = s.position
                     if (pos != null && (s.running || (s.finished && !s.spoofOff))) {
                         mLatLng = pos
-                        lat = pos.latitude
-                        lon = pos.longitude
                         if (::mMap.isInitialized) {
                             mMarker?.apply {
                                 position = pos
@@ -494,13 +480,12 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             selectedMode(), distance, if (selectedMode() == oldMode) routeDurationS else null
         )
 
-        fun num(f: Float) = if (f % 1f == 0f) f.toInt().toString() else f.toString()
 
         val kmPerMile = 1.609344f
         var mph = PrefManager.speedUnitMph
         fun toUnit(kmh: Float) = if (mph) kmh / kmPerMile else kmh
         fun toKmh(v: Float) = if (mph) v * kmPerMile else v
-        fun numU(f: Float) = num(Math.round(f * 10f) / 10f)
+        fun numU(f: Float) = fmtNum(Math.round(f * 10f) / 10f)
 
         fun refreshSummary() {
             val sp = speedEt.text.toString().toFloatOrNull()?.let { toKmh(it) } ?: autoSpeedKmh()
@@ -546,10 +531,10 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             val shown = if (varAuto) varFromKmh(sp * 0.08f, varUnit, sp) else PrefManager.routeSpeedVarRaw
             setText(speedVarEt, numU(shown))
         }
-        waitEt.setText(num(PrefManager.routeWaitStart))
-        waitEndEt.setText(if (PrefManager.routeWaitEnd < 0f) "" else num(PrefManager.routeWaitEnd))
-        altEt.setText(num(PrefManager.altitudeManual))
-        altVarEt.setText(num(PrefManager.altitudeVariation))
+        waitEt.setText(fmtNum(PrefManager.routeWaitStart))
+        waitEndEt.setText(if (PrefManager.routeWaitEnd < 0f) "" else fmtNum(PrefManager.routeWaitEnd))
+        altEt.setText(fmtNum(PrefManager.altitudeManual))
+        altVarEt.setText(fmtNum(PrefManager.altitudeVariation))
         altServerCb.isChecked = PrefManager.altitudeFromServer
         trafficCb.isChecked = PrefManager.trafficAware
 
@@ -688,10 +673,9 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         }
     }
 
-    private fun moveMapToNewLocation() {
-        if (!::mMap.isInitialized) return
-        val latLng = LatLng(lat, lon)
-        mLatLng = latLng
+    private fun moveMapToNewLocation(latLng: LatLng) {
+    if (!::mMap.isInitialized) return
+    mLatLng = latLng
         mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(latLng, 12.0f))
         mMarker?.apply {
             position = latLng
@@ -739,7 +723,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         val editText = view.findViewById<EditText>(R.id.search_edittxt)
         editText.hint = getString(R.string.search_hint)
         val progressBar = buildProgressDialog("Searching...")
-        alertDialog.setTitle("Search")
+        alertDialog.setTitle(getString(R.string.search_dialog_title))
         alertDialog.setView(view)
         alertDialog.setPositiveButton("Search") { _, _ ->
             if (isNetworkConnected()) {
@@ -755,9 +739,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
                                     }
                                     is SearchProgress.Complete -> {
                                         progressBar.dismissSafe()
-                                        lat = result.lat
-                                        lon = result.lon
-                                        moveMapToNewLocation()
+                                        moveMapToNewLocation(LatLng(result.lat, result.lon))
                                     }
                                     is SearchProgress.Fail -> {
                                         progressBar.dismissSafe()
@@ -781,10 +763,11 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             setTitle(getString(R.string.add_fav_dialog_title))
             setPositiveButton(getString(R.string.dialog_button_add)) { _, _ ->
                 val s = editText.text.toString()
-                if (mMarker?.isVisible != true) {
-                    showToast("Location not select")
+                val here = mLatLng
+                if (mMarker?.isVisible != true || here == null) {
+                showToast(getString(R.string.location_not_selected))
                 } else {
-                    viewModel.storeFavorite(s, lat, lon) { ok -> showToast(getString(if (ok) R.string.record_saved else R.string.cant_save)) }
+                viewModel.storeFavorite(s, here.latitude, here.longitude) { ok -> showToast(getString(if (ok) R.string.record_saved else R.string.cant_save)) }
                 }
             }
             setView(view)
@@ -801,9 +784,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         rcv.layoutManager = LinearLayoutManager(this)
         rcv.adapter = favListAdapter
         favListAdapter.onItemClick = {
-            lat = it.lat!!
-            lon = it.lng!!
-            moveMapToNewLocation()
+            moveMapToNewLocation(LatLng(it.lat!!, it.lng!!))
             if (dialog.isShowing) dialog.dismiss()
         }
         favListAdapter.onItemDelete = {

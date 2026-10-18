@@ -72,4 +72,7 @@
     <string name="settings_route">Route</string>
     <string name="settings_traffic_aware">Traffic aware</string>
     <string name="settings_traffic_aware_summary">Route follows current traffic</string>
+    <string name="map_not_ready">Map not ready</string>
+    <string name="location_not_selected">Location not selected</string>
+    <string name="search_dialog_title">Search</string>
 </resources>

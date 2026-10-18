@@ -182,17 +182,6 @@ set_app_pos() {
   remember
 }
 
-publish_live() {
-  [ -e "$PKGDIR/android" ] || return 0
-  case "$(sget gpsz_sys)" in 1|2) ;; *) return 0 ;; esac
-  MT=$(stat -c %Y "$PKGDIR/android" 2>/dev/null || echo 0)
-  BT=$(( $(date +%s) - $(cut -d. -f1 /proc/uptime) ))
-  [ "$MT" -lt "$BT" ] || return 0
-  BC=$(sget boot_count)
-  case "$BC" in ''|null|*[!0-9]*) return 0 ;; esac
-  [ "$(sget gpsz_sys_live)" = "$BC" ] || sput gpsz_sys_live "$BC"
-}
-
 is_playing() { case "$NEW" in *";pl=1") return 0 ;; *) return 1 ;; esac; }
 
 is_daemon_pid() { [ -r "/proc/$1/cmdline" ] && tr '\0' ' ' < "/proc/$1/cmdline" | grep -q 'bridge.sh daemon'; }
@@ -331,7 +320,6 @@ fi
 PREFC=$(find_pref)
 CURBC=$(sget boot_count)
 sync_cfg
-publish_live
 app_installed && keepalive
 LAST=$(sig)
 DELAY=0.5; N=0
@@ -339,7 +327,7 @@ while true; do
   sleep $DELAY
   N=$((N+1))
   yield_lock
-  if [ $((N % 100)) -eq 0 ]; then lock_clean; publish_live; fi
+  if [ $((N % 100)) -eq 0 ]; then lock_clean; fi
   if [ $((N % 20)) -eq 0 ] || [ ! -f "$PREFC" ]; then PREFC=""; PREFC=$(find_pref); fi
   S=$(sig)
   is_playing && PLAYING=1 || PLAYING=0

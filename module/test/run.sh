@@ -1,6 +1,4 @@
 #!/bin/sh
-# Uji sandbox skrip modul (tanpa perangkat): perintah Android diganti stub.
-# Pakai: sh module/test/run.sh   (butuh sh/dash, coreutils, grep, sed, tr)
 A="$(cd "$(dirname "$0")/../zygote/src/main/assets" && pwd)"
 T=$(mktemp -d)
 M="$T/mod"; mkdir -p "$M" "$T/bin" "$T/st"
@@ -110,7 +108,6 @@ $G super on >/dev/null
 check "super on menghapusnya" '[ ! -f "$M/disable_super" ] && $G super | grep -q aktif'
 out=$($G doctor 2>&1)
 check "doctor memuat daemon, supervisor, log" 'echo "$out" | grep -q "daemon=" && echo "$out" | grep -q "supervisor=" && echo "$out" | grep -q "bridge.log"'
-# bridge.sh dibungkus sementara agar tiap pemanggilan tercatat; doctor/super harus baca-saja (tanpa "sync")
 cp "$M/bridge.sh" "$M/bridge.real"
 printf '#!/bin/sh\necho "$*" >> "%s/calls"\nexec sh "%s/bridge.real" "$@"\n' "$T" "$M" > "$M/bridge.sh"
 : > "$T/calls"; $G doctor >/dev/null 2>&1; $G super >/dev/null 2>&1; $G super on >/dev/null 2>&1
@@ -145,7 +142,7 @@ check "install gagal: pesan gagal, .apk_sum tidak dibuat" 'echo "$out" | grep -q
 echo "[hook: Config.checkBeat (beat daemon)]"
 TD="$(cd "$(dirname "$0")" && pwd)"
 if command -v javac >/dev/null 2>&1 && command -v java >/dev/null 2>&1; then
-  check "checkBeat: freeze 10 dtk, off 60 dtk, resume, jeda poll, titik tunggal, snapshot (21 skenario)" 'sh "$TD/beat/run.sh" >"$T/beat.log" 2>&1 || { cat "$T/beat.log"; false; }'
+  check "checkBeat + refresh: freeze, off, resume, jeda poll, titik tunggal, snapshot, flag sistem, onReady sekali" 'sh "$TD/beat/run.sh" >"$T/beat.log" 2>&1 || { cat "$T/beat.log"; false; }'
 else
   echo "  lewati (javac/java tidak ada)"
 fi

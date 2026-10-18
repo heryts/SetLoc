@@ -1,6 +1,4 @@
 #!/bin/sh
-# Ubah release-key.pem + release-cert.pem jadi keystore PKCS12 untuk Gradle.
-# Pakai: sh make-keystore.sh <release-key.pem> <release-cert.pem> [output.p12]
 set -e
 cd "$(dirname "$0")"
 KEY="${1:?isi path release-key.pem}"

@@ -1,5 +1,4 @@
 #!/bin/sh
-# Ambil AndroidVMTools pada commit yang dipin HMA-OSS (1fe86ce).
 set -e
 PIN=6fa2d5cbbf51c96fb81a9b5d96fdd74beac4aafe
 D=external/AndroidVMTools

@@ -16,6 +16,7 @@ import androidx.preference.PreferenceFragmentCompat
 import com.heryts.setloc.R
 import com.heryts.setloc.databinding.SettingsActivityBinding
 import com.heryts.setloc.utils.PrefManager
+import com.heryts.setloc.utils.ext.fmtNum
 import rikka.preference.SimpleMenuPreference
 
 class SettingsActivity : AppCompatActivity() {
@@ -24,7 +25,6 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     class SettingPreferenceDataStore : PreferenceDataStore() {
-        private fun fmt(f: Float) = if (f % 1f == 0f) f.toInt().toString() else f.toString()
 
         override fun getBoolean(key: String?, defValue: Boolean): Boolean {
             return when (key) {
@@ -49,9 +49,9 @@ class SettingsActivity : AppCompatActivity() {
                 "accuracy_settings" -> PrefManager.accuracy
                 "map_type" -> PrefManager.mapType.toString()
                 "darkTheme" -> PrefManager.darkTheme.toString()
-                "altitude_manual" -> fmt(PrefManager.altitudeManual)
-                "altitude_var" -> fmt(PrefManager.altitudeVariation)
-                "random_radius" -> fmt(PrefManager.randomRadius)
+                "altitude_manual" -> fmtNum(PrefManager.altitudeManual)
+                "altitude_var" -> fmtNum(PrefManager.altitudeVariation)
+                "random_radius" -> fmtNum(PrefManager.randomRadius)
                 else -> throw IllegalArgumentException("Invalid key $key")
             }
         }

@@ -131,7 +131,7 @@ object RouteClient {
         null
     }
 
-    fun decodePolyline(encoded: String): List<LatLng> {
+    private fun decodePolyline(encoded: String): List<LatLng> {
         val out = ArrayList<LatLng>()
         var index = 0
         var lat = 0

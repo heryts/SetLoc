@@ -2,6 +2,9 @@ package io.gpsz.zygote;
 
 import android.app.Application;
 import android.content.ContentResolver;
+import android.database.ContentObserver;
+import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.Log;
@@ -11,6 +14,7 @@ import com.v7878.unsafe.Reflection;
 import java.lang.reflect.Method;
 import java.util.Objects;
 import java.util.Random;
+import java.util.function.BooleanSupplier;
 
 final class Config {
     static final String KEY = "gpsz_cfg";
@@ -23,7 +27,13 @@ final class Config {
 
     private static final long OFF_MS = 60_000;
 
-    private static final long GAP_MS = 2_000;
+    private static final long GAP_MS = 3_000;
+
+    private static final long POLL_MS = 1_000;
+
+    private static final long FALLBACK_POLL_MS = 250;
+
+    private static final long RETRY_MS = 5_000;
 
     static volatile boolean enabled;
     static volatile boolean jitter;
@@ -55,6 +65,10 @@ final class Config {
     private static long beatChangedAt = 0;
     private static long lastPollAt = 0;
     private static boolean beatArmed = false;
+
+    private static final Object REFRESH_LOCK = new Object();
+    private static long lastTry = -RETRY_MS;
+    private static ContentObserver observer;
 
     static Pt snapshot() {
         Pt p = snap;
@@ -97,8 +111,11 @@ final class Config {
 
     private static void publishLive(Application app) {
         try {
-            int bc = Settings.Global.getInt(app.getContentResolver(), Settings.Global.BOOT_COUNT, -1);
-            Settings.Global.putString(app.getContentResolver(), "gpsz_sys_live", Integer.toString(bc));
+            ContentResolver cr = app.getContentResolver();
+            int bc = Settings.Global.getInt(cr, Settings.Global.BOOT_COUNT, -1);
+            if (bc < 0) return;
+            String v = Integer.toString(bc);
+            if (!v.equals(Settings.Global.getString(cr, "gpsz_sys_live"))) Settings.Global.putString(cr, "gpsz_sys_live", v);
         } catch (Throwable t) {
             Log.w(ZygoteEntry.TAG, "publish live failed: " + t);
         }
@@ -184,32 +201,58 @@ final class Config {
         }
     }
 
+    static void refresh(ContentResolver cr, Application app, BooleanSupplier onReady) {
+        synchronized (REFRESH_LOCK) {
+            try {
+                parse(Settings.Global.getString(cr, KEY));
+                checkBeat(Settings.Global.getString(cr, KEY_BEAT));
+                String sv = Settings.Global.getString(cr, KEY_SYS);
+                system = "1".equals(sv) || "2".equals(sv);
+                sysHeartbeat = "2".equals(sv);
+                if (onReady != null && system) {
+                    long now = SystemClock.elapsedRealtime();
+                    if (now - lastTry >= RETRY_MS) {
+                        lastTry = now;
+                        if (onReady.getAsBoolean()) publishLive(app);
+                    }
+                }
+            } catch (Throwable ignored) { }
+        }
+    }
+
+    private static boolean observe(ContentResolver cr, final Runnable onChange) {
+        try {
+            HandlerThread ht = new HandlerThread("gpsz-observer");
+            ht.start();
+            observer = new ContentObserver(new Handler(ht.getLooper())) {
+                @Override public void onChange(boolean selfChange) { onChange.run(); }
+            };
+            cr.registerContentObserver(Settings.Global.getUriFor(KEY), false, observer);
+            cr.registerContentObserver(Settings.Global.getUriFor(KEY_SYS), false, observer);
+            return true;
+        } catch (Throwable t) {
+            Log.w(ZygoteEntry.TAG, "observer failed, polling fast: " + t);
+            return false;
+        }
+    }
+
     static void startPolling() { startPolling(null); }
 
-    static void startPolling(final Runnable onReady) {
+    static void startPolling(final BooleanSupplier onReady) {
         Thread th = new Thread(() -> {
-            Application app = null;
-            for (int i = 0; i < 2400 && app == null; i++) {
-                app = currentApplication();
-                if (app == null) sleep(50);
+            Application found = null;
+            for (int i = 0; i < 2400 && found == null; i++) {
+                found = currentApplication();
+                if (found == null) sleep(50);
             }
-            if (app == null) { Log.w(ZygoteEntry.TAG, "no Application"); return; }
+            if (found == null) { Log.w(ZygoteEntry.TAG, "no Application"); return; }
+            final Application app = found;
             final ContentResolver cr = app.getContentResolver();
-            boolean readyRan = false;
+            final Runnable refresh = () -> refresh(cr, app, onReady);
+            final long interval = observe(cr, refresh) ? POLL_MS : FALLBACK_POLL_MS;
             for (;;) {
-                try {
-                    parse(Settings.Global.getString(cr, KEY));
-                    checkBeat(Settings.Global.getString(cr, KEY_BEAT));
-                    String sv = Settings.Global.getString(cr, KEY_SYS);
-                    system = "1".equals(sv) || "2".equals(sv);
-                    sysHeartbeat = "2".equals(sv);
-                    if (onReady != null && !readyRan && system) {
-                        readyRan = true;
-                        onReady.run();
-                        publishLive(app);
-                    }
-                } catch (Throwable ignored) { }
-                sleep(250);
+                refresh.run();
+                sleep(interval);
             }
         }, "gpsz-config");
         th.setDaemon(true);

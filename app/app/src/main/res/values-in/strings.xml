@@ -73,4 +73,7 @@
     <string name="settings_route">Rute</string>
     <string name="settings_traffic_aware">Traffic aware</string>
     <string name="settings_traffic_aware_summary">Rute mengikuti lalu lintas saat ini</string>
+    <string name="map_not_ready">Peta belum siap</string>
+    <string name="location_not_selected">Lokasi belum dipilih</string>
+    <string name="search_dialog_title">Cari</string>
 </resources>
