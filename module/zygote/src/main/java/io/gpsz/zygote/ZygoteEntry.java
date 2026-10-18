@@ -28,10 +28,22 @@ public final class ZygoteEntry {
                 return;
             }
             LocationHooks.install();
-            Config.startPolling();
+            Config.startPolling(null);
         } catch (Throwable t) {
             Log.e(TAG, "init failed", t);
         }
+    }
+
+    private static final java.util.Set<String> SEEN = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    static void warnOnce(String where, Throwable t) {
+        String msg = where + ": " + t;
+        if (SEEN.size() < 64 && SEEN.add(msg)) Log.w(TAG, msg);
+    }
+
+    @SuppressWarnings("unchecked")
+    static <T extends Throwable> void sneaky(Throwable t) throws T {
+        throw (T) t;
     }
 
     private ZygoteEntry() { }

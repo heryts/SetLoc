@@ -7,7 +7,6 @@ KEY=gpsz_cfg
 LOG="$MODDIR/bridge.log"
 LOCKD="$MODDIR/.daemon.lock"
 BEATKEY=gpsz_beat
-PKGDIR="$MODDIR/packages"
 LASTF="$MODDIR/.last_app_cfg"
 
 log() {

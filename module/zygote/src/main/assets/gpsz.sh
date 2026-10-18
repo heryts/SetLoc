@@ -98,7 +98,10 @@ case "$1" in
   doctor)
     sh "$MODDIR/bridge.sh" status 2>&1
     [ -f "$MODDIR/disable_super" ] && echo "supervisor=dimatikan (disable_super)" || echo "supervisor=aktif"
+    echo "modul=$(sed -n 's/^version=//p' "$MODDIR/module.prop" 2>/dev/null) code=$(sed -n 's/^versionCode=//p' "$MODDIR/module.prop" 2>/dev/null)"
     echo "gpsz_sys=$(settings get global gpsz_sys 2>/dev/null) gpsz_beat=$(settings get global gpsz_beat 2>/dev/null) uptime=$(cut -d' ' -f1 /proc/uptime)"
+    echo "--- hook sistem (logcat -s GpsZ)"
+    logcat -d -s GpsZ:I 2>/dev/null | grep -i "system hook" | tail -8 | sed 's/^/  /'
     echo "--- bridge.log (10 baris terakhir)"
     tail -n 10 "$MODDIR/bridge.log" 2>/dev/null ;;
   *)      echo "on|off|toggle|set <lat> <lng> [acc]|random 0|1|show|pkg ...|system on|heartbeat|off|status|sync|check <pkg>|super on|off|doctor" ;;

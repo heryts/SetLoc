@@ -480,7 +480,6 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             selectedMode(), distance, if (selectedMode() == oldMode) routeDurationS else null
         )
 
-
         val kmPerMile = 1.609344f
         var mph = PrefManager.speedUnitMph
         fun toUnit(kmh: Float) = if (mph) kmh / kmPerMile else kmh

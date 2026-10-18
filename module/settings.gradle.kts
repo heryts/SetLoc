@@ -16,7 +16,6 @@ dependencyResolutionManagement {
         maven("https://jitpack.io")
     }
     versionCatalogs {
-
         create("androidvmtools") {
             from(files(Path(rootDir.path, "external", "AndroidVMTools", "gradle", "libs.versions.toml")))
         }

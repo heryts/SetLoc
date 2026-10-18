@@ -1,3 +1,16 @@
+OLD_MOD=${OLD_MOD:-/data/adb/modules/${MODID:-setloc_zygisk}}
+if [ "$OLD_MOD" != "$MODPATH" ] && [ -d "$OLD_MOD/packages" ]; then
+  mkdir -p "$MODPATH/packages"
+  if cp -a "$OLD_MOD/packages/." "$MODPATH/packages/" 2>/dev/null; then
+    ui_print "- Konfigurasi lama dipertahankan"
+  else
+    ui_print "  ! gagal menyalin konfigurasi lama"
+  fi
+  for f in .hb_default disable_super; do
+    if [ -f "$OLD_MOD/$f" ]; then cp -a "$OLD_MOD/$f" "$MODPATH/$f"; fi
+  done
+fi
+
 ui_print "- Install app SetLoc"
 
 if [ ! -f "$MODPATH/apk/SetLoc.apk" ]; then
@@ -13,4 +26,4 @@ else
   ui_print "  ! dicoba lagi otomatis setelah reboot"
 fi
 
-unset APK_OUT
+unset APK_OUT OLD_MOD f

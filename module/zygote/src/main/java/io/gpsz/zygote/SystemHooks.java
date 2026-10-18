@@ -31,17 +31,13 @@ final class SystemHooks {
     };
 
     private static final int K_LAST = 0, K_BLOCK_VOID = 1, K_BLOCK_BOOL = 2, K_ARG_LOCATION = 3, K_ARG_RESULT = 4;
-
     private static boolean installed = false;
-    private static boolean live = false;
     private static boolean generatorStarted = false;
     private static int lpmHooks = 0, lmsHooks = 0, lmsTries = 0;
-
     private static Class<?> resultClass;
     private static Method resultMap, resultSize, resultGet, resultWrap;
     private static boolean wrapTakesList = true;
     private static Method setMock;
-
     private static Class<?> lpmClass, lmsClass;
     private static Method lpmGetName, lpmOnReport;
     private static Field lpmEmergency;
@@ -55,13 +51,13 @@ final class SystemHooks {
             if (first) Log.w(TAG, "system hooks: Android < 13 tidak didukung");
             return false;
         }
-        if (live && (lmsHooks > 0 || lmsTries >= 12)) return true;
+        if (lpmHooks > 0 && (lmsHooks > 0 || lmsTries >= 12)) return isLive();
         int lpm0 = lpmHooks, lms0 = lmsHooks;
         try {
             ClassLoader cl = systemLoader();
             if (first || lpmClass == null) prepareReflection(cl);
             if (lpmHooks == 0) lpmHooks = hookClass(cl, LPM, false);
-            if (lmsHooks == 0) { lmsTries++; lmsHooks = hookClass(cl, LMS, true); }
+            if (lmsHooks == 0 && lmsTries < 12) { lmsTries++; lmsHooks = hookClass(cl, LMS, true); }
             if (!generatorStarted && (first || (lpmOnReport != null && resultWrap != null))) {
                 generatorStarted = lpmOnReport != null && resultWrap != null;
                 startGenerator();
@@ -69,11 +65,15 @@ final class SystemHooks {
         } catch (Throwable t) {
             Log.e(TAG, "system hooks failed", t);
         }
-        live = lpmHooks > 0;
+        boolean live = isLive();
         if (first || lpm0 != lpmHooks || lms0 != lmsHooks) {
             Log.i(TAG, "system hooks: lpm=" + lpmHooks + " lms=" + lmsHooks + " live=" + live);
         }
         return live;
+    }
+
+    private static boolean isLive() {
+        return lpmHooks > 0 && (Config.sysHeartbeat || lmsHooks > 0);
     }
 
     private static Method findMethod(Class<?> c, String name, Class<?>... ps) {
@@ -280,18 +280,16 @@ final class SystemHooks {
                             if (o instanceof Location) frame.accessor().setValue(argIdx, spoof((Location) o));
                             break;
                         }
-                        default:
-                            break;
                     }
                 }
-            } catch (Throwable ignored) {
-                handled = false;
+            } catch (Throwable t) {
+                ZygoteEntry.warnOnce("system fake", t);
             }
             if (!handled) {
                 try {
                     Transformers.invokeExactNoChecks(original, frame);
                 } catch (Throwable t) {
-                    SystemHooks.<RuntimeException>sneaky(t);
+                    ZygoteEntry.<RuntimeException>sneaky(t);
                 }
             }
         };
@@ -379,12 +377,16 @@ final class SystemHooks {
                             if (fix == null) continue;
                             Object res = wrap(fix);
                             if (res != null) lpmOnReport.invoke(mgr, res);
-                        } catch (Throwable ignored) { }
+                        } catch (Throwable t) {
+                            ZygoteEntry.warnOnce("fake fix " + name, t);
+                        }
                     }
                     lastGpsReport = now;
                 } catch (InterruptedException e) {
                     return;
-                } catch (Throwable ignored) { }
+                } catch (Throwable t) {
+                    ZygoteEntry.warnOnce("generator tick", t);
+                }
             }
         }, "gpsz-fixgen");
         th.setDaemon(true);
@@ -463,11 +465,6 @@ final class SystemHooks {
         l.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
         clearMock(l);
         return l;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static <T extends Throwable> void sneaky(Throwable t) throws T {
-        throw (T) t;
     }
 
     private SystemHooks() { }

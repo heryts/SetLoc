@@ -35,8 +35,7 @@
         <activity
             android:name=".ui.SettingsActivity"
             android:exported="false"
-            android:label="@string/title_activity_settings">
-        </activity>
+            android:label="@string/title_activity_settings" />
         <activity
             android:name=".ui.MapActivity"
             android:exported="true">

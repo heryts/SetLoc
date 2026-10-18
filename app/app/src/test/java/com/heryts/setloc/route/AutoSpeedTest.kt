@@ -4,7 +4,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class AutoSpeedTest {
-
     @Test
     fun `tanpa durasi memakai kecepatan default per mode`() {
         assertEquals(5f, AutoSpeed.kmh(0, 1000.0, null), 0f)

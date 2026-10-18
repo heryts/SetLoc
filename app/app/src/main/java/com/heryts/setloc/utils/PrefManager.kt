@@ -12,7 +12,7 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import rikka.material.app.DayNightDelegate
 
-object PrefManager   {
+object PrefManager {
     private const val START = "start"
     private const val LATITUDE = "latitude"
     private const val LONGITUDE = "longitude"
@@ -47,26 +47,26 @@ object PrefManager   {
         gsApp.getSharedPreferences("${BuildConfig.APPLICATION_ID}_prefs", Context.MODE_PRIVATE)
     }
 
-    val isStarted : Boolean
-    get() = pref.getBoolean(START, false)
+    val isStarted: Boolean
+        get() = pref.getBoolean(START, false)
 
-    val getLat : Double
-    get() = pref.getFloat(LATITUDE, 40.7128F).toDouble()
+    val getLat: Double
+        get() = pref.getFloat(LATITUDE, 40.7128F).toDouble()
 
-    val getLng : Double
-    get() = pref.getFloat(LONGITUDE, -74.0060F).toDouble()
+    val getLng: Double
+        get() = pref.getFloat(LONGITUDE, -74.0060F).toDouble()
 
-    var isRandomPosition :Boolean
-    get() = pref.getBoolean(RANDOM_POSITION, true)
-    set(value) { pref.edit().putBoolean(RANDOM_POSITION, value).apply() }
+    var isRandomPosition: Boolean
+        get() = pref.getBoolean(RANDOM_POSITION, true)
+        set(value) { pref.edit().putBoolean(RANDOM_POSITION, value).apply() }
 
-    var accuracy : String?
-    get() = pref.getString(ACCURACY_SETTING,"10")
-    set(value) { pref.edit().putString(ACCURACY_SETTING,value).apply()}
+    var accuracy: String?
+        get() = pref.getString(ACCURACY_SETTING, "10")
+        set(value) { pref.edit().putString(ACCURACY_SETTING, value).apply() }
 
-    var mapType : Int
-    get() = pref.getInt(MAP_TYPE,1)
-    set(value) { pref.edit().putInt(MAP_TYPE,value).apply()}
+    var mapType: Int
+        get() = pref.getInt(MAP_TYPE, 1)
+        set(value) { pref.edit().putInt(MAP_TYPE, value).apply() }
 
     var darkTheme: Int
         get() = pref.getInt(DARK_THEME, DayNightDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
@@ -200,9 +200,7 @@ object PrefManager   {
     private fun pushOff(la: Double, ln: Double) {
         try {
             val acc = accuracy?.toFloatOrNull() ?: 10f
-            val cfg = java.lang.String.format(
-                java.util.Locale.US, "enabled=0;lat=%.6f;lng=%.6f;acc=%s;random=0", la, ln, acc
-            )
+            val cfg = "enabled=0;lat=%.6f;lng=%.6f;acc=%s;random=0".format(java.util.Locale.US, la, ln, acc)
             Settings.Global.putString(gsApp.contentResolver, "gpsz_cfg", cfg)
         } catch (_: Throwable) {
         }

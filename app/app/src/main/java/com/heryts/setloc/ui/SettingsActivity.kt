@@ -25,7 +25,6 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     class SettingPreferenceDataStore : PreferenceDataStore() {
-
         override fun getBoolean(key: String?, defValue: Boolean): Boolean {
             return when (key) {
                 "random_position" -> PrefManager.isRandomPosition

@@ -70,12 +70,14 @@ final class LocationHooks {
                         handled = true;
                     }
                 }
-            } catch (Throwable ignored) { }
+            } catch (Throwable t) {
+                ZygoteEntry.warnOnce("fake getter", t);
+            }
             if (!handled) {
                 try {
                     Transformers.invokeExactNoChecks(original, frame);
                 } catch (Throwable t) {
-                    LocationHooks.<RuntimeException>sneaky(t);
+                    ZygoteEntry.<RuntimeException>sneaky(t);
                 }
             }
         };
@@ -149,11 +151,6 @@ final class LocationHooks {
         l.setTime(System.currentTimeMillis() - 300);
         l.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
         return l;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static <T extends Throwable> void sneaky(Throwable t) throws T {
-        throw (T) t;
     }
 
     private LocationHooks() { }

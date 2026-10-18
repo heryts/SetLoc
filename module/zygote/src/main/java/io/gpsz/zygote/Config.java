@@ -18,28 +18,18 @@ import java.util.function.BooleanSupplier;
 
 final class Config {
     static final String KEY = "gpsz_cfg";
-
     static final String KEY_SYS = "gpsz_sys";
-
     static final String KEY_BEAT = "gpsz_beat";
-
     private static final long FREEZE_MS = 10_000;
-
     private static final long OFF_MS = 60_000;
-
     private static final long GAP_MS = 3_000;
-
     private static final long POLL_MS = 1_000;
-
     private static final long FALLBACK_POLL_MS = 250;
-
     private static final long RETRY_MS = 5_000;
-
     static volatile boolean enabled;
     static volatile boolean jitter;
     static volatile boolean system;
     static volatile boolean sysHeartbeat;
-
     static volatile boolean playing;
     static volatile double lat = Double.NaN;
     static volatile double lng = Double.NaN;
@@ -60,12 +50,11 @@ final class Config {
     }
 
     private static volatile Pt snap;
-
     private static String beatSeen = null;
     private static long beatChangedAt = 0;
     private static long lastPollAt = 0;
     private static boolean beatArmed = false;
-
+    private static volatile int beatStale = 0;
     private static final Object REFRESH_LOCK = new Object();
     private static long lastTry = -RETRY_MS;
     private static ContentObserver observer;
@@ -107,6 +96,16 @@ final class Config {
             altNoise = Math.max(-v, Math.min(v, n));
         }
         return alt + altNoise;
+    }
+
+    private static void clearLive(Application app) {
+        try {
+            ContentResolver cr = app.getContentResolver();
+            String v = Settings.Global.getString(cr, "gpsz_sys_live");
+            if (v != null && !v.isEmpty()) Settings.Global.putString(cr, "gpsz_sys_live", "");
+        } catch (Throwable t) {
+            Log.w(ZygoteEntry.TAG, "clear live failed: " + t);
+        }
     }
 
     private static void publishLive(Application app) {
@@ -155,11 +154,10 @@ final class Config {
                     case "altv": av = Math.max(0f, Float.parseFloat(v)); break;
                     case "rr": rad = Math.max(0f, Math.min(100f, Float.parseFloat(v))); break;
                     case "pl": pl = v.equals("1"); break;
-                    default: break;
                 }
             } catch (NumberFormatException ignored) { }
         }
-        lat = la; lng = lo; acc = ac; spd = sp; brg = br; alt = al; altVar = av; rr = rad; jitter = jit; enabled = en; playing = pl;
+        lat = la; lng = lo; acc = ac; spd = beatStale >= 1 ? 0f : sp; brg = br; alt = al; altVar = av; rr = rad; jitter = jit; enabled = en && beatStale < 2; playing = pl;
     }
 
     static void checkBeat(String beat) {
@@ -168,6 +166,7 @@ final class Config {
         lastPollAt = now;
         if (!playing) {
             beatArmed = false;
+            beatStale = 0;
             return;
         }
 
@@ -175,12 +174,15 @@ final class Config {
             beatArmed = true;
             beatSeen = beat;
             beatChangedAt = now;
+            beatStale = 0;
             return;
         }
         long stale = now - beatChangedAt;
         if (stale >= OFF_MS) {
+            beatStale = 2;
             enabled = false;
         } else if (stale >= FREEZE_MS) {
+            beatStale = 1;
             spd = 0f;
         }
     }
@@ -207,16 +209,20 @@ final class Config {
                 parse(Settings.Global.getString(cr, KEY));
                 checkBeat(Settings.Global.getString(cr, KEY_BEAT));
                 String sv = Settings.Global.getString(cr, KEY_SYS);
+                boolean wasSystem = system, wasHeartbeat = sysHeartbeat;
                 system = "1".equals(sv) || "2".equals(sv);
                 sysHeartbeat = "2".equals(sv);
+                boolean tightened = system && (!wasSystem || (wasHeartbeat && !sysHeartbeat));
                 if (onReady != null && system) {
                     long now = SystemClock.elapsedRealtime();
-                    if (now - lastTry >= RETRY_MS) {
+                    if (tightened || now - lastTry >= RETRY_MS) {
                         lastTry = now;
-                        if (onReady.getAsBoolean()) publishLive(app);
+                        if (onReady.getAsBoolean()) publishLive(app); else clearLive(app);
                     }
                 }
-            } catch (Throwable ignored) { }
+            } catch (Throwable t) {
+                ZygoteEntry.warnOnce("config refresh", t);
+            }
         }
     }
 
@@ -235,8 +241,6 @@ final class Config {
             return false;
         }
     }
-
-    static void startPolling() { startPolling(null); }
 
     static void startPolling(final BooleanSupplier onReady) {
         Thread th = new Thread(() -> {

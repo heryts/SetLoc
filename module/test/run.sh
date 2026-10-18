@@ -107,6 +107,13 @@ check "super off membuat disable_super" '[ -f "$M/disable_super" ] && $G super |
 $G super on >/dev/null
 check "super on menghapusnya" '[ ! -f "$M/disable_super" ] && $G super | grep -q aktif'
 out=$($G doctor 2>&1)
+printf 'id=x\nversion=9.9\nversionCode=99\n' > "$M/module.prop"
+printf '#!/bin/sh\necho "I GpsZ: system hook: LocationProviderManager.onReportLocation (kind 4)"\necho "W GpsZ: system hooks: fix generator disabled (onReportLocation=true wrap=false)"\n' > "$T/bin/logcat"
+out=$($G doctor 2>&1)
+check "doctor menampilkan versi modul terpasang" 'echo "$out" | grep -q "modul=9.9 code=99"'
+check "doctor menampilkan baris hook sistem, termasuk generator" 'echo "$out" | grep -q "onReportLocation (kind 4)" && echo "$out" | grep -q "fix generator disabled"'
+printf '#!/bin/sh\nexit 0\n' > "$T/bin/logcat"
+out=$($G doctor 2>&1)
 check "doctor memuat daemon, supervisor, log" 'echo "$out" | grep -q "daemon=" && echo "$out" | grep -q "supervisor=" && echo "$out" | grep -q "bridge.log"'
 cp "$M/bridge.sh" "$M/bridge.real"
 printf '#!/bin/sh\necho "$*" >> "%s/calls"\nexec sh "%s/bridge.real" "$@"\n' "$T" "$M" > "$M/bridge.sh"
@@ -138,6 +145,42 @@ rm -f "$M/.apk_sum"
 printf '#!/bin/sh\n[ "$1" = install ] && echo "Failure [INSTALL_FAILED]"\nexit 0\n' > "$T/bin/pm"
 out=$( ui_print() { echo "$*"; }; MODPATH="$M"; . "$A/customize.d/40-install-apk.sh" )
 check "install gagal: pesan gagal, .apk_sum tidak dibuat" 'echo "$out" | grep -q "pm install gagal" && [ ! -e "$M/.apk_sum" ]'
+
+echo "[40-install-apk.sh: konfigurasi lama dipertahankan]"
+O="$T/old"; N="$T/new"; rm -rf "$O" "$N"; mkdir -p "$O/packages" "$N/packages"
+: > "$O/packages/com.a.app"; : > "$O/packages/com.b.app"; : > "$O/packages/.all"; : > "$O/packages/android"; : > "$O/packages/.sysoff"
+touch -d '2020-01-01 00:00:00' "$O/packages/android"
+: > "$O/.hb_default"; : > "$O/disable_super"; echo OLDSUM > "$O/.apk_sum"; echo log > "$O/bridge.log"
+out=$( ui_print() { echo "$*"; }; MODPATH="$N"; OLD_MOD="$O"; . "$A/customize.d/40-install-apk.sh" )
+check "daftar app, .all, android, .sysoff ikut" '[ -e "$N/packages/com.a.app" ] && [ -e "$N/packages/com.b.app" ] && [ -e "$N/packages/.all" ] && [ -e "$N/packages/android" ] && [ -e "$N/packages/.sysoff" ]'
+check "mtime android dipertahankan (status live tidak berubah jadi pending)" '[ "$(stat -c %Y "$N/packages/android")" = "$(stat -c %Y "$O/packages/android")" ]'
+check ".hb_default dan disable_super ikut" '[ -e "$N/.hb_default" ] && [ -e "$N/disable_super" ]'
+check ".apk_sum lama dan bridge.log tidak ikut" '[ ! -e "$N/.apk_sum" ] && [ ! -e "$N/bridge.log" ]'
+check "folder modul lama tidak diubah" '[ -e "$O/packages/com.a.app" ] && [ "$(cat "$O/.apk_sum")" = OLDSUM ]'
+check "pesan dipertahankan tercetak" 'echo "$out" | grep -q "Konfigurasi lama dipertahankan"'
+N2="$T/new2"; mkdir -p "$N2"
+out=$( ui_print() { echo "$*"; }; MODPATH="$N2"; OLD_MOD="$T/tidakada"; . "$A/customize.d/40-install-apk.sh" )
+check "tanpa modul lama: tidak ada yang dibuat" '[ ! -e "$N2/packages" ] && ! echo "$out" | grep -q "Konfigurasi lama"'
+out=$( ui_print() { echo "$*"; }; MODPATH="$O"; OLD_MOD="$O"; . "$A/customize.d/40-install-apk.sh" )
+check "modul lama sama dengan tujuan: dilewati tanpa error" '[ -e "$O/packages/com.a.app" ] && ! echo "$out" | grep -q "gagal menyalin"'
+
+echo "[service.sh: mode system hook tidak ditimpa]"
+svc() {
+  S="$T/svc"; rm -rf "$S"; mkdir -p "$S"; cp "$A/service.sh" "$S/"
+  [ -n "$2" ] && : > "$S/.hb_default"
+  if [ "$1" = unset ]; then rm -f "$T/st/gpsz_sys"; else printf '%s' "$1" > "$T/st/gpsz_sys"; fi
+  ( setsid sh -c 'echo $$ > "$1/pgid"; exec sh "$1/service.sh"' sh "$S" >/dev/null 2>&1 & )
+  sleep 1.5
+  kill -9 -- "-$(cat "$S/pgid")" 2>/dev/null
+}
+svc 1
+check "reinstall: mode penuh (1) tidak ditimpa jadi heartbeat, penanda dibuat" '[ "$(cat "$T/st/gpsz_sys")" = 1 ] && [ -e "$S/.hb_default" ]'
+svc 0
+check "reinstall: mode mati (0) tidak ditimpa, penanda dibuat" '[ "$(cat "$T/st/gpsz_sys")" = 0 ] && [ -e "$S/.hb_default" ]'
+svc unset
+check "pemasangan pertama: default heartbeat (2) diterapkan, penanda dibuat" '[ "$(cat "$T/st/gpsz_sys")" = 2 ] && [ -e "$S/.hb_default" ]'
+svc 1 marker
+check "penanda sudah ada: tidak menyentuh pengaturan" '[ "$(cat "$T/st/gpsz_sys")" = 1 ]'
 
 echo "[hook: Config.checkBeat (beat daemon)]"
 TD="$(cd "$(dirname "$0")" && pwd)"

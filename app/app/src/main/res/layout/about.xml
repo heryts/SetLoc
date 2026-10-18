@@ -13,7 +13,6 @@
     tools:viewBindingIgnore="true">
 
     <ImageView
-        android:id="@+id/design_about_icon"
         android:layout_width="64dp"
         android:layout_height="64dp"
         android:importantForAccessibility="no"

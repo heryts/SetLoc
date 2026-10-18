@@ -25,7 +25,6 @@
   --border: #e5e7eb;
   --shadow: rgba(0,0,0,.06);
   --ok: #22c55e;
-  --warn: #f59e0b;
   --danger: #ef4444;
   --chip: #eef2f7;
   --inset-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
@@ -629,8 +628,23 @@ function applyTheme(t) {
   document.documentElement.classList.toggle('dark', dark);
   $('#theme-color').content = dark ? '#1a2538' : '#f2f9ff';
 }
-function showSheet(html) { $('#sheetBody').innerHTML = html; $('#scrim').classList.add('show'); $('#sheet').classList.add('show'); }
-function closeSheet() { $('#scrim').classList.remove('show'); $('#sheet').classList.remove('show'); }
+let sheetWant = false, sheetHave = false, sheetBusy = false;
+function hideSheetDom() { $('#scrim').classList.remove('show'); $('#sheet').classList.remove('show'); }
+function syncSheetHistory() {
+  if (sheetBusy) return;
+  if (sheetWant && !sheetHave) { history.pushState({ sheet: 1 }, ''); sheetHave = true; }
+  else if (!sheetWant && sheetHave) { sheetBusy = true; history.back(); }
+}
+function showSheet(html) {
+  $('#sheetBody').innerHTML = html;
+  $('#scrim').classList.add('show'); $('#sheet').classList.add('show');
+  sheetWant = true; syncSheetHistory();
+}
+function closeSheet() { hideSheetDom(); sheetWant = false; syncSheetHistory(); }
+window.addEventListener('popstate', () => {
+  if (sheetBusy) { sheetBusy = false; sheetHave = false; syncSheetHistory(); return; }
+  if (sheetHave) { sheetHave = false; sheetWant = false; hideSheetDom(); }
+});
 
 function openSheet() {
   const t = theme();
@@ -652,7 +666,7 @@ function openSheet() {
     <div class="set">
       <div class="grow">
         <div>System-wide</div>
-        <div class="d">Semua app ikut dispoof tanpa dipilih satu per satu. Perlu reboot.</div>
+        <div class="d">Semua app ikut dispoof tanpa dipilih satu per satu.<br>Perlu reboot.</div>
       </div>
       <button class="switch" id="swSys" role="switch" aria-checked="${S.sys}"></button>
     </div>
