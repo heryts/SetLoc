@@ -897,6 +897,26 @@ try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () =
 applyTheme(theme());
 load();
 
+const EdgeGuard = (() => {
+  const EDGE = 72;
+  let saved = null;
+  function restore() {
+    if (saved === null) return;
+    const y = saved;
+    saved = null;
+    window.scrollTo(0, y);
+  }
+  window.addEventListener('touchstart', e => {
+    const t = e.touches && e.touches[0];
+    saved = t && t.clientY > window.innerHeight - EDGE ? window.scrollY : null;
+  }, { passive: true, capture: true });
+  window.addEventListener('touchend', () => { saved = null; }, { passive: true, capture: true });
+  window.addEventListener('touchcancel', restore, { passive: true, capture: true });
+  window.addEventListener('pagehide', restore);
+  window.addEventListener('blur', restore);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) restore(); });
+})();
+
 let _statusBusy = false;
 async function refreshStatus() {
   if (_statusBusy || document.hidden) return;
