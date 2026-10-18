@@ -56,6 +56,15 @@ android {
         viewBinding true
         buildConfig true
     }
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
+    }
+    packaging {
+        resources {
+            excludes += ['/META-INF/*.version', '/META-INF/{AL2.0,LGPL2.1}', '/META-INF/*.kotlin_module', '/DebugProbesKt.bin', '/kotlin-tooling-metadata.json']
+        }
+    }
     namespace 'com.heryts.setloc'
 }
 
