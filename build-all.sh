@@ -36,7 +36,7 @@ SETUP_PID=$!
 
 echo "== 1/3 build app =="
 TASKS="testReleaseUnitTest assembleRelease"; [ -n "$SKIP_TESTS" ] && TASKS=assembleRelease
-( cd app && with_jdk "$J21" sh ./gradlew $TASKS )
+( cd app && with_jdk "$J21" sh ./gradlew $GRADLE_ARGS $TASKS )
 APK=$(ls -t app/app/build/outputs/apk/release/*.apk 2>/dev/null | head -n 1)
 [ -n "$APK" ] || { echo "GAGAL: APK rilis tidak ditemukan"; exit 1; }
 mkdir -p module/zygote/src/main/assets/apk
@@ -47,5 +47,5 @@ wait "$SETUP_PID" || { cat "$SETUP_LOG"; exit 1; }
 cat "$SETUP_LOG"
 
 echo "== 3/3 build modul Zygisk =="
-( cd module && with_jdk "$J21" sh ./gradlew --no-configuration-cache :zygote:assembleRelease )
+( cd module && with_jdk "$J21" sh ./gradlew $GRADLE_ARGS --no-configuration-cache :zygote:assembleRelease )
 ls module/zygote/build/outputs/magisk/release/*.zip

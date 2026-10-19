@@ -3,8 +3,8 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:paddingStart="72dp"
-    android:paddingTop="20dp"
+    android:paddingTop="24dp"
     android:paddingEnd="16dp"
     android:paddingBottom="8dp"
     android:textAppearance="@style/TextAppearance.MaterialComponents.Subtitle2"
-    android:textColor="?attr/colorPrimary" />
+    android:textColor="?attr/colorAccent" />

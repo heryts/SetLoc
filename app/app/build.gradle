@@ -1,12 +1,12 @@
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
-    id 'com.google.android.libraries.mapsplatform.secrets-gradle-plugin'
 }
 
 def ver = new Properties()
 file('../../version.properties').withInputStream { ver.load(it) }
-def tagName = ver['versionName']
+def local = new Properties()
+if (rootProject.file('local.properties').exists()) rootProject.file('local.properties').withInputStream { local.load(it) }
 
 android {
     compileSdk 34
@@ -15,7 +15,8 @@ android {
         minSdk 33
         targetSdk 33
         versionCode ver['versionCode'] as int
-        versionName tagName
+        versionName ver['versionName']
+        manifestPlaceholders = [MAPS_API_KEY: local.getProperty('MAPS_API_KEY', 'DEFAULT_API_KEY')]
     }
 
     def ksFile = rootProject.file('keystore.properties')
@@ -36,9 +37,9 @@ android {
 
     buildTypes {
         release {
-            signingConfig ksFile.exists() ? signingConfigs.release : signingConfigs.debug
+            signingConfig = ksFile.exists() ? signingConfigs.release : signingConfigs.debug
             minifyEnabled true
-            shrinkResources true
+            shrinkResources = true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
@@ -50,8 +51,8 @@ android {
         targetCompatibility JavaVersion.VERSION_11
     }
     buildFeatures {
-        viewBinding true
-        buildConfig true
+        viewBinding = true
+        buildConfig = true
     }
     dependenciesInfo {
         includeInApk = false
@@ -62,11 +63,7 @@ android {
             excludes += ['/kotlin/**', '/META-INF/*.version', '/META-INF/{AL2.0,LGPL2.1}', '/META-INF/*.kotlin_module', '/DebugProbesKt.bin', '/kotlin-tooling-metadata.json']
         }
     }
-    namespace 'com.heryts.setloc'
-}
-
-secrets {
-    defaultPropertiesFileName = 'local.defaults.properties'
+    namespace = 'com.heryts.setloc'
 }
 
 kotlin {

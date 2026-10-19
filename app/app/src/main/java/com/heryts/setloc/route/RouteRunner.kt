@@ -17,6 +17,7 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -46,6 +47,13 @@ object RouteRunner {
     private const val SPEED_VARIATION = 0.08
     private const val SPEED_PULL = 0.1
     private const val SPEED_STEP = 0.22
+    private const val MIN_SPEED_MS = 0.3
+    private const val ACCEL_WALK = 1.0
+    private const val ACCEL_VEHICLE = 1.8
+    private const val BRAKE_FACTOR = 1.4
+    private const val WALK_MAX_MS = 3.0
+    private const val CORNER_MIN_SEG_M = 2.0
+    private const val CORNER_FLOOR_MS = 1.5
 
     @Volatile var elevations: FloatArray? = null
 
@@ -84,14 +92,34 @@ object RouteRunner {
         }
     }
 
-    private class Tick(val lat: Double, val lng: Double, val spd: Float, val brg: Float, val alt: Float, val pct: Int)
+    internal class Tick(val lat: Double, val lng: Double, val spd: Float, val brg: Float, val alt: Float, val pct: Int)
 
-    private fun buildTimeline(points: List<LatLng>, speedKmh: Float, speedVarKmh: Float): List<Tick> {
+    private fun cornerCaps(points: List<LatLng>, cum: DoubleArray, speedMs: Double, brake: Double): DoubleArray {
+        val n = points.size
+        val cap = DoubleArray(n) { Double.MAX_VALUE }
+        cap[n - 1] = 0.0
+        for (i in 1 until n - 1) {
+            if (cum[i] - cum[i - 1] < CORNER_MIN_SEG_M || cum[i + 1] - cum[i] < CORNER_MIN_SEG_M) continue
+            var turn = abs(bearing(points[i], points[i + 1]) - bearing(points[i - 1], points[i])).toDouble()
+            if (turn > 180.0) turn = 360.0 - turn
+            cap[i] = max(min(speedMs, CORNER_FLOOR_MS), speedMs * sqrt(1.0 - turn / 180.0))
+        }
+        for (i in n - 2 downTo 0) {
+            val reach = sqrt(cap[i + 1] * cap[i + 1] + 2.0 * brake * (cum[i + 1] - cum[i]))
+            if (reach < cap[i]) cap[i] = reach
+        }
+        return cap
+    }
+
+    internal fun buildTimeline(points: List<LatLng>, speedKmh: Float, speedVarKmh: Float): List<Tick> {
         val cum = DoubleArray(points.size)
         for (i in 1 until points.size) cum[i] = cum[i - 1] + meters(points[i - 1], points[i])
         val total = cum.last()
         val speedMs = speedKmh / 3.6
         val varMs = if (speedVarKmh < 0f) speedMs * SPEED_VARIATION else speedVarKmh / 3.6
+        val accel = if (speedMs < WALK_MAX_MS) ACCEL_WALK else ACCEL_VEHICLE
+        val brake = accel * BRAKE_FACTOR
+        val caps = cornerCaps(points, cum, speedMs, brake)
         val dt = TICK_MS / 1000.0
         val rnd = java.util.Random()
         val out = ArrayList<Tick>()
@@ -100,11 +128,18 @@ object RouteRunner {
         var travelled = 0.0
         var seg = 1
         var dev = 0.0
+        var cur = 0.0
         while (travelled < total) {
             dev = dev * (1.0 - SPEED_PULL) + rnd.nextGaussian() * varMs * SPEED_STEP
             dev = dev.coerceIn(-varMs, varMs)
-            val cur = (speedMs + dev).coerceAtLeast(0.3)
+            val ahead = max(0.0, cum[seg] - travelled - cur * dt)
+            val ceiling = sqrt(caps[seg] * caps[seg] + 2.0 * brake * ahead)
+            val prev = cur
+            cur = (speedMs + dev).coerceAtMost(prev + accel * dt).coerceAtMost(ceiling)
+                .coerceAtLeast(MIN_SPEED_MS).coerceAtLeast(prev - 2.0 * brake * dt)
+            val before = travelled
             travelled = min(total, travelled + cur * dt)
+            val shown = ((travelled - before) / dt).toFloat()
             while (seg < cum.size - 1 && cum[seg] < travelled) seg++
             val segLen = cum[seg] - cum[seg - 1]
             val f = if (segLen <= 0.0) 1.0 else ((travelled - cum[seg - 1]) / segLen).coerceIn(0.0, 1.0)
@@ -116,7 +151,7 @@ object RouteRunner {
                 Tick(
                     a.latitude + (b.latitude - a.latitude) * f,
                     a.longitude + (b.longitude - a.longitude) * f,
-                    cur.toFloat(), brg, altitudeAt(frac), (frac * 100).toInt()
+                    shown, brg, altitudeAt(frac), (frac * 100).toInt()
                 )
             )
         }

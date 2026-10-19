@@ -1,13 +1,17 @@
 package com.heryts.setloc.ui
 
 import android.content.Context
-import android.location.Geocoder
 import com.heryts.setloc.R
-import com.heryts.setloc.utils.ext.fromName
+import com.heryts.setloc.utils.Http
+import kotlinx.coroutines.CancellationException
+import org.json.JSONArray
+import org.json.JSONObject
+import java.net.URLEncoder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.util.Locale
 
@@ -42,16 +46,12 @@ private suspend fun resolveAddress(context: Context, input: String): SearchProgr
     synchronized(geoCache) { geoCache[key] }?.let { return it }
 
     return try {
-        if (!Geocoder.isPresent()) {
-            notFound
-        } else {
-            val first = Geocoder(context, locale).fromName(input, 1)?.firstOrNull()
-            if (first != null) {
-                SearchProgress.Complete(first.latitude, first.longitude).also {
-                    synchronized(geoCache) { geoCache[key] = it }
-                }
-            } else notFound
-        }
+        val first = searchPlaces(context, input).firstOrNull()
+        if (first != null) {
+            SearchProgress.Complete(first.lat, first.lon).also {
+                synchronized(geoCache) { geoCache[key] = it }
+            }
+        } else notFound
     } catch (_: IOException) {
         SearchProgress.Fail(context.getString(R.string.no_internet))
     } catch (e: kotlinx.coroutines.CancellationException) {
@@ -60,6 +60,73 @@ private suspend fun resolveAddress(context: Context, input: String): SearchProgr
         notFound
     }
 }
+
+data class PlaceCandidate(val label: String, val lat: Double, val lon: Double)
+
+private const val PHOTON_URL = "https://photon.komoot.io/api/?limit=5&q="
+private const val NOMINATIM_URL = "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&q="
+private val GEO_HEADERS = mapOf("User-Agent" to "SetLoc-Android", "Accept" to "application/json")
+
+private suspend fun fetchJson(url: String): String {
+    val res = Http.call(url, headers = GEO_HEADERS, connectMs = 6_000, readMs = 8_000, retries = 0)
+    if (!res.ok) throw IOException("HTTP ${res.code}")
+    return res.text
+}
+
+private fun fmtCoords(lat: Double, lon: Double) = String.format(Locale.US, "%.5f, %.5f", lat, lon)
+
+private suspend fun photonSearch(text: String): List<PlaceCandidate> {
+    val features = JSONObject(fetchJson(PHOTON_URL + URLEncoder.encode(text, "UTF-8"))).optJSONArray("features")
+        ?: return emptyList()
+    val out = ArrayList<PlaceCandidate>()
+    for (i in 0 until features.length()) {
+        val f = features.optJSONObject(i) ?: continue
+        val coords = f.optJSONObject("geometry")?.optJSONArray("coordinates") ?: continue
+        val props = f.optJSONObject("properties")
+        val name = props?.optString("name").orEmpty().ifBlank { text }
+        val sub = listOf(
+            props?.optString("city").orEmpty().ifBlank { props?.optString("county").orEmpty() },
+            props?.optString("state").orEmpty(),
+            props?.optString("country").orEmpty()
+        ).filter { it.isNotBlank() && it != name }.distinct()
+        out += PlaceCandidate((listOf(name) + sub).joinToString(", "), coords.optDouble(1), coords.optDouble(0))
+    }
+    return out
+}
+
+private suspend fun nominatimSearch(text: String): List<PlaceCandidate> {
+    val arr = JSONArray(fetchJson(NOMINATIM_URL + URLEncoder.encode(text, "UTF-8")))
+    val out = ArrayList<PlaceCandidate>()
+    for (i in 0 until arr.length()) {
+        val r = arr.optJSONObject(i) ?: continue
+        val lat = r.optString("lat").toDoubleOrNull() ?: continue
+        val lon = r.optString("lon").toDoubleOrNull() ?: continue
+        out += PlaceCandidate(r.optString("display_name").ifBlank { fmtCoords(lat, lon) }, lat, lon)
+    }
+    return out
+}
+
+internal suspend fun searchPlaces(context: Context, input: String): List<PlaceCandidate> =
+    withContext(Dispatchers.IO) {
+        val text = input.trim()
+        if (COORDS.matches(text)) {
+            val parts = text.split(",")
+            val la = parts[0].trim().toDoubleOrNull()
+            val lo = parts[1].trim().toDoubleOrNull()
+            return@withContext if (la != null && lo != null && la in -90.0..90.0 && lo in -180.0..180.0) {
+                listOf(PlaceCandidate(fmtCoords(la, lo), la, lo))
+            } else emptyList()
+        }
+        val primary = try {
+            photonSearch(text)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            emptyList()
+        }
+        val result = primary.ifEmpty { nominatimSearch(text) }
+        result.distinctBy { it.label }
+    }
 
 sealed class SearchProgress {
     object Progress : SearchProgress()

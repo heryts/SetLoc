@@ -9,9 +9,12 @@ import android.provider.Settings
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
+import android.view.WindowManager
+import android.view.inputmethod.EditorInfo
 import android.widget.EditText
 import androidx.activity.viewModels
 import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.widget.AppCompatAutoCompleteTextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
@@ -87,7 +90,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (!RouteRunner.isRunning) {
+        if (!RouteRunner.isRunning && !PrefManager.routeLive()) {
             if (PrefManager.routeActive) PrefManager.routeActive = false
             if (PrefManager.routePlay) PrefManager.routePlay = false
         }
@@ -145,7 +148,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             viewModel.update(true, here.latitude, here.longitude)
             PrefManager.altitudeM = PrefManager.altitudeManual
             if (PrefManager.altitudeFromServer) {
-            lifecycleScope.launch {
+                lifecycleScope.launch {
                     ElevationClient.fetch(this@MapActivity, listOf(here))?.firstOrNull()
                         ?.let { PrefManager.altitudeM = it }
                 }
@@ -153,9 +156,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             mMarker?.position = here
             mMarker?.isVisible = true
             setRunningUi(true)
-            lifecycleScope.launch {
-                here.getAddress(this@MapActivity).collect { showStartNotification(it) }
-            }
+            lifecycleScope.launch { showStartNotification(here.address(this@MapActivity)) }
             showToast(getString(R.string.location_set))
         }
         binding.stop.setOnClickListener {
@@ -506,8 +507,8 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     )
 
     private fun moveMapToNewLocation(latLng: LatLng) {
-    if (!::mMap.isInitialized) return
-    mLatLng = latLng
+        if (!::mMap.isInitialized) return
+        mLatLng = latLng
         mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(latLng, 12.0f))
         mMarker?.apply {
             position = latLng
@@ -533,8 +534,19 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     private fun searchDialog() {
         val alertDialog = MaterialAlertDialogBuilder(this)
         val view = layoutInflater.inflate(R.layout.dialog_layout,null)
-        val editText = view.findViewById<EditText>(R.id.search_edittxt)
+        val editText = view.findViewById<AppCompatAutoCompleteTextView>(R.id.search_edittxt)
         editText.hint = getString(R.string.search_hint)
+        var shown: AlertDialog? = null
+        editText.attachPlaceSuggestions(lifecycleScope) { place ->
+            moveMapToNewLocation(LatLng(place.lat, place.lon))
+            shown?.dismissSafe()
+        }
+        editText.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+                shown?.getButton(AlertDialog.BUTTON_POSITIVE)?.performClick()
+                true
+            } else false
+        }
         val progressBar = buildProgressDialog(getString(R.string.searching))
         alertDialog.setTitle(getString(R.string.search_dialog_title))
         alertDialog.setView(view)
@@ -566,29 +578,131 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
                 showToast(getString(R.string.no_internet))
             }
         }
-        alertDialog.show()
+        shown = alertDialog.create()
+        shown?.show()
     }
 
-    private fun addFavouriteDialog(){
-        MaterialAlertDialogBuilder(this).apply {
-            val view = layoutInflater.inflate(R.layout.dialog_layout,null)
-            val editText = view.findViewById<EditText>(R.id.search_edittxt)
-            setTitle(getString(R.string.add_fav_dialog_title))
-            setPositiveButton(getString(R.string.dialog_button_add)) { _, _ ->
-                val here = mLatLng
-                if (mMarker?.isVisible != true || here == null) {
+    private fun addFavouriteDialog() {
+        val view = layoutInflater.inflate(R.layout.dialog_add_fav, null)
+        val editText = view.findViewById<AppCompatAutoCompleteTextView>(R.id.search_edittxt)
+        editText.hint = getString(R.string.fav_name_search_hint)
+        var addDialog: AlertDialog? = null
+        editText.attachPlaceSuggestions(lifecycleScope) { place ->
+            addDialog?.dismiss()
+            showFavouriteNameDialog(place)
+        }
+
+        val dlg = MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.add_fav_dialog_title))
+            .setView(view)
+            .setNegativeButton(getString(R.string.search_button), null)
+            .setPositiveButton(getString(R.string.dialog_button_add), null)
+            .create()
+
+        addDialog = dlg
+        dlg.setOnShowListener {
+            dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val pos = mLatLng
+                if (mMarker?.isVisible != true || pos == null) {
                     showToast(getString(R.string.location_not_selected))
+                    return@setOnClickListener
+                }
+                val label = editText.text.toString().trim()
+                    .ifEmpty { "%.5f, %.5f".format(Locale.US, pos.latitude, pos.longitude) }
+                saveFavourite(label, pos.latitude, pos.longitude)
+                dlg.dismiss()
+            }
+            dlg.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
+                val query = editText.text.toString().trim()
+                if (query.isEmpty()) {
+                    showToast(getString(R.string.fav_search_empty))
                 } else {
-                    val label = editText.text.toString().trim()
-                        .ifEmpty { "%.5f, %.5f".format(Locale.US, here.latitude, here.longitude) }
-                    viewModel.storeFavorite(label, here.latitude, here.longitude) { ok ->
-                        showToast(getString(if (ok) R.string.record_saved else R.string.cant_save))
-                    }
+                    searchFavouritePlaces(query) { dlg.dismiss() }
                 }
             }
-            setView(view)
-            show()
+            editText.requestFocus()
         }
+        editText.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_DONE) {
+                dlg.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+                true
+            } else false
+        }
+        dlg.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
+        dlg.show()
+    }
+
+    private fun saveFavourite(label: String, lat: Double, lon: Double) {
+        viewModel.storeFavorite(label, lat, lon) { ok ->
+            showToast(getString(if (ok) R.string.record_saved else R.string.cant_save))
+        }
+    }
+
+    private fun searchFavouritePlaces(query: String, onFound: () -> Unit) {
+        val progress = buildProgressDialog(getString(R.string.searching))
+        lifecycleScope.launch {
+            if (!isFinishing) progress.show()
+            val result = try {
+                searchPlaces(this@MapActivity, query)
+            } catch (e: CancellationException) {
+                progress.dismissSafe()
+                throw e
+            } catch (_: java.io.IOException) {
+                progress.dismissSafe()
+                showToast(getString(R.string.no_internet))
+                return@launch
+            } catch (_: Exception) {
+                emptyList()
+            }
+            progress.dismissSafe()
+            if (result.isEmpty()) {
+                showToast(getString(R.string.address_not_found))
+            } else if (!isFinishing) {
+                onFound()
+                showFavouritePlacePicker(result)
+            }
+        }
+    }
+
+    private fun showFavouritePlacePicker(places: List<PlaceCandidate>) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.fav_pick_location))
+            .setItems(places.map { it.label }.toTypedArray()) { _, i ->
+                showFavouriteNameDialog(places[i])
+            }
+            .setNegativeButton(getString(R.string.dialog_button_cancel), null)
+            .show()
+    }
+
+    private fun showFavouriteNameDialog(place: PlaceCandidate) {
+        moveMapToNewLocation(LatLng(place.lat, place.lon))
+        val view = layoutInflater.inflate(R.layout.dialog_add_fav, null)
+        val editText = view.findViewById<EditText>(R.id.search_edittxt)
+        editText.setText(place.label)
+        editText.selectAll()
+
+        val dlg = MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.add_fav_dialog_title))
+            .setView(view)
+            .setNegativeButton(getString(R.string.dialog_button_cancel), null)
+            .setPositiveButton(getString(R.string.dialog_button_add), null)
+            .create()
+
+        fun submit() {
+            val label = editText.text.toString().trim()
+                .ifEmpty { "%.5f, %.5f".format(Locale.US, place.lat, place.lon) }
+            saveFavourite(label, place.lat, place.lon)
+            dlg.dismiss()
+        }
+        dlg.setOnShowListener {
+            dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener { submit() }
+            editText.requestFocus()
+        }
+        editText.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_DONE) { submit(); true } else false
+        }
+        dlg.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
+        dlg.show()
     }
 
     private fun openFavouriteListDialog() {
