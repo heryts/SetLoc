@@ -2,9 +2,11 @@ package io.gpsz.zygote;
 
 import android.location.Location;
 import android.location.LocationManager;
+import android.os.Binder;
 import android.os.SystemClock;
 import android.util.Log;
 
+import com.v7878.unsafe.Reflection;
 import com.v7878.unsafe.invoke.EmulatedStackFrame;
 import com.v7878.unsafe.invoke.Transformers;
 import com.v7878.vmtools.HookTransformer;
@@ -17,6 +19,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
@@ -36,7 +40,7 @@ final class SystemHooks {
     private static Class<?> resultClass;
     private static Method resultMap, resultSize, resultGet, resultWrap;
     private static boolean wrapTakesList = true;
-    private static final java.util.Random RND = new java.util.Random();
+    private static final Random RND = new Random();
     private static Class<?> lpmClass, lmsClass;
     private static Method lpmGetName, lpmOnReport, enabledForUser;
     private static Field lpmEmergency;
@@ -80,7 +84,7 @@ final class SystemHooks {
             return m;
         } catch (Throwable ignored) { }
         try {
-            Method m = com.v7878.unsafe.Reflection.getDeclaredMethod(c, name, ps);
+            Method m = Reflection.getDeclaredMethod(c, name, ps);
             if (m != null) {
                 m.setAccessible(true);
                 return m;
@@ -96,7 +100,7 @@ final class SystemHooks {
             return f;
         } catch (Throwable ignored) { }
         try {
-            Method m = com.v7878.unsafe.Reflection.class.getMethod("getDeclaredField", Class.class, String.class);
+            Method m = Reflection.class.getMethod("getDeclaredField", Class.class, String.class);
             Field f = (Field) m.invoke(null, c, name);
             if (f != null) {
                 f.setAccessible(true);
@@ -213,8 +217,8 @@ final class SystemHooks {
                 || n.equals("addNmeaListener");
     }
 
-    private static final java.util.Set<String> TRUSTED_GNSS = new java.util.HashSet<>(java.util.Arrays.asList(
-            "android", "com.google.android.gms", "com.google.android.gsf", "com.android.location.fused"));
+    private static final Set<String> TRUSTED_GNSS = Set.of(
+            "android", "com.google.android.gms", "com.google.android.gsf", "com.android.location.fused");
 
     private static boolean active() {
         return Config.enabled && Config.system && !Config.sysHeartbeat && !Double.isNaN(Config.lat) && !Double.isNaN(Config.lng);
@@ -375,7 +379,7 @@ final class SystemHooks {
     private static boolean providerEnabled(Object lms, String provider) {
         try {
             if (enabledForUser == null || lms == null || lmsClass == null || !lmsClass.isInstance(lms)) return true;
-            return (Boolean) enabledForUser.invoke(lms, provider, android.os.Binder.getCallingUid() / 100000);
+            return (Boolean) enabledForUser.invoke(lms, provider, Binder.getCallingUid() / 100000);
         } catch (Throwable t) {
             return true;
         }

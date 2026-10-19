@@ -8,12 +8,17 @@ import androidx.core.app.NotificationManagerCompat
 import com.heryts.setloc.R
 
 class NotificationsChannel {
+    private var channelReady = false
+
     fun showNotification(context: Context, options: (NotificationCompat.Builder) -> Unit) {
-        NotificationChannelCompat.Builder(CHANNEL_ID, NotificationManager.IMPORTANCE_DEFAULT)
-            .setName(context.getString(R.string.title))
-            .setDescription(context.getString(R.string.des))
-            .build()
-            .also { NotificationManagerCompat.from(context).createNotificationChannel(it) }
+        if (!channelReady) {
+            NotificationChannelCompat.Builder(CHANNEL_ID, NotificationManager.IMPORTANCE_DEFAULT)
+                .setName(context.getString(R.string.title))
+                .setDescription(context.getString(R.string.des))
+                .build()
+                .also { NotificationManagerCompat.from(context).createNotificationChannel(it) }
+            channelReady = true
+        }
         val notification = NotificationCompat.Builder(context, CHANNEL_ID).also(options).build()
         (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).notify(NOTIF_ID, notification)
     }

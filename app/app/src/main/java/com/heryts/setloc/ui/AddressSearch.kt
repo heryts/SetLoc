@@ -33,12 +33,7 @@ private suspend fun resolveAddress(context: Context, input: String): SearchProgr
     val notFound = SearchProgress.Fail(context.getString(R.string.address_not_found))
 
     if (COORDS.matches(input)) {
-        val parts = input.split(",")
-        val la = parts[0].trim().toDoubleOrNull()
-        val lo = parts[1].trim().toDoubleOrNull()
-        return if (la != null && lo != null && la in -90.0..90.0 && lo in -180.0..180.0) {
-            SearchProgress.Complete(la, lo)
-        } else notFound
+        return parseCoords(input)?.let { SearchProgress.Complete(it.first, it.second) } ?: notFound
     }
 
     val locale = Locale.getDefault()
@@ -75,6 +70,13 @@ private suspend fun fetchJson(url: String): String {
 
 private fun fmtCoords(lat: Double, lon: Double) = String.format(Locale.US, "%.5f, %.5f", lat, lon)
 
+private fun parseCoords(text: String): Pair<Double, Double>? {
+    val parts = text.split(",")
+    val la = parts[0].trim().toDoubleOrNull()
+    val lo = parts[1].trim().toDoubleOrNull()
+    return if (la != null && lo != null && la in -90.0..90.0 && lo in -180.0..180.0) la to lo else null
+}
+
 private suspend fun photonSearch(text: String): List<PlaceCandidate> {
     val features = JSONObject(fetchJson(PHOTON_URL + URLEncoder.encode(text, "UTF-8"))).optJSONArray("features")
         ?: return emptyList()
@@ -110,12 +112,9 @@ internal suspend fun searchPlaces(context: Context, input: String): List<PlaceCa
     withContext(Dispatchers.IO) {
         val text = input.trim()
         if (COORDS.matches(text)) {
-            val parts = text.split(",")
-            val la = parts[0].trim().toDoubleOrNull()
-            val lo = parts[1].trim().toDoubleOrNull()
-            return@withContext if (la != null && lo != null && la in -90.0..90.0 && lo in -180.0..180.0) {
-                listOf(PlaceCandidate(fmtCoords(la, lo), la, lo))
-            } else emptyList()
+            return@withContext parseCoords(text)
+                ?.let { listOf(PlaceCandidate(fmtCoords(it.first, it.second), it.first, it.second)) }
+                ?: emptyList()
         }
         val primary = try {
             photonSearch(text)

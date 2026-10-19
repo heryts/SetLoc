@@ -5,6 +5,8 @@ import android.location.LocationManager;
 import android.os.Bundle;
 import android.os.SystemClock;
 
+import com.v7878.unsafe.Reflection;
+
 import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
@@ -34,7 +36,7 @@ final class Fix {
             return m;
         } catch (Throwable ignored) { }
         try {
-            Method m = com.v7878.unsafe.Reflection.getDeclaredMethod(Location.class, name, ps);
+            Method m = Reflection.getDeclaredMethod(Location.class, name, ps);
             if (m != null) {
                 m.setAccessible(true);
                 return m;

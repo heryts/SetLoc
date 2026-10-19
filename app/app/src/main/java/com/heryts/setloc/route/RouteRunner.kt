@@ -59,6 +59,7 @@ object RouteRunner {
 
     private var lastBearing = -1f
     private var prefTicks = 0
+    private var thinWrites = true
 
     fun start(
         points: List<LatLng>, speedKmh: Float, waitAtStartMin: Float, waitAtEndMin: Float, speedVarKmh: Float
@@ -185,6 +186,7 @@ object RouteRunner {
 
         var chars = 0L
         val written = PrefManager.writeRouteTimeline { chars = writeTimeline(ticks, it) }
+        synchronized(lock) { thinWrites = written }
         val lineWidth = if (chars == n.toLong() * TIMELINE_LINE_WIDTH) TIMELINE_LINE_WIDTH else 0
         if (written) {
             val first = ticks[0]
@@ -239,7 +241,7 @@ object RouteRunner {
     private fun write(p: LatLng, pct: Int, speedMs: Float, brg: Float, alt: Float): Boolean = synchronized(lock) {
         if (!active) return false
         if (brg >= 0f) lastBearing = brg
-        if (prefTicks++ % PREF_EVERY == 0) {
+        if (!thinWrites || prefTicks++ % PREF_EVERY == 0) {
             PrefManager.updateNow(true, p.latitude, p.longitude, speedMs, lastBearing, alt, routeActive = true, routePlay = true)
         }
         _state.value = State(running = true, position = p, progressPercent = pct)

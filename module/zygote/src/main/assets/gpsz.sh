@@ -1,9 +1,59 @@
 #!/system/bin/sh
 MODDIR=$(cd "$(dirname "$0")" && pwd)
 PKGDIR="$MODDIR/packages"
-KEY=gpsz_cfg
-case "$1" in sync|check|status|doctor|super|net|bt) ;; *) sh "$MODDIR/bridge.sh" sync >/dev/null 2>&1 ;; esac
-RAW=$(settings get global $KEY 2>/dev/null)
+SALT="Qx7mK2vTnL9p"
+tag() {
+  rest="$SALT$1"
+  h=2166136261
+  while [ -n "$rest" ]; do
+    c=${rest%"${rest#?}"}
+    rest=${rest#?}
+    o=$(printf '%d' "'$c")
+    h=$(( ((h ^ o) * 16777619) & 2147483647 ))
+  done
+  printf '%06x' $((h & 16777215))
+}
+enc() {
+  rest="$1"
+  krest="$SALT"
+  out=""
+  while [ -n "$rest" ]; do
+    c=${rest%"${rest#?}"}; rest=${rest#?}
+    [ -n "$krest" ] || krest="$SALT"
+    k=${krest%"${krest#?}"}; krest=${krest#?}
+    cv=$(printf '%d' "'$c")
+    kv=$(printf '%d' "'$k")
+    x=$(( (cv + kv) % 256 ))
+    out="$out$(printf '%02x' "$x")"
+  done
+  printf '%s' "$out"
+}
+dec() {
+  rest="$1"
+  case "$rest" in ''|null) return ;; *[!0-9a-fA-F]*) return ;; esac
+  [ $((${#rest} % 2)) -eq 0 ] || return
+  krest="$SALT"
+  out=""
+  while [ -n "$rest" ]; do
+    pair=$(printf '%s' "$rest" | cut -c1-2)
+    rest=$(printf '%s' "$rest" | cut -c3-)
+    [ -n "$krest" ] || krest="$SALT"
+    k=${krest%"${krest#?}"}; krest=${krest#?}
+    kv=$(printf '%d' "'$k")
+    xv=$(( 0x$pair ))
+    v=$(( (xv - kv + 256) % 256 ))
+    out="$out$(printf "\\$(printf '%03o' "$v")")"
+  done
+  printf '%s' "$out"
+}
+KEY=$(tag cfg)
+SYSKEY=$(tag sys)
+BEATKEY=$(tag beat)
+TRKKEY=$(tag trk)
+NETKEY=$(tag net)
+BTKEY=$(tag bt)
+case "$1" in sync|check|status|doctor|super|net|bt|sysraw|netbt|cfgraw|trkraw) ;; *) sh "$MODDIR/bridge.sh" sync >/dev/null 2>&1 ;; esac
+RAW=$(dec "$(settings get global $KEY 2>/dev/null)")
 get() { T=";$RAW;"; V=${T#*";$1="}; [ "$V" = "$T" ] && return; echo "${V%%;*}"; }
 E=$(get enabled);  [ -z "$E" ] && E=0
 LAT=$(get lat);    [ -z "$LAT" ] && LAT=-6.2088
@@ -18,8 +68,10 @@ save() {
   [ -n "$ALTV" ] && X="$X;altv=$ALTV"
   [ -n "$RR" ] && X="$X;rr=$RR"
   [ -n "$BRG" ] && X="$X;brg=$BRG"
-  settings put global $KEY "enabled=$E;lat=$LAT;lng=$LNG;acc=$ACC;random=$RND$X"
+  settings put global $KEY "$(enc "enabled=$E;lat=$LAT;lng=$LNG;acc=$ACC;random=$RND$X")"
+  mirror
 }
+mirror() { sh "$MODDIR/bridge.sh" mirror >/dev/null 2>&1; }
 bootts() { echo $(( $(date +%s) - $(cut -d. -f1 /proc/uptime) )); }
 mtime() { stat -c %Y "$1" 2>/dev/null || echo 0; }
 injected() { [ -e "$PKGDIR/android" ] && [ "$(mtime "$PKGDIR/android")" -lt "$(bootts)" ]; }
@@ -35,7 +87,8 @@ sysmode() {
     [ "$keep" = 1 ] && touch -r "$PKGDIR/.sysmt" "$PKGDIR/android"
   fi
   rm -f "$PKGDIR/.sysmt"
-  settings put global gpsz_sys $1
+  settings put global $SYSKEY "$(enc "$1")"
+  mirror
 }
 isnum() { case "$1" in ''|-|.|-.|*[!0-9.-]*|*.*.*|?*-*) return 1 ;; *) return 0 ;; esac; }
 validpkg() { case "$1" in ''|.*|*[!A-Za-z0-9._]*) return 1 ;; *) return 0 ;; esac; }
@@ -49,19 +102,24 @@ case "$1" in
     LAT=$2; LNG=$3; SPD=0; BRG=""
     if [ -n "$4" ]; then isnum "$4" || { echo "acc must be a number"; exit 1; }; ACC=$4; fi
     save ;;
-  random) RND=$2; save ;;
+  random)
+    case "$2" in 0|1) RND=$2; save ;; *) echo "usage: random 0|1"; exit 1 ;; esac ;;
   bt)
     case "$2" in
-      on)  settings put global gpsz_bt 1; echo "blokir scan Bluetooth: aktif" ;;
-      off) settings put global gpsz_bt 0; echo "blokir scan Bluetooth: mati" ;;
-      *)   [ "$(settings get global gpsz_bt 2>/dev/null)" = 1 ] && echo "bt=aktif" || echo "bt=mati" ;;
+      on)  settings put global $BTKEY "$(enc 1)"; mirror; echo "blokir scan Bluetooth: aktif" ;;
+      off) settings put global $BTKEY "$(enc 0)"; mirror; echo "blokir scan Bluetooth: mati" ;;
+      *)   [ "$(dec "$(settings get global $BTKEY 2>/dev/null)")" = 1 ] && echo "bt=aktif" || echo "bt=mati" ;;
     esac ;;
   net)
     case "$2" in
-      on)  settings put global gpsz_net 1; echo "sembunyikan Wi-Fi/cell: aktif" ;;
-      off) settings put global gpsz_net 0; echo "sembunyikan Wi-Fi/cell: mati" ;;
-      *)   [ "$(settings get global gpsz_net 2>/dev/null)" = 0 ] && echo "net=mati" || echo "net=aktif" ;;
+      on)  settings put global $NETKEY "$(enc 1)"; mirror; echo "sembunyikan Wi-Fi/cell: aktif" ;;
+      off) settings put global $NETKEY "$(enc 0)"; mirror; echo "sembunyikan Wi-Fi/cell: mati" ;;
+      *)   [ "$(dec "$(settings get global $NETKEY 2>/dev/null)")" = 0 ] && echo "net=mati" || echo "net=aktif" ;;
     esac ;;
+  sysraw)  dec "$(settings get global $SYSKEY 2>/dev/null)" ;;
+  netbt)   echo "$(dec "$(settings get global $NETKEY 2>/dev/null)")|$(dec "$(settings get global $BTKEY 2>/dev/null)")" ;;
+  cfgraw)  echo "$RAW" ;;
+  trkraw)  settings get global $TRKKEY 2>/dev/null ;;
   show)   echo "enabled=$E lat=$LAT lng=$LNG acc=$ACC random=$RND spd=${SPD:-0} brg=${BRG:--} alt=${ALT:-0} altv=${ALTV:-0} rr=${RR:-8}"
           [ -e "$PKGDIR/.all" ] && echo "packages: ALL apps (listed ones below are EXCLUDED)"
           ls -1A "$PKGDIR" 2>/dev/null | grep -v '^\.\(all\|sysoff\|sysmt\)$' | sed 's/^/  pkg: /' ;;
@@ -91,30 +149,31 @@ case "$1" in
                rm -f "$PKGDIR/android" "$PKGDIR/.sysoff"; : > "$PKGDIR/.sysoff"
              else
                rm -f "$PKGDIR/android" "$PKGDIR/.sysoff" "$PKGDIR/.sysmt"
-               settings put global gpsz_sys 0
+               settings put global $SYSKEY "$(enc 0)"; mirror
              fi
            else
-             [ -f "$PKGDIR/.sysoff" ] && [ "$(mtime "$PKGDIR/.sysoff")" -ge "$(bootts)" ] || settings put global gpsz_sys 0
+             [ -f "$PKGDIR/.sysoff" ] && [ "$(mtime "$PKGDIR/.sysoff")" -ge "$(bootts)" ] || { settings put global $SYSKEY "$(enc 0)"; mirror; }
            fi
            echo "system hook OFF. Reboot agar system_server tidak lagi di-inject." ;;
       status) [ -e "$PKGDIR/android" ] && F=ya || F=tidak
            ST=off
-           case "$(settings get global gpsz_sys 2>/dev/null)" in
+           SV=$(dec "$(settings get global $SYSKEY 2>/dev/null)")
+           case "$SV" in
              1|2) [ "$F" = ya ] && { injected && ST=live || ST=pending; } ;;
            esac
-           echo "packages/android: $F   gpsz_sys=$(settings get global gpsz_sys 2>/dev/null)   state=$ST"
+           echo "packages/android: $F   sys=$SV   state=$ST"
            echo "log system hook (logcat -s GpsZ):"
            logcat -d -s GpsZ:I 2>/dev/null | grep -i "system hook" | tail -12 | sed 's/^/  /' ;;
       *)   echo "system on|heartbeat|off|status" ;;
     esac ;;
-  sync)   sh "$MODDIR/bridge.sh" force; echo "cfg=$(settings get global $KEY 2>/dev/null)" ;;
+  sync)   sh "$MODDIR/bridge.sh" force; echo "cfg=$(dec "$(settings get global $KEY 2>/dev/null)")" ;;
   status) sh "$MODDIR/bridge.sh" status ;;
   check)
     validpkg "$2" || { echo "usage: check <package>"; exit 1; }
     [ -e "$PKGDIR/$2" ] && F=ya || F=tidak
     [ -e "$PKGDIR/.all" ] && A=ya || A=tidak
     if [ "$A" = ya ]; then [ "$F" = ya ] && W=TIDAK || W=YA; else W=$F; fi
-    echo "config gpsz_cfg : $RAW"
+    echo "config : $RAW"
     echo "file packages/$2 : $F   (mode .all: $A)  -> seharusnya di-inject: $W"
     echo "proses berjalan : $(pidof "$2" 2>/dev/null || echo tidak ada)"
     echo "log inject terakhir (logcat -s GpsZ):"
@@ -130,8 +189,13 @@ case "$1" in
     sh "$MODDIR/bridge.sh" status 2>&1
     [ -f "$MODDIR/disable_super" ] && echo "supervisor=dimatikan (disable_super)" || echo "supervisor=aktif"
     echo "modul=$(sed -n 's/^version=//p' "$MODDIR/module.prop" 2>/dev/null) code=$(sed -n 's/^versionCode=//p' "$MODDIR/module.prop" 2>/dev/null)"
-    echo "gpsz_sys=$(settings get global gpsz_sys 2>/dev/null) gpsz_beat=$(settings get global gpsz_beat 2>/dev/null) uptime=$(cut -d' ' -f1 /proc/uptime)"
-    [ -f "$MODDIR/disable_trk" ] && echo "trk=dimatikan (disable_trk)" || echo "trk=aktif gpsz_trk=$(settings get global gpsz_trk 2>/dev/null | cut -c1-48)"
+    echo "sys=$(dec "$(settings get global $SYSKEY 2>/dev/null)") beat=$(dec "$(settings get global $BEATKEY 2>/dev/null)") uptime=$(cut -d' ' -f1 /proc/uptime)"
+    [ -f "$MODDIR/disable_trk" ] && echo "trk=dimatikan (disable_trk)" || echo "trk=aktif trkdata=$(settings get global $TRKKEY 2>/dev/null | cut -c1-48)"
+    for F in /data/system/gpsz_config /data/adb/gpsz_config; do
+      [ -f "$F" ] && echo "mirror: $(ls -lZ "$F" 2>/dev/null)" || echo "mirror: tidak ada ($F)"
+    done
+    echo "baca mirror oleh system_server (logcat -s GpsZ):"
+    logcat -d -s GpsZ:I GpsZ:W 2>/dev/null | grep -i "config file" | tail -4 | sed 's/^/  /'
     echo "--- hook sistem (logcat -s GpsZ)"
     logcat -d -s GpsZ:I 2>/dev/null | grep -i "system hook" | tail -8 | sed 's/^/  /'
     echo "--- bridge.log (10 baris terakhir)"

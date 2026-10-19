@@ -61,7 +61,7 @@
     <string name="route_altitude">Ketinggian (m)</string>
     <string name="route_altitude_var">m</string>
     <string name="route_altitude_server">Ambil ketinggian dari server (Ketinggian di atas jadi cadangan)</string>
-    <string name="route_traffic_aware">Traffic aware (rute mobil &amp; motor mengikuti lalu lintas saat ini)</string>
+    <string name="route_traffic_aware">Ikuti lalu lintas (rute mobil &amp; motor mengikuti lalu lintas saat ini)</string>
     <string name="settings_altitude_server">Ambil ketinggian dari server</string>
     <string name="settings_altitude_server_summary">Elevation API, lalu Open-Meteo\nMati = pakai ketinggian di bawah</string>
     <string name="settings_random_paused">Dijeda selama rute berjalan</string>
@@ -81,7 +81,7 @@
     <string name="settings_hide_bt">Blokir scan Bluetooth</string>
     <string name="settings_hide_bt_summary">App yang di-hook tidak bisa mencari perangkat Bluetooth sekitar. Bisa merusak pairing dengan jam tangan dan headset</string>
     <string name="settings_route">Rute</string>
-    <string name="settings_traffic_aware">Traffic aware</string>
+    <string name="settings_traffic_aware">Ikuti lalu lintas</string>
     <string name="settings_traffic_aware_summary">Rute mengikuti lalu lintas saat ini</string>
     <string name="map_not_ready">Peta belum siap</string>
     <string name="location_not_selected">Lokasi belum dipilih</string>

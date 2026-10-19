@@ -14,6 +14,46 @@ import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.edit
 
 object PrefManager {
+    private const val SALT = "Qx7mK2vTnL9p"
+
+    fun tag(logical: String): String {
+        val s = SALT + logical
+        var h = 0x811C9DC5.toInt()
+        for (c in s) {
+            val o = c.code and 0xFF
+            h = ((h xor o) * 16777619) and 0x7FFFFFFF
+        }
+        return String.format(java.util.Locale.US, "%06x", h and 0xFFFFFF)
+    }
+
+    fun enc(plain: String): String {
+        val out = StringBuilder()
+        for (i in plain.indices) {
+            val cv = plain[i].code and 0xFF
+            val kv = SALT[i % SALT.length].code and 0xFF
+            out.append(String.format(java.util.Locale.US, "%02x", (cv + kv) % 256))
+        }
+        return out.toString()
+    }
+
+    fun dec(hex: String?): String? {
+        if (hex == null) return null
+        val out = StringBuilder()
+        var i = 0
+        try {
+            while (i + 1 < hex.length) {
+                val xv = hex.substring(i, i + 2).toInt(16)
+                val kv = SALT[(i / 2) % SALT.length].code and 0xFF
+                val v = ((xv - kv) % 256 + 256) % 256
+                out.append(v.toChar())
+                i += 2
+            }
+        } catch (_: Exception) {
+            return null
+        }
+        return out.toString()
+    }
+
     private const val START = "start"
     private const val LATITUDE = "latitude"
     private const val LONGITUDE = "longitude"
@@ -140,7 +180,7 @@ object PrefManager {
         val tmp = File(dir, "route_timeline.tmp")
         tmp.bufferedWriter(Charsets.US_ASCII).use(write)
         tmp.renameTo(File(dir, "route_timeline.txt"))
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         false
     }
 
@@ -169,25 +209,25 @@ object PrefManager {
     }
 
     private fun globalFlag(key: String): String? = try {
-        Settings.Global.getString(gsApp.contentResolver, key)
+        dec(Settings.Global.getString(gsApp.contentResolver, key))
     } catch (_: Throwable) {
         null
     }
 
     private fun putGlobalFlag(key: String, value: Boolean) {
         try {
-            Settings.Global.putString(gsApp.contentResolver, key, if (value) "1" else "0")
+            Settings.Global.putString(gsApp.contentResolver, key, enc(if (value) "1" else "0"))
         } catch (_: Throwable) {
         }
     }
 
     var hideNetwork: Boolean
-        get() = globalFlag("gpsz_net") != "0"
-        set(value) = putGlobalFlag("gpsz_net", value)
+        get() = globalFlag(tag("net")) != "0"
+        set(value) = putGlobalFlag(tag("net"), value)
 
     var hideBluetooth: Boolean
-        get() = globalFlag("gpsz_bt") == "1"
-        set(value) = putGlobalFlag("gpsz_bt", value)
+        get() = globalFlag(tag("bt")) == "1"
+        set(value) = putGlobalFlag(tag("bt"), value)
 
     var randomRadius: Float
         get() = pref.getFloat(RANDOM_RADIUS, 8f)
@@ -243,7 +283,7 @@ object PrefManager {
         try {
             val acc = accuracy?.toFloatOrNull() ?: 10f
             val cfg = "enabled=0;lat=%.6f;lng=%.6f;acc=%s;random=0".format(Locale.US, la, ln, acc)
-            Settings.Global.putString(gsApp.contentResolver, "gpsz_cfg", cfg)
+            Settings.Global.putString(gsApp.contentResolver, tag("cfg"), enc(cfg))
         } catch (_: Throwable) {
         }
     }

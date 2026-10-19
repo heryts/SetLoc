@@ -290,7 +290,6 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 const MODID  = 'setloc_zygisk';
 const MODDIR = '/data/adb/modules/' + MODID;
 const PKGDIR = MODDIR + '/packages';
-const CFG_KEY = 'gpsz_cfg';
 const APP_PKG = 'com.heryts.setloc';
 
 const NO_STOP = new Set([
@@ -323,7 +322,7 @@ const B = {
   },
   async readSys() {
     try {
-      const out = await sh(`F='${PKGDIR}/android'; O='${PKGDIR}/.sysoff'; boot=$(( $(date +%s) - $(cut -d. -f1 /proc/uptime) )); g=$(settings get global gpsz_sys 2>/dev/null); ` +
+      const out = await sh(`F='${PKGDIR}/android'; O='${PKGDIR}/.sysoff'; boot=$(( $(date +%s) - $(cut -d. -f1 /proc/uptime) )); g=$(sh '${MODDIR}/gpsz.sh' sysraw 2>/dev/null); ` +
         `if [ -e "$F" ] && { [ "$g" = 1 ] || [ "$g" = 2 ]; }; then mt=$(stat -c %Y "$F" 2>/dev/null || echo 0); if [ "$mt" -lt "$boot" ]; then if [ "$g" = 2 ]; then echo heartbeat; else echo live; fi; else if [ "$g" = 2 ]; then echo pendinghb; else echo pending; fi; fi; ` +
         `elif [ -e "$O" ]; then mt=$(stat -c %Y "$O" 2>/dev/null || echo 0); if [ "$mt" -ge "$boot" ]; then echo offpending; else echo off; fi; else echo off; fi`);
       const m = /(heartbeat|live|pendinghb|pending|offpending|off)/.exec(out || '');
@@ -332,7 +331,7 @@ const B = {
   },
   async readHide() {
     try {
-      const out = await sh(`echo "$(settings get global gpsz_net 2>/dev/null)|$(settings get global gpsz_bt 2>/dev/null)"`);
+      const out = await sh(`sh '${MODDIR}/gpsz.sh' netbt 2>/dev/null`);
       const p = out.trim().split('|');
       return { net: p[0] !== '0', bt: p[1] === '1' };
     } catch (e) { return { net: true, bt: false }; }
@@ -351,8 +350,8 @@ const B = {
   },
   async readCfg(sync = true) {
     try {
-      return await sh(`${sync ? `sh '${MODDIR}/bridge.sh' sync >/dev/null 2>&1; ` : ''}C=$(settings get global ${CFG_KEY}); echo "$C"; ` +
-        `case "$C" in *';tk=1'*) settings get global gpsz_trk; read U _ < /proc/uptime; echo $(( \${U%.*}\${U#*.} * 10 )) ;; esac`);
+      return await sh(`${sync ? `sh '${MODDIR}/bridge.sh' sync >/dev/null 2>&1; ` : ''}C=$(sh '${MODDIR}/gpsz.sh' cfgraw 2>/dev/null); echo "$C"; ` +
+        `case "$C" in *';tk=1'*) sh '${MODDIR}/gpsz.sh' trkraw 2>/dev/null; read U _ < /proc/uptime; echo $(( \${U%.*}\${U#*.} * 10 )) ;; esac`);
     } catch (e) { return ''; }
   },
   async ensureDaemon() {

@@ -128,6 +128,29 @@ check "status: secure_settings=granted bila izin ada" 'sh "$M/bridge.sh" status 
 $G pkg add com.a.b >/dev/null
 check "pkg add membuat berkas paket" '[ -e "$PK/com.a.b" ]'
 
+echo "[mirror: gpsz.sh set/off/net/system ikut memperbarui berkas]"
+MR="$T/mr"; rm -rf "$MR"; mkdir -p "$MR/mod" "$MR/sys" "$MR/adb"
+cp "$A/bridge.sh" "$A/gpsz.sh" "$MR/mod/"
+sed -i "s|^CFGS=.*|CFGS=$MR/sys/gpsz_config|;s|^CFGF=.*|CFGF=$MR/adb/gpsz_config|" "$MR/mod/bridge.sh"
+GM="sh $MR/mod/gpsz.sh"
+$GM set -7.25 110.5 >/dev/null 2>&1
+check "set menulis lat/lng baru ke kedua berkas mirror" 'grep -q "^cfg:enabled=.;lat=-7.25;lng=110.5;" "$MR/sys/gpsz_config" && cmp -s "$MR/sys/gpsz_config" "$MR/adb/gpsz_config"'
+check "berkas mirror memuat baris sys/net/bt" 'grep -q "^sys:" "$MR/sys/gpsz_config" && grep -q "^net:" "$MR/sys/gpsz_config" && grep -q "^bt:" "$MR/sys/gpsz_config"'
+$GM net off >/dev/null 2>&1
+check "net off tercermin ke berkas (net:0)" 'grep -q "^net:0$" "$MR/sys/gpsz_config"'
+$GM bt on >/dev/null 2>&1
+check "bt on tercermin ke berkas (bt:1)" 'grep -q "^bt:1$" "$MR/sys/gpsz_config"'
+$GM system heartbeat >/dev/null 2>&1
+check "system heartbeat tercermin ke berkas (sys:2)" 'grep -q "^sys:2$" "$MR/sys/gpsz_config"'
+rm -f "$MR/sys/gpsz_config" "$MR/adb/gpsz_config"
+sh "$MR/mod/bridge.sh" mirror >/dev/null 2>&1
+check "bridge.sh mirror membuat ulang berkas dari Settings.Global" 'grep -q "lat=-7.25;lng=110.5" "$MR/sys/gpsz_config"'
+$GM random 1 >/dev/null 2>&1
+check "random 1 memperbarui berkas (tidak basi)" 'grep -q ";random=1" "$MR/sys/gpsz_config"'
+printf 'cfg:basi\n' > "$MR/sys/gpsz_config"
+sh "$MR/mod/bridge.sh" mirror >/dev/null 2>&1
+check "berkas basi ditimpa mirror" '! grep -q "^cfg:basi$" "$MR/sys/gpsz_config"'
+
 echo "[bridge.sh: pref_set]"
 sed -n '/^pref_set() {/,/^}/p' "$A/bridge.sh" > "$T/pref_set.sh"
 printf '%s\n' "<map>" '    <boolean name="start" value="false" />' "</map>" > "$T/p.xml"

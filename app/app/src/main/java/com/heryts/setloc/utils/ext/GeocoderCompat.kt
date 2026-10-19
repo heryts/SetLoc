@@ -14,6 +14,3 @@ private fun CancellableContinuation<List<Address>?>.listener() = object : Geocod
 
 suspend fun Geocoder.fromLocation(lat: Double, lng: Double, max: Int): List<Address>? =
     suspendCancellableCoroutine { getFromLocation(lat, lng, max, it.listener()) }
-
-suspend fun Geocoder.fromName(name: String, max: Int): List<Address>? =
-    suspendCancellableCoroutine { getFromLocationName(name, max, it.listener()) }

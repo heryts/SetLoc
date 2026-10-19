@@ -1,5 +1,6 @@
 package io.gpsz.zygote;
 
+import android.os.Build;
 import android.util.Log;
 
 import com.v7878.r8.annotations.DoNotObfuscate;
@@ -7,6 +8,9 @@ import com.v7878.r8.annotations.DoNotObfuscateType;
 import com.v7878.r8.annotations.DoNotShrink;
 import com.v7878.r8.annotations.DoNotShrinkType;
 import com.v7878.zygisk.ZygoteLoader;
+
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 @DoNotObfuscateType
 @DoNotShrinkType
@@ -37,7 +41,7 @@ public final class ZygoteEntry {
             String pkg = ZygoteLoader.getPackageName();
             if ("android".equals(pkg)) {
                 verbose = true;
-                i("injected into " + pkg + " (sdk " + android.os.Build.VERSION.SDK_INT + ")");
+                i("injected into " + pkg + " (sdk " + Build.VERSION.SDK_INT + ")");
                 Config.startPolling(SystemHooks::install);
                 return;
             }
@@ -48,7 +52,7 @@ public final class ZygoteEntry {
         }
     }
 
-    private static final java.util.Set<String> SEEN = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private static final Set<String> SEEN = ConcurrentHashMap.newKeySet();
 
     static void warnOnce(String where, Throwable t) {
         String msg = where + ": " + t;

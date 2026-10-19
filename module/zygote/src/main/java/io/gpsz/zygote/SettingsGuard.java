@@ -2,10 +2,12 @@ package io.gpsz.zygote;
 
 import android.content.ContentProviderClient;
 import android.content.ContentResolver;
+import android.database.ContentObserver;
 import android.database.Cursor;
 import android.database.MatrixCursor;
 import android.net.Uri;
 import android.os.Bundle;
+import android.provider.Settings;
 
 import com.v7878.unsafe.invoke.EmulatedStackFrame;
 import com.v7878.unsafe.invoke.Transformers;
@@ -18,20 +20,34 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
 final class SettingsGuard {
-    private static final String PREFIX = "gpsz_";
+    private static java.util.Set<String> KEYS = java.util.Collections.emptySet();
     private static final String OWN_PACKAGE = "com.heryts.setloc";
     private static final int K_STR = 0, K_QUERY = 1, K_CALL = 2, K_MAP = 3, K_EXEC = 4, K_OBS = 5;
     private static final int RET = EmulatedStackFrame.RETURN_VALUE_IDX;
+    private static final String[] QUERY_STRING_ARGS = {
+            ContentResolver.QUERY_ARG_SQL_SELECTION,
+            ContentResolver.QUERY_ARG_SQL_SORT_ORDER,
+            ContentResolver.QUERY_ARG_SQL_GROUP_BY,
+            ContentResolver.QUERY_ARG_SQL_HAVING
+    };
+    private static final String[] QUERY_ARRAY_ARGS = {
+            ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS,
+            ContentResolver.QUERY_ARG_SORT_COLUMNS
+    };
 
     static void install() {
         try {
             if (OWN_PACKAGE.equals(ZygoteLoader.getPackageName())) return;
         } catch (Throwable ignored) { }
+        KEYS = new java.util.HashSet<>(java.util.Arrays.asList(
+                Config.KEY, Config.KEY_SYS, Config.KEY_BEAT, Config.KEY_TRK,
+                Config.KEY_NET, Config.KEY_BT, Config.KEY_LIVE));
         hookCache();
         hookProvider(ContentResolver.class);
         hookProvider(ContentProviderClient.class);
@@ -41,7 +57,7 @@ final class SettingsGuard {
 
     private static void hookObserver() {
         try {
-            for (Method m : android.database.ContentObserver.class.getDeclaredMethods()) {
+            for (Method m : ContentObserver.class.getDeclaredMethods()) {
                 if (!m.getName().equals("dispatchChange") || Modifier.isAbstract(m.getModifiers())) continue;
                 Class<?>[] ps = m.getParameterTypes();
                 for (int i = 0; i < ps.length; i++) {
@@ -68,7 +84,7 @@ final class SettingsGuard {
     private static boolean hiddenUri(Uri u) {
         if (u == null || !"settings".equals(u.getAuthority())) return false;
         String last = u.getLastPathSegment();
-        return last != null && last.startsWith(PREFIX);
+        return last != null && KEYS.contains(last);
     }
 
     private static void hookCache() {
@@ -112,7 +128,7 @@ final class SettingsGuard {
 
     private static boolean reveals(String part) {
         if (part == null) return false;
-        if (part.contains(PREFIX)) return true;
+        for (String k : KEYS) if (part.contains(k)) return true;
         for (String t : part.trim().split("\\s+")) {
             int i = t.lastIndexOf('/');
             String base = i >= 0 ? t.substring(i + 1) : t;
@@ -122,20 +138,23 @@ final class SettingsGuard {
     }
 
     private static boolean isKey(Object o) {
-        return o instanceof String && ((String) o).startsWith(PREFIX);
+        return o instanceof String && KEYS.contains(o);
     }
 
     private static boolean mentions(Object o) {
-        if (o instanceof String) return ((String) o).contains(PREFIX);
+        if (o instanceof String) return isKey(o);
         if (o instanceof String[]) {
-            for (String s : (String[]) o) if (s != null && s.contains(PREFIX)) return true;
+            for (String s : (String[]) o) if (s != null && KEYS.contains(s)) return true;
             return false;
         }
         if (o instanceof Bundle) {
             try {
                 Bundle b = (Bundle) o;
-                for (String k : b.keySet()) {
-                    if (mentions(b.get(k))) return true;
+                for (String k : QUERY_STRING_ARGS) {
+                    if (isKey(b.getString(k))) return true;
+                }
+                for (String k : QUERY_ARRAY_ARGS) {
+                    if (mentions(b.getStringArray(k))) return true;
                 }
             } catch (Throwable ignored) { }
         }
@@ -153,7 +172,7 @@ final class SettingsGuard {
         }
         if (uri == null || !"settings".equals(uri.getAuthority())) return false;
         String last = uri.getLastPathSegment();
-        return hit || (last != null && last.startsWith(PREFIX));
+        return hit || (last != null && KEYS.contains(last));
     }
 
     private static boolean settingsUri(EmulatedStackFrame frame, int argc) {
@@ -179,7 +198,7 @@ final class SettingsGuard {
         c.moveToPosition(-1);
         while (c.moveToNext()) {
             String n = c.getString(name);
-            if (n != null && n.startsWith(PREFIX)) { any = true; break; }
+            if (n != null && KEYS.contains(n)) { any = true; break; }
         }
         c.moveToPosition(-1);
         if (!any) return c;
@@ -187,7 +206,7 @@ final class SettingsGuard {
         MatrixCursor out = new MatrixCursor(c.getColumnNames());
         while (c.moveToNext()) {
             String n = c.getString(name);
-            if (n != null && n.startsWith(PREFIX)) continue;
+            if (n != null && KEYS.contains(n)) continue;
             Object[] row = new Object[cols];
             for (int i = 0; i < cols; i++) {
                 switch (c.getType(i)) {
@@ -215,13 +234,13 @@ final class SettingsGuard {
     private static void stripBundle(Bundle b) {
         List<String> drop = new ArrayList<>();
         for (String k : b.keySet()) {
-            if (k.startsWith(PREFIX)) { drop.add(k); continue; }
-            Object v = b.get(k);
-            if (v instanceof Map) {
-                try { stripMap((Map<?, ?>) v); } catch (Throwable ignored) { }
-            }
+            if (KEYS.contains(k)) drop.add(k);
         }
         for (String k : drop) b.remove(k);
+        try {
+            Map<?, ?> v = b.getSerializable(Settings.NameValueTable.VALUE, HashMap.class);
+            if (v != null) stripMap(v);
+        } catch (Throwable ignored) { }
     }
 
     private static HookTransformer transformer(final int kind, final int a, final int b) {

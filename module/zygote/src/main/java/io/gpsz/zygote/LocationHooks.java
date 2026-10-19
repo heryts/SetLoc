@@ -2,6 +2,8 @@ package io.gpsz.zygote;
 
 import android.location.Location;
 import android.location.LocationManager;
+import android.os.Handler;
+import android.os.Looper;
 import android.telephony.CellInfo;
 import android.telephony.TelephonyManager;
 
@@ -466,8 +468,7 @@ final class LocationHooks {
                             Object o = frame.accessor().getReference(i);
                             if (!cbClass.isInstance(o)) continue;
                             final Object cb = o;
-                            android.os.Handler h = new android.os.Handler(
-                                    android.os.Looper.getMainLooper());
+                            Handler h = new Handler(Looper.getMainLooper());
                             long delay = 150L + (long) (Math.random() * 200L);
                             h.postDelayed(() -> {
                                 try {

@@ -405,12 +405,12 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     }
 
     private fun systemModeActive(): Boolean = try {
-        val v = Settings.Global.getString(contentResolver, "gpsz_sys")
+        val v = PrefManager.dec(Settings.Global.getString(contentResolver, PrefManager.tag("sys")))
         val enabled = v == "1" || v == "2"
         val boot = Settings.Global.getInt(contentResolver, Settings.Global.BOOT_COUNT, -1)
-        val live = Settings.Global.getString(contentResolver, "gpsz_sys_live")?.toIntOrNull()
+        val live = PrefManager.dec(Settings.Global.getString(contentResolver, PrefManager.tag("live")))?.toIntOrNull()
         enabled && boot >= 0 && live == boot
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         true
     }
 

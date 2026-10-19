@@ -10,18 +10,62 @@ import android.provider.Settings;
 
 import com.v7878.unsafe.Reflection;
 
+import java.io.FileInputStream;
 import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import java.util.Random;
 import java.util.function.BooleanSupplier;
 
 final class Config {
-    static final String KEY = "gpsz_cfg";
-    static final String KEY_SYS = "gpsz_sys";
-    static final String KEY_BEAT = "gpsz_beat";
-    static final String KEY_TRK = "gpsz_trk";
-    static final String KEY_NET = "gpsz_net";
-    static final String KEY_BT = "gpsz_bt";
+    private static final String SALT = "Qx7mK2vTnL9p";
+
+    static String tag(String logical) {
+        String s = SALT + logical;
+        int h = 0x811C9DC5;
+        for (int i = 0; i < s.length(); i++) {
+            int o = s.charAt(i) & 0xFF;
+            h = ((h ^ o) * 16777619) & 0x7FFFFFFF;
+        }
+        return String.format("%06x", h & 0xFFFFFF);
+    }
+
+    static String enc(String plain) {
+        if (plain == null) return null;
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < plain.length(); i++) {
+            int cv = plain.charAt(i) & 0xFF;
+            int kv = SALT.charAt(i % SALT.length()) & 0xFF;
+            out.append(String.format("%02x", (cv + kv) % 256));
+        }
+        return out.toString();
+    }
+
+    static String dec(String hex) {
+        if (hex == null) return null;
+        StringBuilder out = new StringBuilder();
+        try {
+            for (int i = 0; i + 1 < hex.length(); i += 2) {
+                int xv = Integer.parseInt(hex.substring(i, i + 2), 16);
+                int kv = SALT.charAt((i / 2) % SALT.length()) & 0xFF;
+                int v = ((xv - kv) % 256 + 256) % 256;
+                out.append((char) v);
+            }
+        } catch (Throwable t) {
+            return null;
+        }
+        return out.toString();
+    }
+
+    static final String KEY = tag("cfg");
+    static final String KEY_SYS = tag("sys");
+    static final String KEY_BEAT = tag("beat");
+    static final String KEY_TRK = tag("trk");
+    static final String KEY_NET = tag("net");
+    static final String KEY_BT = tag("bt");
+    static final String KEY_LIVE = tag("live");
+    private static final String[] FILE_PATHS = {"/data/system/gpsz_config", "/data/adb/gpsz_config"};
+    private static final int FILE_MAX = 8192;
     private static final long FREEZE_MS = 10_000;
     private static final long OFF_MS = 60_000;
     private static final long TRK_GRACE_MS = 3_000;
@@ -91,6 +135,7 @@ final class Config {
     private static final Object REFRESH_LOCK = new Object();
     private static long lastTry = -RETRY_MS;
     private static ContentObserver observer;
+    private static volatile String fileCfg, fileSys, fileNet, fileBt;
     static final Object WAKE = new Object();
     static final ThreadLocal<Boolean> READING = new ThreadLocal<>();
 
@@ -224,8 +269,8 @@ final class Config {
                 if (bc < 0) return;
                 want = Integer.toString(bc);
             }
-            String cur = Settings.Global.getString(cr, "gpsz_sys_live");
-            if (on ? !want.equals(cur) : cur != null && !cur.isEmpty()) Settings.Global.putString(cr, "gpsz_sys_live", want);
+            String cur = dec(Settings.Global.getString(cr, KEY_LIVE));
+            if (on ? !want.equals(cur) : cur != null && !cur.isEmpty()) Settings.Global.putString(cr, KEY_LIVE, enc(want));
         } catch (Throwable t) {
             ZygoteEntry.w("live failed: " + t);
         }
@@ -423,7 +468,11 @@ final class Config {
             READING.set(Boolean.TRUE);
             try {
                 boolean wasOn = enabled && system;
-                String cs = Settings.Global.getString(cr, KEY);
+                if (onReady != null) reloadFileFields(SystemClock.elapsedRealtime());
+                boolean useFile = onReady != null && fileCfg != null;
+                String sc = dec(Settings.Global.getString(cr, KEY));
+                settingsEmpty = sc == null;
+                String cs = orFile(sc, fileCfg, useFile);
                 long rt = SystemClock.elapsedRealtime();
                 if (cs != null && cs.contains(";tk=1")) {
                     String ts = Settings.Global.getString(cr, KEY_TRK);
@@ -436,13 +485,12 @@ final class Config {
                     trkStale = 0;
                 }
                 parse(cs);
-                if (tkMode) applyTrack(rt); else checkBeat(Settings.Global.getString(cr, KEY_BEAT));
-                hideNet = !"0".equals(Settings.Global.getString(cr, KEY_NET));
-                hideBt = "1".equals(Settings.Global.getString(cr, KEY_BT));
-                String sv = Settings.Global.getString(cr, KEY_SYS);
+                if (tkMode) applyTrack(rt); else checkBeat(dec(Settings.Global.getString(cr, KEY_BEAT)));
+                String net = orFile(dec(Settings.Global.getString(cr, KEY_NET)), fileNet, useFile);
+                String bt = orFile(dec(Settings.Global.getString(cr, KEY_BT)), fileBt, useFile);
+                String sv = orFile(dec(Settings.Global.getString(cr, KEY_SYS)), fileSys, useFile);
                 boolean wasSystem = system, wasHeartbeat = sysHeartbeat;
-                system = "1".equals(sv) || "2".equals(sv);
-                sysHeartbeat = "2".equals(sv);
+                applyFlags(sv, net, bt);
                 if (!wasOn && enabled && system) wake();
                 boolean tightened = system && (!wasSystem || (wasHeartbeat && !sysHeartbeat));
                 if (onReady != null && system) {
@@ -458,6 +506,99 @@ final class Config {
                 READING.remove();
             }
         }
+    }
+
+    private static void tryLoadFromFile() {
+        for (String path : FILE_PATHS) {
+            try (FileInputStream in = new FileInputStream(path)) {
+                byte[] buf = new byte[FILE_MAX];
+                int n = in.read(buf);
+                if (n > 0) {
+                    parseFileContent(new String(buf, 0, n, StandardCharsets.UTF_8));
+                    ZygoteEntry.i("config file loaded: " + path);
+                    return;
+                }
+            } catch (Throwable t) {
+                ZygoteEntry.w("config file " + path + " unreadable (DAC/SELinux?): " + t);
+            }
+        }
+    }
+
+    private static String fileSeen;
+    private static long fileCheckAt = 0;
+    private static volatile boolean settingsEmpty;
+    private static final long FILE_CHECK_MS = 2_000;
+
+    private static void reloadFileFields(long now) {
+        if (now - fileCheckAt < (settingsEmpty ? FALLBACK_POLL_MS : FILE_CHECK_MS)) return;
+        fileCheckAt = now;
+        for (String path : FILE_PATHS) {
+            try {
+                java.io.File f = new java.io.File(path);
+                String sig = path + ":" + f.lastModified() + ":" + f.length();
+                if (f.length() <= 0) continue;
+                if (sig.equals(fileSeen)) return;
+                byte[] buf = new byte[FILE_MAX];
+                int n;
+                try (FileInputStream in = new FileInputStream(f)) { n = in.read(buf); }
+                if (n <= 0) continue;
+                String body = new String(buf, 0, n, StandardCharsets.UTF_8);
+                String c = null, sy = null, ne = null, b = null;
+                for (String line : body.split("\n")) {
+                    int i = line.indexOf(':');
+                    if (i < 0) continue;
+                    String k = line.substring(0, i).trim(), v = line.substring(i + 1).trim();
+                    if (v.isEmpty() || v.equals("null")) continue;
+                    switch (k) {
+                        case "cfg": c = v; break;
+                        case "sys": sy = v; break;
+                        case "net": ne = v; break;
+                        case "bt": b = v; break;
+                    }
+                }
+                if (c == null) continue;
+                fileCfg = c; fileSys = sy; fileNet = ne; fileBt = b;
+                fileSeen = sig;
+                ZygoteEntry.i("config file reloaded: " + path);
+                return;
+            } catch (Throwable ignored) { }
+        }
+    }
+
+    private static void parseFileContent(String s) {
+        synchronized (REFRESH_LOCK) {
+            READING.set(Boolean.TRUE);
+            try {
+                for (String line : s.split("\n")) {
+                    int c = line.indexOf(':');
+                    if (c < 0) continue;
+                    String k = line.substring(0, c).trim();
+                    String v = line.substring(c + 1).trim();
+                    if (v.isEmpty() || v.equals("null")) continue;
+                    switch (k) {
+                        case "cfg": fileCfg = v; break;
+                        case "sys": fileSys = v; break;
+                        case "net": fileNet = v; break;
+                        case "bt": fileBt = v; break;
+                    }
+                }
+                if (fileCfg != null) parse(fileCfg);
+                applyFlags(fileSys, fileNet, fileBt);
+            } finally {
+                READING.remove();
+            }
+        }
+    }
+
+    private static void applyFlags(String sv, String net, String bt) {
+        system = "1".equals(sv) || "2".equals(sv);
+        sysHeartbeat = "2".equals(sv);
+        hideNet = !"0".equals(net);
+        hideBt = "1".equals(bt);
+    }
+
+    private static String orFile(String v, String f, boolean useFile) {
+        return v == null && useFile ? f : v;
     }
 
     static boolean ownObserver(Object o) {
@@ -486,6 +627,7 @@ final class Config {
 
     static void startPolling(final BooleanSupplier onReady) {
         Thread finder = new Thread(() -> {
+            if (onReady != null) tryLoadFromFile();
             Application found = null;
             for (int i = 0; i < 2400 && found == null; i++) {
                 found = currentApplication();
@@ -502,7 +644,7 @@ final class Config {
             final Runnable tick = new Runnable() {
                 @Override public void run() {
                     refresh.run();
-                    h.postDelayed(this, !observed ? FALLBACK_POLL_MS : playing ? POLL_MS : IDLE_POLL_MS);
+                    h.postDelayed(this, !observed || (settingsEmpty && onReady != null) ? FALLBACK_POLL_MS : playing ? POLL_MS : IDLE_POLL_MS);
                 }
             };
             h.post(tick);

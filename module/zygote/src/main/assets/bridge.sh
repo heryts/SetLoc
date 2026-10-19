@@ -3,14 +3,65 @@ MODDIR=$(cd "$(dirname "$0")" && pwd)
 APP=com.heryts.setloc
 APK="$MODDIR/apk/SetLoc.apk"
 PREFNAME="${APP}_prefs.xml"
-KEY=gpsz_cfg
+
 LOG="$MODDIR/bridge.log"
 LOCKD="$MODDIR/.daemon.lock"
-BEATKEY=gpsz_beat
-TRKKEY=gpsz_trk
+SALT="Qx7mK2vTnL9p"
+tag() {
+  rest="$SALT$1"
+  h=2166136261
+  while [ -n "$rest" ]; do
+    c=${rest%"${rest#?}"}
+    rest=${rest#?}
+    o=$(printf '%d' "'$c")
+    h=$(( ((h ^ o) * 16777619) & 2147483647 ))
+  done
+  printf '%06x' $((h & 16777215))
+}
+enc() {
+  rest="$1"
+  krest="$SALT"
+  out=""
+  while [ -n "$rest" ]; do
+    c=${rest%"${rest#?}"}; rest=${rest#?}
+    [ -n "$krest" ] || krest="$SALT"
+    k=${krest%"${krest#?}"}; krest=${krest#?}
+    cv=$(printf '%d' "'$c")
+    kv=$(printf '%d' "'$k")
+    x=$(( (cv + kv) % 256 ))
+    out="$out$(printf '%02x' "$x")"
+  done
+  printf '%s' "$out"
+}
+dec() {
+  rest="$1"
+  case "$rest" in ''|null) return ;; *[!0-9a-fA-F]*) return ;; esac
+  [ $((${#rest} % 2)) -eq 0 ] || return
+  krest="$SALT"
+  out=""
+  while [ -n "$rest" ]; do
+    pair=$(printf '%s' "$rest" | cut -c1-2)
+    rest=$(printf '%s' "$rest" | cut -c3-)
+    [ -n "$krest" ] || krest="$SALT"
+    k=${krest%"${krest#?}"}; krest=${krest#?}
+    kv=$(printf '%d' "'$k")
+    xv=$(( 0x$pair ))
+    v=$(( (xv - kv + 256) % 256 ))
+    out="$out$(printf "\\$(printf '%03o' "$v")")"
+  done
+  printf '%s' "$out"
+}
+KEY=$(tag cfg)
+SYSKEY=$(tag sys)
+BEATKEY=$(tag beat)
+TRKKEY=$(tag trk)
+NETKEY=$(tag net)
+BTKEY=$(tag bt)
 TRK_W=48
 TRK_LEAD=24
 LASTF="$MODDIR/.last_app_cfg"
+CFGS=/data/system/gpsz_config
+CFGF=/data/adb/gpsz_config
 STAMP="$MODDIR/.sync_stamp"
 
 log() {
@@ -74,6 +125,8 @@ fstr() { L=${PX#*"<string name=\"$1\">"}; [ "$L" = "$PX" ] && return; echo "${L%
 
 sget() { cmd settings get global "$1" 2>/dev/null || settings get global "$1" 2>/dev/null; }
 sput() { cmd settings put global "$1" "$2" >/dev/null 2>&1 || settings put global "$1" "$2"; }
+csget() { V=$(sget "$1"); [ -n "$V" ] && [ "$V" != null ] && dec "$V"; }
+csput() { sput "$1" "$(enc "$2")"; }
 numok() { case "$1" in ''|*[!0-9.eE+-]*) return 1 ;; *) return 0 ;; esac; }
 
 compose() {
@@ -204,6 +257,30 @@ derive() {
   compose
 }
 
+write_mirror() {
+  printf '%s\n' "$MBODY" > "$1.tmp" 2>/dev/null || return 1
+  chmod 600 "$1.tmp"
+  if [ "$2" = sys ]; then
+    chown 1000:1000 "$1.tmp" 2>/dev/null
+    chcon u:object_r:system_data_file:s0 "$1.tmp" 2>/dev/null
+  fi
+  mv -f "$1.tmp" "$1"
+}
+
+mirror_cfg() {
+  MC=${1-$NEW}
+  case "$MC" in *";pl=1") return 0 ;; esac
+  MBODY=$(printf 'cfg:%s\nsys:%s\nnet:%s\nbt:%s' "$MC" "$(csget "$SYSKEY")" "$(csget "$NETKEY")" "$(csget "$BTKEY")")
+  write_mirror "$CFGS" sys
+  write_mirror "$CFGF" root
+}
+
+mirror_stale() {
+  case "$1" in *";pl=1") return 1 ;; esac
+  grep -qxF "cfg:$1" "$CFGS" 2>/dev/null && return 1
+  return 0
+}
+
 sync_cfg() {
   derive; RC=$?
   NEW=$OUT
@@ -218,11 +295,12 @@ sync_cfg() {
   esac
   PREV=; { read -r PREV < "$LASTF"; } 2>/dev/null
   if [ "$1" != force ] && [ "$NEW" = "$PREV" ]; then
-    CUR=$(sget $KEY)
-    [ -n "$CUR" ] && [ "$CUR" != null ] && return 0
+    CUR=$(csget $KEY)
+    [ -n "$CUR" ] && { mirror_stale "$CUR" && mirror_cfg "$CUR"; return 0; }
   fi
-  sput $KEY "$NEW" || { log "settings put GAGAL"; return 1; }
+  csput $KEY "$NEW" || { log "settings put GAGAL"; return 1; }
   echo "$NEW" > "$LASTF"
+  mirror_cfg
   return 0
 }
 
@@ -406,6 +484,7 @@ nap() {
 case "$1" in
   install) install_app; exit $? ;;
   sync)    sync_cfg; exit 0 ;;
+  mirror)  C=$(csget $KEY); [ -n "$C" ] && mirror_cfg "$C"; exit 0 ;;
   force)   sync_cfg force; exit $? ;;
   setstart) set_app_start "$2"; exit $? ;;
   setpos)  set_app_pos "$2" "$3"; exit $? ;;
@@ -435,10 +514,16 @@ case "$1" in
       echo "pref_start=$(pval boolean start) lat=$(pval float latitude) lng=$(pval float longitude)"
     else echo "pref=missing"; fi
     FAST=0; OUT=; derive; echo "derived=$OUT"
-    echo "cfg=$(sget $KEY)"
+    echo "cfg=$(csget $KEY)"
+    for F in "$CFGS" "$CFGF"; do
+      [ -f "$F" ] && echo "mirror=$(ls -lZ "$F" 2>/dev/null)" || echo "mirror=tidak ada ($F)"
+    done
+    exit 0 ;;
+  sysdefault)
+    if [ -z "$(sget "$SYSKEY")" ] || [ "$(sget "$SYSKEY")" = null ]; then csput "$SYSKEY" 2; fi
     exit 0 ;;
   daemon) ;;
-  *) echo "usage: bridge.sh ensure [super]|sync|force|setstart 0|1|setpos <lat> <lng>|status|install"; exit 1 ;;
+  *) echo "usage: bridge.sh ensure [super]|sync|mirror|force|setstart 0|1|setpos <lat> <lng>|status|install|sysdefault"; exit 1 ;;
 esac
 
 yield_lock() { lock_fast || { log "daemon: kalah arbitrasi dari pid $WIN, keluar"; exit 0; }; }
