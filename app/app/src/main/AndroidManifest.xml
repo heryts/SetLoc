@@ -24,6 +24,9 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.SetLoc"
         tools:targetApi="31">
+        <service
+            android:name="androidx.appcompat.app.AppLocalesMetadataHolderService"
+            tools:node="remove" />
         <activity
             android:name=".ui.SettingsActivity"
             android:exported="false"

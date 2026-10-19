@@ -191,15 +191,5 @@ class SettingsActivity : AppCompatActivity() {
             getString(R.string.settings_traffic_aware), null, getString(R.string.settings_traffic_aware_summary),
             { PrefManager.trafficAware }, { PrefManager.trafficAware = it }
         )
-
-        header(R.string.settings_network)
-        toggle(
-            getString(R.string.settings_hide_net), null, getString(R.string.settings_hide_net_summary),
-            { PrefManager.hideNetwork }, { PrefManager.hideNetwork = it }
-        )
-        toggle(
-            getString(R.string.settings_hide_bt), null, getString(R.string.settings_hide_bt_summary),
-            { PrefManager.hideBluetooth }, { PrefManager.hideBluetooth = it }
-        )
     }
 }

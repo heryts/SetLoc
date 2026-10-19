@@ -2,7 +2,7 @@
 MODDIR=$(cd "$(dirname "$0")" && pwd)
 PKGDIR="$MODDIR/packages"
 KEY=gpsz_cfg
-case "$1" in sync|check|status|doctor|super|net|bt) ;; *) sh "$MODDIR/bridge.sh" sync >/dev/null 2>&1 ;; esac
+case "$1" in sync|check|status|doctor|super) ;; *) sh "$MODDIR/bridge.sh" sync >/dev/null 2>&1 ;; esac
 RAW=$(settings get global $KEY 2>/dev/null)
 get() { T=";$RAW;"; V=${T#*";$1="}; [ "$V" = "$T" ] && return; echo "${V%%;*}"; }
 E=$(get enabled);  [ -z "$E" ] && E=0
@@ -20,14 +20,18 @@ save() {
   [ -n "$BRG" ] && X="$X;brg=$BRG"
   settings put global $KEY "enabled=$E;lat=$LAT;lng=$LNG;acc=$ACC;random=$RND$X"
 }
+injected() {
+  [ -e "$PKGDIR/android" ] || return 1
+  mt=$(stat -c %Y "$PKGDIR/android" 2>/dev/null || echo 0)
+  [ "$mt" -lt $(( $(date +%s) - $(cut -d. -f1 /proc/uptime) )) ]
+}
 bootts() { echo $(( $(date +%s) - $(cut -d. -f1 /proc/uptime) )); }
-mtime() { stat -c %Y "$1" 2>/dev/null || echo 0; }
-injected() { [ -e "$PKGDIR/android" ] && [ "$(mtime "$PKGDIR/android")" -lt "$(bootts)" ]; }
 sysmode() {
   mkdir -p "$PKGDIR" || return 1
   keep=0
   if [ -f "$PKGDIR/.sysoff" ] && [ -f "$PKGDIR/.sysmt" ]; then
-    [ "$(mtime "$PKGDIR/.sysoff")" -ge "$(bootts)" ] && keep=1
+    so=$(stat -c %Y "$PKGDIR/.sysoff" 2>/dev/null || echo 0)
+    [ "$so" -ge "$(bootts)" ] && keep=1
   fi
   rm -f "$PKGDIR/.sysoff"
   if [ ! -e "$PKGDIR/android" ]; then
@@ -50,18 +54,6 @@ case "$1" in
     if [ -n "$4" ]; then isnum "$4" || { echo "acc must be a number"; exit 1; }; ACC=$4; fi
     save ;;
   random) RND=$2; save ;;
-  bt)
-    case "$2" in
-      on)  settings put global gpsz_bt 1; echo "blokir scan Bluetooth: aktif" ;;
-      off) settings put global gpsz_bt 0; echo "blokir scan Bluetooth: mati" ;;
-      *)   [ "$(settings get global gpsz_bt 2>/dev/null)" = 1 ] && echo "bt=aktif" || echo "bt=mati" ;;
-    esac ;;
-  net)
-    case "$2" in
-      on)  settings put global gpsz_net 1; echo "sembunyikan Wi-Fi/cell: aktif" ;;
-      off) settings put global gpsz_net 0; echo "sembunyikan Wi-Fi/cell: mati" ;;
-      *)   [ "$(settings get global gpsz_net 2>/dev/null)" = 0 ] && echo "net=mati" || echo "net=aktif" ;;
-    esac ;;
   show)   echo "enabled=$E lat=$LAT lng=$LNG acc=$ACC random=$RND spd=${SPD:-0} brg=${BRG:--} alt=${ALT:-0} altv=${ALTV:-0} rr=${RR:-8}"
           [ -e "$PKGDIR/.all" ] && echo "packages: ALL apps (listed ones below are EXCLUDED)"
           ls -1A "$PKGDIR" 2>/dev/null | grep -v '^\.\(all\|sysoff\|sysmt\)$' | sed 's/^/  pkg: /' ;;
@@ -94,7 +86,8 @@ case "$1" in
                settings put global gpsz_sys 0
              fi
            else
-             [ -f "$PKGDIR/.sysoff" ] && [ "$(mtime "$PKGDIR/.sysoff")" -ge "$(bootts)" ] || settings put global gpsz_sys 0
+             so=0; [ -f "$PKGDIR/.sysoff" ] && so=$(stat -c %Y "$PKGDIR/.sysoff" 2>/dev/null || echo 0)
+             [ "$so" -ge "$(bootts)" ] || settings put global gpsz_sys 0
            fi
            echo "system hook OFF. Reboot agar system_server tidak lagi di-inject." ;;
       status) [ -e "$PKGDIR/android" ] && F=ya || F=tidak
@@ -136,5 +129,5 @@ case "$1" in
     logcat -d -s GpsZ:I 2>/dev/null | grep -i "system hook" | tail -8 | sed 's/^/  /'
     echo "--- bridge.log (10 baris terakhir)"
     tail -n 10 "$MODDIR/bridge.log" 2>/dev/null ;;
-  *)      echo "on|off|toggle|set <lat> <lng> [acc]|random 0|1|net on|off|bt on|off|show|pkg ...|system on|heartbeat|off|status|sync|check <pkg>|super on|off|doctor" ;;
+  *)      echo "on|off|toggle|set <lat> <lng> [acc]|random 0|1|show|pkg ...|system on|heartbeat|off|status|sync|check <pkg>|super on|off|doctor" ;;
 esac

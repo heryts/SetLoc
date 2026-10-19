@@ -1,12 +1,12 @@
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
+    id 'com.google.android.libraries.mapsplatform.secrets-gradle-plugin'
 }
 
 def ver = new Properties()
 file('../../version.properties').withInputStream { ver.load(it) }
-def local = new Properties()
-if (rootProject.file('local.properties').exists()) rootProject.file('local.properties').withInputStream { local.load(it) }
+def tagName = ver['versionName']
 
 android {
     compileSdk 34
@@ -15,8 +15,7 @@ android {
         minSdk 33
         targetSdk 33
         versionCode ver['versionCode'] as int
-        versionName ver['versionName']
-        manifestPlaceholders = [MAPS_API_KEY: local.getProperty('MAPS_API_KEY', 'DEFAULT_API_KEY')]
+        versionName tagName
     }
 
     def ksFile = rootProject.file('keystore.properties')
@@ -64,6 +63,10 @@ android {
         }
     }
     namespace 'com.heryts.setloc'
+}
+
+secrets {
+    defaultPropertiesFileName = 'local.defaults.properties'
 }
 
 kotlin {

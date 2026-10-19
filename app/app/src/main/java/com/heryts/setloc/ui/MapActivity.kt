@@ -87,7 +87,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (!RouteRunner.isRunning && !PrefManager.routeLive()) {
+        if (!RouteRunner.isRunning) {
             if (PrefManager.routeActive) PrefManager.routeActive = false
             if (PrefManager.routePlay) PrefManager.routePlay = false
         }
@@ -145,7 +145,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             viewModel.update(true, here.latitude, here.longitude)
             PrefManager.altitudeM = PrefManager.altitudeManual
             if (PrefManager.altitudeFromServer) {
-                lifecycleScope.launch {
+            lifecycleScope.launch {
                     ElevationClient.fetch(this@MapActivity, listOf(here))?.firstOrNull()
                         ?.let { PrefManager.altitudeM = it }
                 }
@@ -153,7 +153,9 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             mMarker?.position = here
             mMarker?.isVisible = true
             setRunningUi(true)
-            lifecycleScope.launch { showStartNotification(here.address(this@MapActivity)) }
+            lifecycleScope.launch {
+                here.getAddress(this@MapActivity).collect { showStartNotification(it) }
+            }
             showToast(getString(R.string.location_set))
         }
         binding.stop.setOnClickListener {
