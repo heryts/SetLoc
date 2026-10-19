@@ -35,7 +35,13 @@ internal fun Context.buildProgressDialog(message: String): AlertDialog {
             setPadding(pad, 0, 0, 0)
         })
     }
-    return MaterialAlertDialogBuilder(this).setView(row).setCancelable(false).create()
+    return MaterialAlertDialogBuilder(this).setView(row).setCancelable(false).create().also {
+        it.setCanceledOnTouchOutside(false)
+        it.window?.apply {
+            clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL)
+        }
+    }
 }
 
 internal fun AlertDialog.dismissSafe() {

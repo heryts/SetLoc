@@ -18,7 +18,9 @@ class FavListAdapter : ListAdapter<Favourite, FavListAdapter.VH>(object : DiffUt
     var onItemDelete: ((Favourite) -> Unit)? = null
 
     class VH(v: View) : RecyclerView.ViewHolder(v) {
+        val info: View = v.findViewById(R.id.info)
         val address: TextView = v.findViewById(R.id.address)
+        val coords: TextView = v.findViewById(R.id.coords)
         val delete: View = v.findViewById(R.id.del)
     }
 
@@ -28,7 +30,10 @@ class FavListAdapter : ListAdapter<Favourite, FavListAdapter.VH>(object : DiffUt
     override fun onBindViewHolder(holder: VH, position: Int) {
         val f = getItem(position)
         holder.address.text = f.address
-        holder.address.setOnClickListener { onItemClick?.invoke(f) }
+        holder.coords.text = if (f.lat != null && f.lng != null)
+            String.format(java.util.Locale.US, "%.6f, %.6f", f.lat, f.lng) else ""
+        holder.coords.visibility = if (holder.coords.text.isEmpty()) View.GONE else View.VISIBLE
+        holder.info.setOnClickListener { onItemClick?.invoke(f) }
         holder.delete.setOnClickListener { onItemDelete?.invoke(f) }
     }
 }

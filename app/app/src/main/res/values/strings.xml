@@ -20,6 +20,7 @@
     <string name="add_fav_dialog_title">Add favourite</string>
     <string name="dialog_button_add">Add</string>
     <string name="dialog_button_cancel">Cancel</string>
+    <string name="dialog_button_close">Close</string>
     <string name="fav_name_hint">Favourite name</string>
     <string name="fav_name_search_hint">Favourite name, or search address / coordinates</string>
     <string name="fav_search_empty">Type an address or coordinates to search</string>
@@ -105,4 +106,6 @@
     <string name="route_err_process">Failed to process route: %1$s</string>
     <string name="route_err_http">Route failed (HTTP %1$d)</string>
     <string name="route_err_api">Route failed (%1$d): %2$s</string>
+    <string name="pin_label">Pin: %s</string>
+    <string name="pin_none">No pin selected</string>
 </resources>

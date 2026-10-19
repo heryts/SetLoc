@@ -6,12 +6,15 @@ import android.app.Notification
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
+import android.view.Gravity
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
+import android.widget.TextView
 import androidx.activity.viewModels
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.AppCompatAutoCompleteTextView
@@ -62,8 +65,9 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     private var favListAdapter: FavListAdapter = FavListAdapter()
     private var mMarker: Marker? = null
     private var mLatLng: LatLng? = null
+    private var pinListener: ((LatLng) -> Unit)? = null
 
-    private lateinit var dialog: AlertDialog
+    private var floatingDialog: AlertDialog? = null
 
     private val routeWaypoints = mutableListOf<LatLng>()
     private val routeMarkers = mutableListOf<Marker>()
@@ -214,6 +218,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             it.position = latLng
             it.isVisible = true
             mMap.animateCamera(CameraUpdateFactory.newLatLng(latLng))
+            pinListener?.invoke(latLng)
         }
     }
 
@@ -515,6 +520,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             isVisible = true
             showInfoWindow()
         }
+        pinListener?.invoke(latLng)
     }
 
     override fun onCreateOptionsMenu(menu: Menu?): Boolean {
@@ -531,15 +537,64 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         else -> super.onOptionsItemSelected(item)
     }
 
-    private fun searchDialog() {
+    private fun AlertDialog.makeFloating(): AlertDialog {
+        floatingDialog?.let { if (it !== this) it.dismissSafe() }
+        floatingDialog = this
+        setCanceledOnTouchOutside(false)
+        setOnDismissListener {
+            if (floatingDialog === this) { floatingDialog = null; pinListener = null }
+        }
+        window?.apply {
+            clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            addFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL)
+            setGravity(Gravity.TOP or Gravity.CENTER_HORIZONTAL)
+            val lp = attributes
+            lp.y = binding.toolbar.height + (8 * resources.displayMetrics.density).toInt()
+            attributes = lp
+        }
+        return this
+    }
+
+    private fun AlertDialog.backTo(action: (() -> Unit)?): AlertDialog {
+        if (action != null) setOnCancelListener { binding.root.post { if (!isFinishing) action() } }
+        return this
+    }
+
+    private fun pinText(p: LatLng) = getString(
+        R.string.pin_label, String.format(Locale.US, "%.6f, %.6f", p.latitude, p.longitude)
+    )
+
+    private fun bindPinInfo(tv: TextView?) {
+        if (tv == null) return
+        val update = { p: LatLng? ->
+            tv.text = if (p != null && mMarker?.isVisible == true) pinText(p) else getString(R.string.pin_none)
+        }
+        update(mLatLng)
+        pinListener = { p -> update(p) }
+    }
+
+    private fun hideKeyboard(v: View) {
+        v.clearFocus()
+        (getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager)
+            ?.hideSoftInputFromWindow(v.windowToken, 0)
+    }
+
+    override fun onDestroy() {
+        floatingDialog?.dismissSafe()
+        floatingDialog = null
+        super.onDestroy()
+    }
+
+    private fun searchDialog(prefill: String = "") {
         val alertDialog = MaterialAlertDialogBuilder(this)
         val view = layoutInflater.inflate(R.layout.dialog_layout,null)
         val editText = view.findViewById<AppCompatAutoCompleteTextView>(R.id.search_edittxt)
         editText.hint = getString(R.string.search_hint)
+        if (prefill.isNotEmpty()) { editText.setText(prefill); editText.setSelection(prefill.length) }
         var shown: AlertDialog? = null
         editText.attachPlaceSuggestions(lifecycleScope) { place ->
             moveMapToNewLocation(LatLng(place.lat, place.lon))
-            shown?.dismissSafe()
+            hideKeyboard(editText)
         }
         editText.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEARCH) {
@@ -550,7 +605,10 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         val progressBar = buildProgressDialog(getString(R.string.searching))
         alertDialog.setTitle(getString(R.string.search_dialog_title))
         alertDialog.setView(view)
-        alertDialog.setPositiveButton(getString(R.string.search_button)) { _, _ ->
+        alertDialog.setPositiveButton(getString(R.string.search_button), null)
+        alertDialog.setNegativeButton(getString(R.string.add_favourite), null)
+        fun doSearch() {
+            hideKeyboard(editText)
             if (isNetworkConnected()) {
                 val getInput = editText.text.toString().trim()
                 if (getInput.isNotEmpty()) {
@@ -578,18 +636,40 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
                 showToast(getString(R.string.no_internet))
             }
         }
-        shown = alertDialog.create()
-        shown?.show()
+        val created = alertDialog.create()
+        shown = created
+        created.setOnShowListener {
+            created.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener { doSearch() }
+            created.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
+                val pos = mLatLng
+                if (mMarker?.isVisible != true || pos == null) {
+                    showToast(getString(R.string.location_not_selected))
+                } else {
+                    hideKeyboard(editText)
+                    val label = editText.text.toString().trim()
+                    showFavouriteNameDialog(
+                        PlaceCandidate(label, pos.latitude, pos.longitude),
+                        moveMap = false,
+                        onBack = { searchDialog(label) }
+                    )
+                }
+            }
+        }
+        created.makeFloating()
+        bindPinInfo(view.findViewById(R.id.pin_info))
+        created.show()
     }
 
-    private fun addFavouriteDialog() {
+    private fun addFavouriteDialog(prefill: String = "") {
         val view = layoutInflater.inflate(R.layout.dialog_add_fav, null)
         val editText = view.findViewById<AppCompatAutoCompleteTextView>(R.id.search_edittxt)
         editText.hint = getString(R.string.fav_name_search_hint)
+        if (prefill.isNotEmpty()) { editText.setText(prefill); editText.setSelection(prefill.length) }
         var addDialog: AlertDialog? = null
         editText.attachPlaceSuggestions(lifecycleScope) { place ->
             addDialog?.dismiss()
-            showFavouriteNameDialog(place)
+            val typed = editText.text.toString()
+            showFavouriteNameDialog(place, onBack = { addFavouriteDialog(typed) })
         }
 
         val dlg = MaterialAlertDialogBuilder(this)
@@ -617,7 +697,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
                 if (query.isEmpty()) {
                     showToast(getString(R.string.fav_search_empty))
                 } else {
-                    searchFavouritePlaces(query) { dlg.dismiss() }
+                    searchFavouritePlaces(query, { dlg.dismiss() }, { addFavouriteDialog(query) })
                 }
             }
             editText.requestFocus()
@@ -629,6 +709,8 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             } else false
         }
         dlg.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
+        dlg.makeFloating()
+        bindPinInfo(view.findViewById(R.id.pin_info))
         dlg.show()
     }
 
@@ -638,7 +720,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         }
     }
 
-    private fun searchFavouritePlaces(query: String, onFound: () -> Unit) {
+    private fun searchFavouritePlaces(query: String, onFound: () -> Unit, onBack: () -> Unit) {
         val progress = buildProgressDialog(getString(R.string.searching))
         lifecycleScope.launch {
             if (!isFinishing) progress.show()
@@ -659,23 +741,23 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
                 showToast(getString(R.string.address_not_found))
             } else if (!isFinishing) {
                 onFound()
-                showFavouritePlacePicker(result)
+                showFavouritePlacePicker(result, onBack)
             }
         }
     }
 
-    private fun showFavouritePlacePicker(places: List<PlaceCandidate>) {
+    private fun showFavouritePlacePicker(places: List<PlaceCandidate>, onBack: () -> Unit) {
         MaterialAlertDialogBuilder(this)
             .setTitle(getString(R.string.fav_pick_location))
             .setItems(places.map { it.label }.toTypedArray()) { _, i ->
-                showFavouriteNameDialog(places[i])
+                showFavouriteNameDialog(places[i], onBack = { showFavouritePlacePicker(places, onBack) })
             }
-            .setNegativeButton(getString(R.string.dialog_button_cancel), null)
-            .show()
+            .setNegativeButton(getString(R.string.dialog_button_cancel)) { d, _ -> d.cancel() }
+            .create().backTo(onBack).makeFloating().show()
     }
 
-    private fun showFavouriteNameDialog(place: PlaceCandidate) {
-        moveMapToNewLocation(LatLng(place.lat, place.lon))
+    private fun showFavouriteNameDialog(place: PlaceCandidate, moveMap: Boolean = true, onBack: (() -> Unit)? = null) {
+        if (moveMap) moveMapToNewLocation(LatLng(place.lat, place.lon))
         val view = layoutInflater.inflate(R.layout.dialog_add_fav, null)
         val editText = view.findViewById<EditText>(R.id.search_edittxt)
         editText.setText(place.label)
@@ -686,7 +768,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             .setView(view)
             .setNegativeButton(getString(R.string.dialog_button_cancel), null)
             .setPositiveButton(getString(R.string.dialog_button_add), null)
-            .create()
+            .create().backTo(onBack)
 
         fun submit() {
             val label = editText.text.toString().trim()
@@ -696,12 +778,15 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         }
         dlg.setOnShowListener {
             dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener { submit() }
+            dlg.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener { dlg.cancel() }
             editText.requestFocus()
         }
         editText.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) { submit(); true } else false
         }
         dlg.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
+        dlg.makeFloating()
+        view.findViewById<TextView>(R.id.pin_info)?.text = pinText(LatLng(place.lat, place.lon))
         dlg.show()
     }
 
@@ -716,14 +801,13 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             val la = it.lat
             val lo = it.lng
             if (la != null && lo != null) moveMapToNewLocation(LatLng(la, lo))
-            if (dialog.isShowing) dialog.dismiss()
         }
         favListAdapter.onItemDelete = {
             viewModel.deleteFavourite(it)
         }
         alertDialog.setView(view)
-        dialog = alertDialog.create()
-        dialog.show()
+        alertDialog.setNegativeButton(getString(R.string.dialog_button_close), null)
+        alertDialog.create().makeFloating().show()
     }
 
     private fun showStartNotification(address: String){

@@ -35,7 +35,7 @@ trap 'rm -f "$SETUP_LOG"' EXIT
 SETUP_PID=$!
 
 echo "== 1/3 build app =="
-TASKS="testReleaseUnitTest assembleRelease"; [ -n "$SKIP_TESTS" ] && TASKS=assembleRelease
+TASKS="testDebugUnitTest assembleRelease"; [ -n "$SKIP_TESTS" ] && TASKS=assembleRelease
 ( cd app && with_jdk "$J21" sh ./gradlew $GRADLE_ARGS $TASKS )
 APK=$(ls -t app/app/build/outputs/apk/release/*.apk 2>/dev/null | head -n 1)
 [ -n "$APK" ] || { echo "GAGAL: APK rilis tidak ditemukan"; exit 1; }

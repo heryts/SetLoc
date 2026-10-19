@@ -1,6 +1,5 @@
 plugins {
     id 'com.android.application'
-    id 'org.jetbrains.kotlin.android'
 }
 
 def ver = new Properties()
@@ -9,13 +8,13 @@ def local = new Properties()
 if (rootProject.file('local.properties').exists()) rootProject.file('local.properties').withInputStream { local.load(it) }
 
 android {
-    compileSdk 34
+    compileSdk = 34
     defaultConfig {
-        applicationId "com.heryts.setloc"
-        minSdk 33
-        targetSdk 33
-        versionCode ver['versionCode'] as int
-        versionName ver['versionName']
+        applicationId = "com.heryts.setloc"
+        minSdk = 33
+        targetSdk = 33
+        versionCode = ver['versionCode'] as int
+        versionName = ver['versionName']
         manifestPlaceholders = [MAPS_API_KEY: local.getProperty('MAPS_API_KEY', 'DEFAULT_API_KEY')]
     }
 
@@ -38,7 +37,7 @@ android {
     buildTypes {
         release {
             signingConfig = ksFile.exists() ? signingConfigs.release : signingConfigs.debug
-            minifyEnabled true
+            minifyEnabled = true
             shrinkResources = true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
@@ -47,8 +46,8 @@ android {
         localeFilters += ["en", "in", "id"]
     }
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_11
-        targetCompatibility JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
     }
     buildFeatures {
         viewBinding = true
@@ -68,7 +67,6 @@ android {
 
 kotlin {
     compilerOptions {
-        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11
         freeCompilerArgs.addAll('-Xno-param-assertions', '-Xno-call-assertions', '-Xno-receiver-assertions')
     }
 }

@@ -21,6 +21,7 @@
     <string name="add_fav_dialog_title">Tambah favorit</string>
     <string name="dialog_button_add">Tambah</string>
     <string name="dialog_button_cancel">Batal</string>
+    <string name="dialog_button_close">Tutup</string>
     <string name="fav_name_hint">Nama favorit</string>
     <string name="fav_name_search_hint">Nama favorit, atau cari alamat / koordinat</string>
     <string name="fav_search_empty">Ketik alamat atau koordinat untuk dicari</string>
@@ -106,4 +107,6 @@
     <string name="route_err_process">Gagal memproses rute: %1$s</string>
     <string name="route_err_http">Rute gagal (HTTP %1$d)</string>
     <string name="route_err_api">Rute gagal (%1$d): %2$s</string>
+    <string name="pin_label">Pin: %s</string>
+    <string name="pin_none">Pin belum dipilih</string>
 </resources>
