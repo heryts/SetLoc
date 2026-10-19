@@ -330,6 +330,15 @@ const B = {
       return m ? m[1] : 'off';
     } catch (e) { return 'off'; }
   },
+  async readHide() {
+    try {
+      const out = await sh(`echo "$(settings get global gpsz_net 2>/dev/null)|$(settings get global gpsz_bt 2>/dev/null)"`);
+      const p = out.trim().split('|');
+      return { net: p[0] !== '0', bt: p[1] === '1' };
+    } catch (e) { return { net: true, bt: false }; }
+  },
+  async setNet(on) { await sh(`sh '${MODDIR}/gpsz.sh' net ${on ? 'on' : 'off'} 2>&1`); },
+  async setBt(on) { await sh(`sh '${MODDIR}/gpsz.sh' bt ${on ? 'on' : 'off'} 2>&1`); },
   async setHb() { await sh(`sh '${MODDIR}/gpsz.sh' system heartbeat 2>&1`); },
   async setSys(on) { await sh(`sh '${MODDIR}/gpsz.sh' system ${on ? 'on' : 'off'} 2>&1`); },
   async reboot() { await exec('svc power reboot || reboot'); },
@@ -401,6 +410,8 @@ const S = {
   all: false,
   sys: false,
   hb: false,
+  net: true,
+  bt: false,
   sysMode: 'off',
   tab: 'all',
   showSys: false,
@@ -535,11 +546,12 @@ async function load() {
   try {
     S.missing = !(await B.isInstalled());
     S.daemon = await B.ensureDaemon().catch(() => null);
-    const [st, cfg, user, sys, sysOn] = await Promise.all([
+    const [st, cfg, user, sys, sysOn, hide] = await Promise.all([
       B.readState(), B.readCfg(),
       B.listPkgs('user').catch(() => []), B.listPkgs('system').catch(() => []),
-      B.readSys().catch(() => 'off')
+      B.readSys().catch(() => 'off'), B.readHide()
     ]);
+    S.net = hide.net; S.bt = hide.bt;
     S.all = st.all; applySys(sysOn); S.files = new Set(st.files);
     renderStatus(cfg);
     S.appOn = await B.appInstalled().catch(() => null);
@@ -632,6 +644,14 @@ async function setSysMode(on, reopen = true) {
   renderBanners(); if (reopen) openSheet();
 }
 
+async function setHide(which, on) {
+  try {
+    if (which === 'net') { await B.setNet(on); S.net = on; } else { await B.setBt(on); S.bt = on; }
+    toast('Tersimpan');
+  } catch (e) { toast('Gagal: ' + e.message, true); }
+  openSheet();
+}
+
 async function setHbMode() {
   try {
     await B.setHb();
@@ -696,6 +716,20 @@ function openSheet() {
         <div class="d">System hook aktif, tapi hanya app terpilih yang dispoof; app lain tetap lokasi asli. Perlu reboot.</div>
       </div>
       <button class="switch" id="swHb" role="switch" aria-checked="${S.hb}"></button>
+    </div>
+    <div class="set">
+      <div class="grow">
+        <div>Sembunyikan Wi-Fi dan seluler</div>
+        <div class="d">App yang di-hook tidak melihat daftar Wi-Fi, access point tersambung, atau menara seluler.</div>
+      </div>
+      <button class="switch" id="swNet" role="switch" aria-checked="${S.net}"></button>
+    </div>
+    <div class="set">
+      <div class="grow">
+        <div>Blokir scan Bluetooth</div>
+        <div class="d">App yang di-hook tidak bisa mencari perangkat Bluetooth. Bisa merusak pairing jam tangan dan headset.</div>
+      </div>
+      <button class="switch" id="swBt" role="switch" aria-checked="${S.bt}"></button>
     </div>
     <div class="set">
       <div class="grow"><div>Folder konfigurasi</div><div class="d mono">${esc(PKGDIR)}</div></div>
@@ -902,6 +936,8 @@ $('#sheet').addEventListener('click', e => {
   if (e.target.closest('#swAll')) { S.all ? setAllMode(false) : confirmAll(); return; }
   if (e.target.closest('#swSys')) { S.sys ? setSysMode(false) : confirmSys(); return; }
   if (e.target.closest('#swHb')) { S.hb ? setSysMode(false) : setHbMode(); return; }
+  if (e.target.closest('#swNet')) { setHide('net', !S.net); return; }
+  if (e.target.closest('#swBt')) { setHide('bt', !S.bt); return; }
   if (e.target.closest('#sNo')) { openSheet(); return; }
   if (e.target.closest('#sYes')) { setSysMode(true); return; }
   if (e.target.closest('#pNo') || e.target.closest('#cdNo')) { closeSheet(); return; }

@@ -2,6 +2,7 @@ package com.heryts.setloc.utils
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.SystemClock
 import android.provider.Settings
 import com.heryts.setloc.BuildConfig
 import com.heryts.setloc.gsApp
@@ -143,21 +144,50 @@ object PrefManager {
         false
     }
 
+    private fun bootCount() = try {
+        Settings.Global.getInt(gsApp.contentResolver, Settings.Global.BOOT_COUNT, -1)
+    } catch (_: Exception) {
+        -1
+    }
+
+    fun routeLive(): Boolean {
+        if (!routePlay) return false
+        val end = pref.getLong(ROUTE_T0, 0L) * 10 + (pref.getInt(ROUTE_N, 1) - 1) * pref.getLong(ROUTE_TICK, 0L) +
+            pref.getLong(ROUTE_HOLD_END, 0L)
+        return pref.getInt(ROUTE_BC, -1) == bootCount() && SystemClock.elapsedRealtime() < end
+    }
+
     fun beginPlayback(t0Centis: Long, tickMs: Long, n: Int, holdEndMs: Long, lineWidth: Int) {
-        val bc = try {
-            Settings.Global.getInt(gsApp.contentResolver, Settings.Global.BOOT_COUNT, -1)
-        } catch (e: Exception) {
-            -1
-        }
         pref.edit {
             putLong(ROUTE_T0, t0Centis)
             putLong(ROUTE_TICK, tickMs)
             putInt(ROUTE_N, n)
             putLong(ROUTE_HOLD_END, holdEndMs)
-            putInt(ROUTE_BC, bc)
+            putInt(ROUTE_BC, bootCount())
             putInt(ROUTE_TLW, lineWidth)
         }
     }
+
+    private fun globalFlag(key: String): String? = try {
+        Settings.Global.getString(gsApp.contentResolver, key)
+    } catch (_: Throwable) {
+        null
+    }
+
+    private fun putGlobalFlag(key: String, value: Boolean) {
+        try {
+            Settings.Global.putString(gsApp.contentResolver, key, if (value) "1" else "0")
+        } catch (_: Throwable) {
+        }
+    }
+
+    var hideNetwork: Boolean
+        get() = globalFlag("gpsz_net") != "0"
+        set(value) = putGlobalFlag("gpsz_net", value)
+
+    var hideBluetooth: Boolean
+        get() = globalFlag("gpsz_bt") == "1"
+        set(value) = putGlobalFlag("gpsz_bt", value)
 
     var randomRadius: Float
         get() = pref.getFloat(RANDOM_RADIUS, 8f)

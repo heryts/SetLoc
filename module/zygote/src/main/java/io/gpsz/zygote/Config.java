@@ -7,7 +7,6 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.SystemClock;
 import android.provider.Settings;
-import android.util.Log;
 
 import com.v7878.unsafe.Reflection;
 
@@ -21,6 +20,8 @@ final class Config {
     static final String KEY_SYS = "gpsz_sys";
     static final String KEY_BEAT = "gpsz_beat";
     static final String KEY_TRK = "gpsz_trk";
+    static final String KEY_NET = "gpsz_net";
+    static final String KEY_BT = "gpsz_bt";
     private static final long FREEZE_MS = 10_000;
     private static final long OFF_MS = 60_000;
     private static final long TRK_GRACE_MS = 3_000;
@@ -29,10 +30,13 @@ final class Config {
     private static final long IDLE_POLL_MS = 5_000;
     private static final long FALLBACK_POLL_MS = 250;
     private static final long RETRY_MS = 5_000;
+    private static final long SNAP_MS = 50;
     static volatile boolean enabled;
     static volatile boolean jitter;
     static volatile boolean system;
     static volatile boolean sysHeartbeat;
+    static volatile boolean hideNet = true;
+    static volatile boolean hideBt = false;
     static volatile boolean playing;
     static volatile boolean tkMode;
     static volatile double lat = Double.NaN;
@@ -53,7 +57,12 @@ final class Config {
     static final class Pt {
         final double lat, lng;
         final long at;
-        Pt(double lat, double lng, long at) { this.lat = lat; this.lng = lng; this.at = at; }
+        final float spd, brg, accJit;
+        final double alt;
+        Pt(double lat, double lng, long at, float spd, float brg, double alt, float accJit) {
+            this.lat = lat; this.lng = lng; this.at = at;
+            this.spd = spd; this.brg = brg; this.alt = alt; this.accJit = accJit;
+        }
     }
 
     static final class Track {
@@ -83,10 +92,11 @@ final class Config {
     private static long lastTry = -RETRY_MS;
     private static ContentObserver observer;
     static final Object WAKE = new Object();
+    static final ThreadLocal<Boolean> READING = new ThreadLocal<>();
 
     static Pt snapshot() {
         Pt p = snap;
-        if (p != null && SystemClock.elapsedRealtime() - p.at < 200) return p;
+        if (p != null && SystemClock.elapsedRealtime() - p.at < SNAP_MS) return p;
         return renewSnapshot();
     }
 
@@ -94,8 +104,10 @@ final class Config {
         tick();
         long now = SystemClock.elapsedRealtime();
         Pt p = snap;
-        if (p != null && now - p.at < 200) return p;
+        if (p != null && now - p.at < SNAP_MS) return p;
         double la = lat, lo = lng;
+        float sSpd = spd, sBrg = brg;
+        double sAlt = altitudeNow();
         if (jitter) {
             stepJitter(now);
             double c = Math.cos(Math.toRadians(la));
@@ -105,7 +117,8 @@ final class Config {
         } else {
             jitAt = 0;
         }
-        p = new Pt(la, lo, now);
+        float jit = (float) (RND.nextGaussian() * 0.35);
+        p = new Pt(la, lo, now, sSpd, sBrg, sAlt, jit);
         snap = p;
         return p;
     }
@@ -136,6 +149,63 @@ final class Config {
         return Math.max(1f, acc);
     }
 
+    static float accNow(Pt p) {
+        return Math.max(1f, acc + (p != null ? p.accJit : 0f));
+    }
+
+    private static int gSat = 0, gMean = 0;
+    private static long gAt = 0;
+    private static double netLat = 0, netLng = 0;
+    private static long netAt = 0;
+
+    static synchronized int[] gnssExtras() {
+        long now = SystemClock.elapsedRealtime();
+        if (gSat == 0) {
+            gSat = 7 + RND.nextInt(6);
+            gMean = 25 + RND.nextInt(8);
+            gAt = now;
+        } else if (now - gAt >= 1000) {
+            gAt = now;
+            int r = RND.nextInt(10);
+            if (r == 0) gSat++; else if (r == 1) gSat--;
+            r = RND.nextInt(6);
+            if (r == 0) gMean++; else if (r == 1) gMean--;
+            gSat = Math.max(5, Math.min(14, gSat));
+            gMean = Math.max(22, Math.min(36, gMean));
+        }
+        return new int[]{gSat, gMean, gMean + 9 + RND.nextInt(3)};
+    }
+
+    static float vAcc(Pt p) {
+        return Math.max(1f, accNow(p) * 1.3f + p.accJit * 1.5f);
+    }
+
+    static float sAcc(Pt p) {
+        return Math.max(0.1f, 0.4f + Math.abs(p.accJit) * 0.5f);
+    }
+
+    static float bAcc(Pt p) {
+        return Math.max(1f, 10f + Math.abs(p.accJit) * 8f);
+    }
+
+    static synchronized double[] networkOffset(double refLat) {
+        long now = SystemClock.elapsedRealtime();
+        if (netAt == 0 || now - netAt > 20_000 + RND.nextInt(20_000)) {
+            double ang = RND.nextDouble() * 2 * Math.PI;
+            double dist = 35 + RND.nextDouble() * 90;
+            double c = Math.cos(Math.toRadians(refLat));
+            if (Math.abs(c) < 1e-6) c = 1e-6;
+            netLat = Math.sin(ang) * dist / 111320.0;
+            netLng = Math.cos(ang) * dist / (111320.0 * c);
+            netAt = now;
+        }
+        return new double[]{netLat, netLng};
+    }
+
+    static float networkAccuracy(float gpsAcc) {
+        return Math.max(25f, gpsAcc * 2.5f + 20f + (float) (RND.nextGaussian() * 6));
+    }
+
     static double altitudeNow() {
         float v = altVar;
         if (v <= 0f) return alt;
@@ -149,25 +219,19 @@ final class Config {
         return alt + altNoise;
     }
 
-    private static void clearLive(Application app) {
+    private static void live(Application app, boolean on) {
         try {
             ContentResolver cr = app.getContentResolver();
-            String v = Settings.Global.getString(cr, "gpsz_sys_live");
-            if (v != null && !v.isEmpty()) Settings.Global.putString(cr, "gpsz_sys_live", "");
+            String want = "";
+            if (on) {
+                int bc = Settings.Global.getInt(cr, Settings.Global.BOOT_COUNT, -1);
+                if (bc < 0) return;
+                want = Integer.toString(bc);
+            }
+            String cur = Settings.Global.getString(cr, "gpsz_sys_live");
+            if (on ? !want.equals(cur) : cur != null && !cur.isEmpty()) Settings.Global.putString(cr, "gpsz_sys_live", want);
         } catch (Throwable t) {
-            Log.w(ZygoteEntry.TAG, "clear live failed: " + t);
-        }
-    }
-
-    private static void publishLive(Application app) {
-        try {
-            ContentResolver cr = app.getContentResolver();
-            int bc = Settings.Global.getInt(cr, Settings.Global.BOOT_COUNT, -1);
-            if (bc < 0) return;
-            String v = Integer.toString(bc);
-            if (!v.equals(Settings.Global.getString(cr, "gpsz_sys_live"))) Settings.Global.putString(cr, "gpsz_sys_live", v);
-        } catch (Throwable t) {
-            Log.w(ZygoteEntry.TAG, "publish live failed: " + t);
+            ZygoteEntry.w("live failed: " + t);
         }
     }
 
@@ -358,6 +422,7 @@ final class Config {
 
     static void refresh(ContentResolver cr, Application app, BooleanSupplier onReady) {
         synchronized (REFRESH_LOCK) {
+            READING.set(Boolean.TRUE);
             try {
                 boolean wasOn = enabled && system;
                 String cs = Settings.Global.getString(cr, KEY);
@@ -374,6 +439,8 @@ final class Config {
                 }
                 parse(cs);
                 if (tkMode) applyTrack(rt); else checkBeat(Settings.Global.getString(cr, KEY_BEAT));
+                hideNet = !"0".equals(Settings.Global.getString(cr, KEY_NET));
+                hideBt = "1".equals(Settings.Global.getString(cr, KEY_BT));
                 String sv = Settings.Global.getString(cr, KEY_SYS);
                 boolean wasSystem = system, wasHeartbeat = sysHeartbeat;
                 system = "1".equals(sv) || "2".equals(sv);
@@ -384,13 +451,19 @@ final class Config {
                     long now = SystemClock.elapsedRealtime();
                     if (tightened || now - lastTry >= RETRY_MS) {
                         lastTry = now;
-                        if (onReady.getAsBoolean()) publishLive(app); else clearLive(app);
+                        live(app, onReady.getAsBoolean());
                     }
                 }
             } catch (Throwable t) {
                 ZygoteEntry.warnOnce("config refresh", t);
+            } finally {
+                READING.remove();
             }
         }
+    }
+
+    static boolean ownObserver(Object o) {
+        return o != null && o == observer;
     }
 
     static void wake() {
@@ -404,9 +477,11 @@ final class Config {
             };
             cr.registerContentObserver(Settings.Global.getUriFor(KEY), false, observer);
             cr.registerContentObserver(Settings.Global.getUriFor(KEY_SYS), false, observer);
+            cr.registerContentObserver(Settings.Global.getUriFor(KEY_NET), false, observer);
+            cr.registerContentObserver(Settings.Global.getUriFor(KEY_BT), false, observer);
             return true;
         } catch (Throwable t) {
-            Log.w(ZygoteEntry.TAG, "observer failed, polling fast: " + t);
+            ZygoteEntry.w("observer failed, polling fast: " + t);
             return false;
         }
     }
@@ -416,9 +491,9 @@ final class Config {
             Application found = null;
             for (int i = 0; i < 2400 && found == null; i++) {
                 found = currentApplication();
-                if (found == null) sleep(50);
+                if (found == null) try { Thread.sleep(50); } catch (InterruptedException ignored) { }
             }
-            if (found == null) { Log.w(ZygoteEntry.TAG, "no Application"); return; }
+            if (found == null) { ZygoteEntry.w("no Application"); return; }
             final Application app = found;
             final ContentResolver cr = app.getContentResolver();
             final Runnable refresh = () -> refresh(cr, app, onReady);
@@ -436,10 +511,6 @@ final class Config {
         }, "gpsz-find");
         finder.setDaemon(true);
         finder.start();
-    }
-
-    private static void sleep(long ms) {
-        try { Thread.sleep(ms); } catch (InterruptedException ignored) { }
     }
 
     private Config() { }

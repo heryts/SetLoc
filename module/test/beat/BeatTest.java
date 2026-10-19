@@ -31,10 +31,10 @@ public class BeatTest {
     t0=t; Config.parse(PL); for(;t<t0+12000;t+=250) poll(t,PL,null);
     eq("null beat 12s -> frozen",Config.spd,0f);
     SystemClock.fake=500000; Config.parse("enabled=1;lat=-7.7;lng=110.4;acc=10;random=0;rr=8");
-    Config.Pt a=Config.snapshot(); SystemClock.fake+=150; Config.Pt b=Config.snapshot();
+    Config.Pt a=Config.snapshot(); SystemClock.fake+=30; Config.Pt b=Config.snapshot();
     eq("snapshot tanpa jitter lat",a.lat,-7.7); eq("snapshot tanpa jitter lng",a.lng,110.4);
-    eq("snapshot < 200 ms dipakai ulang",a==b,true);
-    SystemClock.fake+=100; eq("snapshot >= 200 ms diperbarui",Config.snapshot()!=a,true);
+    eq("snapshot < 50 ms dipakai ulang",a==b,true);
+    SystemClock.fake+=40; eq("snapshot >= 50 ms diperbarui",Config.snapshot()!=a,true);
     SystemClock.fake+=1000; Config.parse("enabled=1;lat=-7.7;lng=110.4;acc=10;random=1;rr=8");
     boolean inside=true; for(int i=0;i<200;i++){ SystemClock.fake+=250; Config.Pt p=Config.snapshot();
       if(Math.abs(p.lat+7.7)*111320.0>8.001 || Math.abs(p.lng-110.4)*111320.0*Math.cos(Math.toRadians(-7.7))>8.001) inside=false; }
@@ -55,6 +55,7 @@ public class BeatTest {
     Config.refresh(null,null,ready);
     eq("refresh: cfg terbaca",Config.enabled,true); eq("refresh: sys off",Config.system,false); eq("refresh: onReady belum jalan",ran[0],0);
     st.put("gpsz_sys","1"); Config.refresh(null,null,ready);
+    eq("refresh: penanda baca dibersihkan",Config.READING.get()==null,true);
     eq("refresh: sys on",Config.system,true); eq("refresh: heartbeat off",Config.sysHeartbeat,false); eq("refresh: onReady jalan",ran[0],1);
     eq("refresh: hook gagal -> live tidak dipublikasikan",st.containsKey("gpsz_sys_live"),false);
     st.put("gpsz_sys","2"); Config.refresh(null,null,ready); Config.refresh(null,null,ready);

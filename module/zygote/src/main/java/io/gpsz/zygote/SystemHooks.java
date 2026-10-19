@@ -29,18 +29,19 @@ final class SystemHooks {
         LocationManager.GPS_PROVIDER, LocationManager.FUSED_PROVIDER, LocationManager.NETWORK_PROVIDER
     };
 
-    private static final int K_LAST = 0, K_BLOCK_VOID = 1, K_BLOCK_BOOL = 2, K_ARG_LOCATION = 3, K_ARG_RESULT = 4;
+    private static final int K_LAST = 0, K_BLOCK_VOID = 1, K_BLOCK_BOOL = 2, K_ARG_LOCATION = 3, K_ARG_RESULT = 4, K_STATUS_VOID = 5, K_STATUS_BOOL = 6;
     private static boolean installed = false;
     private static boolean generatorStarted = false;
     private static int lpmHooks = 0, lmsHooks = 0, lmsTries = 0;
     private static Class<?> resultClass;
     private static Method resultMap, resultSize, resultGet, resultWrap;
     private static boolean wrapTakesList = true;
-    private static Method setMock;
+    private static final java.util.Random RND = new java.util.Random();
     private static Class<?> lpmClass, lmsClass;
-    private static Method lpmGetName, lpmOnReport;
+    private static Method lpmGetName, lpmOnReport, enabledForUser;
     private static Field lpmEmergency;
     private static final Map<String, Object> managers = new ConcurrentHashMap<>();
+    private static final Map<Object, String> managerNames = new ConcurrentHashMap<>();
     private static volatile long lastGpsReport = 0;
     private static final long IDLE_WAIT_MS = 10_000;
 
@@ -146,16 +147,13 @@ final class SystemHooks {
         } catch (Throwable t) {
             Log.w(TAG, "system hooks: android.location.LocationResult unavailable: " + t);
         }
-        for (String n : new String[]{"setMock", "setIsFromMockProvider"}) {
-            Method m = findMethod(Location.class, n, boolean.class);
-            if (m != null) { setMock = m; break; }
-        }
         try {
             lpmClass = Class.forName(LPM, false, cl);
             lpmGetName = findMethod(lpmClass, "getName");
             if (resultClass != null) lpmOnReport = findMethod(lpmClass, "onReportLocation", resultClass);
             lpmEmergency = findField(lpmClass, "mEmergencyHelper");
             lmsClass = Class.forName(LMS, false, cl);
+            enabledForUser = findMethod(lmsClass, "isProviderEnabledForUser", String.class, int.class);
         } catch (Throwable t) {
             Log.w(TAG, "system hooks: LocationProviderManager lookup failed: " + t);
         }
@@ -182,6 +180,11 @@ final class SystemHooks {
                     kind = K_LAST;
                 } else if (n.equals("injectLocation") && ps.length >= 1 && ps[0] == Location.class) {
                     kind = K_ARG_LOCATION; argIdx = 1;
+                } else if (n.equals("registerGnssStatusCallback") && (ret == void.class || ret == boolean.class)) {
+                    for (int i = 0; i < ps.length; i++) {
+                        if (ps[i] == String.class) { argIdx = i + 1; break; }
+                    }
+                    if (argIdx > 0) kind = ret == void.class ? K_STATUS_VOID : K_STATUS_BOOL;
                 } else if (isGnssBlockTarget(n)) {
                     if (ret == void.class) kind = K_BLOCK_VOID;
                     else if (ret == boolean.class) kind = K_BLOCK_BOOL;
@@ -206,8 +209,12 @@ final class SystemHooks {
     private static boolean isGnssBlockTarget(String n) {
         return n.equals("startGnssBatch") || n.equals("addGnssBatchingCallback")
                 || n.equals("addGnssAntennaInfoListener") || n.equals("addGnssMeasurementsListener")
-                || n.equals("addGnssNavigationMessageListener");
+                || n.equals("addGnssNavigationMessageListener") || n.equals("registerGnssNmeaCallback")
+                || n.equals("addNmeaListener");
     }
+
+    private static final java.util.Set<String> TRUSTED_GNSS = new java.util.HashSet<>(java.util.Arrays.asList(
+            "android", "com.google.android.gms", "com.google.android.gsf", "com.android.location.fused"));
 
     private static boolean active() {
         return Config.enabled && Config.system && !Config.sysHeartbeat && !Double.isNaN(Config.lat) && !Double.isNaN(Config.lng);
@@ -236,20 +243,20 @@ final class SystemHooks {
         Location l = new Location(src);
         l.setProvider(provider);
         if (!l.hasAccuracy() || l.getAccuracy() <= 0f) l.setAccuracy(20f);
-        l.setTime(System.currentTimeMillis() - 300);
-        l.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
+        Fix.stamp(l, provider);
         return l;
     }
 
     private static HookTransformer transformer(final int kind, final int argIdx) {
         return (original, frame) -> {
             boolean handled = false;
+            Throwable denied = null;
             try {
                 if (kind == K_ARG_RESULT) {
                     Object self = frame.accessor().getReference(0);
                     String name = register(self);
                     if (LocationManager.GPS_PROVIDER.equals(name)) lastGpsReport = SystemClock.elapsedRealtime();
-                    if (!active()) captureReal(frame.accessor().getReference(argIdx));
+                    if (Config.sysHeartbeat) captureReal(frame.accessor().getReference(argIdx));
                     if (active() && !inEmergency(self)) {
                         Object o = frame.accessor().getReference(argIdx);
                         Object replaced = spoofResult(o);
@@ -260,13 +267,29 @@ final class SystemHooks {
                         case K_LAST: {
                             Object p = frame.accessor().getReference(1);
                             String provider = p instanceof String ? (String) p : LocationManager.GPS_PROVIDER;
-                            frame.accessor().setValue(EmulatedStackFrame.RETURN_VALUE_IDX, freshFix(provider));
+                            if (anyEmergency()) break;
                             handled = true;
+                            try {
+                                Transformers.invokeExactNoChecks(original, frame);
+                            } catch (Throwable e) {
+                                denied = e;
+                            }
+                            if (denied == null && providerEnabled(frame.accessor().getReference(0), provider)) {
+                                frame.accessor().setValue(EmulatedStackFrame.RETURN_VALUE_IDX, Fix.fresh(provider));
+                            }
                             break;
                         }
                         case K_BLOCK_VOID:
                             handled = true;
                             break;
+                        case K_STATUS_VOID:
+                        case K_STATUS_BOOL: {
+                            Object pkg = frame.accessor().getReference(argIdx);
+                            if (pkg instanceof String && TRUSTED_GNSS.contains(pkg)) break;
+                            if (kind == K_STATUS_BOOL) frame.accessor().setValue(EmulatedStackFrame.RETURN_VALUE_IDX, Boolean.FALSE);
+                            handled = true;
+                            break;
+                        }
                         case K_BLOCK_BOOL:
                             frame.accessor().setValue(EmulatedStackFrame.RETURN_VALUE_IDX, Boolean.FALSE);
                             handled = true;
@@ -281,6 +304,7 @@ final class SystemHooks {
             } catch (Throwable t) {
                 ZygoteEntry.warnOnce("system fake", t);
             }
+            if (denied != null) ZygoteEntry.<RuntimeException>sneaky(denied);
             if (!handled) {
                 try {
                     Transformers.invokeExactNoChecks(original, frame);
@@ -310,9 +334,14 @@ final class SystemHooks {
 
     private static String register(Object manager) {
         if (manager == null || lpmClass == null || lpmGetName == null || !lpmClass.isInstance(manager)) return null;
+        String known = managerNames.get(manager);
+        if (known != null) return known;
         try {
             String name = (String) lpmGetName.invoke(manager);
-            if (name != null) managers.put(name, manager);
+            if (name != null) {
+                managers.put(name, manager);
+                managerNames.put(manager, name);
+            }
             return name;
         } catch (Throwable t) {
             return null;
@@ -343,6 +372,20 @@ final class SystemHooks {
         }
     }
 
+    private static boolean providerEnabled(Object lms, String provider) {
+        try {
+            if (enabledForUser == null || lms == null || lmsClass == null || !lmsClass.isInstance(lms)) return true;
+            return (Boolean) enabledForUser.invoke(lms, provider, android.os.Binder.getCallingUid() / 100000);
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
+    private static boolean anyEmergency() {
+        for (Object m : managers.values()) if (inEmergency(m)) return true;
+        return false;
+    }
+
     private static void startGenerator() {
         if (lpmOnReport == null || resultWrap == null) {
             Log.w(TAG, "system hooks: fix generator disabled (onReportLocation=" + (lpmOnReport != null)
@@ -352,10 +395,11 @@ final class SystemHooks {
         Thread th = new Thread(() -> {
             long lastScan = 0;
             long wait = 1000;
+            long period = 990 + RND.nextInt(21);
             for (;;) {
                 try {
                     Thread.sleep(wait);
-                    wait = 1000;
+                    wait = period;
                     final boolean full = active();
                     if (!full && !beat()) {
                         synchronized (Config.WAKE) {
@@ -366,19 +410,18 @@ final class SystemHooks {
                     }
                     long now = SystemClock.elapsedRealtime();
                     long since = now - lastGpsReport;
-                    if (since < 900) { wait = Math.max(20, 1000 - since); continue; }
+                    if (since < period - 100) { wait = Math.max(20, period - since); continue; }
+                    period = 990 + RND.nextInt(21);
                     if (!managers.containsKey(LocationManager.GPS_PROVIDER) && now - lastScan > 5000) {
                         lastScan = now;
                         scanForManagers();
                     }
-                    boolean emergency = false;
-                    for (Object m : managers.values()) if (inEmergency(m)) { emergency = true; break; }
-                    if (emergency) continue;
+                    if (anyEmergency()) continue;
                     for (String name : PROVIDERS) {
                         Object mgr = managers.get(name);
                         if (mgr == null) continue;
                         try {
-                            Location fix = full ? freshFix(name) : realBeat(name);
+                            Location fix = full ? Fix.fresh(name) : realBeat(name);
                             if (fix == null) continue;
                             Object res = wrap(fix);
                             if (res != null) lpmOnReport.invoke(mgr, res);
@@ -432,48 +475,14 @@ final class SystemHooks {
         }
     }
 
-    private static void clearMock(Location l) {
-        if (setMock == null) return;
-        try { setMock.invoke(l, Boolean.FALSE); } catch (Throwable ignored) { }
-    }
-
-    private static void applyMotion(Location l) {
-        Config.tick();
-        l.setAltitude(Config.altitudeNow());
-        l.setSpeed(Config.spd);
-        float b = Config.brg;
-        if (Float.isNaN(b)) l.removeBearing(); else l.setBearing(b);
-        l.removeSpeedAccuracy();
-        l.removeBearingAccuracy();
-        l.removeVerticalAccuracy();
-    }
-
     private static void apply(Location l) {
-        Config.Pt p = Config.snapshot();
-        l.setLatitude(p.lat);
-        l.setLongitude(p.lng);
-        l.setAccuracy(Config.accNow());
-        applyMotion(l);
-        clearMock(l);
+        Fix.apply(l, l.getProvider(), Config.snapshot());
     }
 
     private static Location spoof(Location orig) {
         if (orig == null) return null;
         Location l = new Location(orig);
         apply(l);
-        return l;
-    }
-
-    private static Location freshFix(String provider) {
-        Location l = new Location(provider);
-        Config.Pt p = Config.snapshot();
-        l.setLatitude(p.lat);
-        l.setLongitude(p.lng);
-        l.setAccuracy(Config.accNow());
-        applyMotion(l);
-        l.setTime(System.currentTimeMillis() - 300);
-        l.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
-        clearMock(l);
         return l;
     }
 

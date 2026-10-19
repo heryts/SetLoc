@@ -70,6 +70,11 @@
     <string name="route_needs_system_msg">Agar rute di app target lebih akurat dan real-time, nyalakan mode System-wide atau&#160;Heartbeat.</string>
     <string name="route_needs_system_continue">Tetap lanjut</string>
 
+    <string name="settings_network">Privasi jaringan</string>
+    <string name="settings_hide_net">Sembunyikan data Wi-Fi dan seluler</string>
+    <string name="settings_hide_net_summary">App yang di-hook tidak bisa melihat jaringan Wi-Fi sekitar, access point yang tersambung, atau menara seluler</string>
+    <string name="settings_hide_bt">Blokir scan Bluetooth</string>
+    <string name="settings_hide_bt_summary">App yang di-hook tidak bisa mencari perangkat Bluetooth sekitar. Bisa merusak pairing dengan jam tangan dan headset</string>
     <string name="settings_route">Rute</string>
     <string name="settings_traffic_aware">Traffic aware</string>
     <string name="settings_traffic_aware_summary">Rute mengikuti lalu lintas saat ini</string>
