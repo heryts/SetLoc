@@ -47,5 +47,5 @@ wait "$SETUP_PID" || { cat "$SETUP_LOG"; exit 1; }
 cat "$SETUP_LOG"
 
 echo "== 3/3 build modul Zygisk =="
-( cd module && with_jdk "$J21" sh ./gradlew :zygote:assembleRelease )
+( cd module && with_jdk "$J21" sh ./gradlew --no-configuration-cache :zygote:assembleRelease )
 ls module/zygote/build/outputs/magisk/release/*.zip

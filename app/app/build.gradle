@@ -65,6 +65,10 @@ android {
     namespace 'com.heryts.setloc'
 }
 
+secrets {
+    defaultPropertiesFileName = 'local.defaults.properties'
+}
+
 kotlin {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11
