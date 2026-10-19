@@ -21,6 +21,7 @@ object RouteClient {
     class Result(val points: List<LatLng>, val durationS: Double)
 
     private val MODES = arrayOf("WALK", "BICYCLE", "DRIVE", "DRIVE")
+    private const val MODE_MOTOR = 2
 
     private const val ENDPOINT = "https://routes.googleapis.com/directions/v2:computeRoutes"
     private const val FIELD_MASK = "routes.duration,routes.polyline.encodedPolyline"
@@ -30,10 +31,11 @@ object RouteClient {
     suspend fun fetch(context: Context, stops: List<LatLng>, mode: Int): Result =
         withContext(Dispatchers.IO) {
             if (stops.size < 2) throw RouteException(R.string.route_err_min_points)
-            request(context.applicationContext, stops, MODES[mode.coerceIn(0, MODES.size - 1)])
+            val idx = mode.coerceIn(0, MODES.size - 1)
+            request(context.applicationContext, stops, MODES[idx], idx == MODE_MOTOR)
         }
 
-    private suspend fun request(context: Context, stops: List<LatLng>, travelMode: String): Result {
+    private suspend fun request(context: Context, stops: List<LatLng>, travelMode: String, avoidTolls: Boolean): Result {
         val key = apiKey(context) ?: throw RouteException(R.string.route_err_no_key)
 
         val body = JSONObject()
@@ -41,6 +43,7 @@ object RouteClient {
             .put("destination", waypoint(stops.last()))
             .put("travelMode", travelMode)
             .put("polylineEncoding", "ENCODED_POLYLINE")
+        if (avoidTolls) body.put("routeModifiers", JSONObject().put("avoidTolls", true))
         if (travelMode == "DRIVE" && PrefManager.trafficAware) body.put("routingPreference", "TRAFFIC_AWARE")
         if (stops.size > 2) {
             val mid = JSONArray()
