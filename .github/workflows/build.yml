@@ -37,10 +37,10 @@ jobs:
       - name: Siapkan zip
         run: cp module/zygote/build/outputs/magisk/release/SetLocZygisk-release.zip "SetLocZygisk-v${{ steps.ver.outputs.name }}.zip"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
-          name: SetLocZygisk-v${{ steps.ver.outputs.name }}
           path: SetLocZygisk-v${{ steps.ver.outputs.name }}.zip
+          archive: false
           if-no-files-found: error
 
       - uses: softprops/action-gh-release@v2
