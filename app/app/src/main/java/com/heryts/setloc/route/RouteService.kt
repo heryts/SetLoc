@@ -41,11 +41,7 @@ class RouteService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             RouteRunner.stop()
-            PrefManager.updateNow(
-                false,
-                PrefManager.getLat,
-                PrefManager.getLng
-            )
+            PrefManager.update(false, PrefManager.getLat, PrefManager.getLng)
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
@@ -57,6 +53,11 @@ class RouteService : Service() {
         }
 
         if (!RouteRunner.isRunning) {
+            try {
+                startForeground(NOTIF_ID, buildNotification(0))
+            } catch (_: Throwable) {
+            }
+            stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
         }

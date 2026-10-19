@@ -2,23 +2,33 @@ package com.heryts.setloc.route
 
 import android.content.Context
 import com.google.android.gms.maps.model.LatLng
+import com.heryts.setloc.utils.Http
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
+import java.net.URLEncoder
 import java.util.Locale
 
 object ElevationClient {
     private const val GOOGLE = "https://maps.googleapis.com/maps/api/elevation/json"
     private const val OPEN_METEO = "https://api.open-meteo.com/v1/elevation"
     private const val MAX_SAMPLES = 100
+    private const val CACHE_SIZE = 8
+
+    private val cache = object : LinkedHashMap<String, FloatArray>(CACHE_SIZE, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, FloatArray>?) = size > CACHE_SIZE
+    }
 
     suspend fun fetch(context: Context, points: List<LatLng>): FloatArray? =
         withContext(Dispatchers.IO) {
             val pts = if (points.size > MAX_SAMPLES) points.subList(0, MAX_SAMPLES) else points
             if (pts.isEmpty()) return@withContext null
-            google(context.applicationContext, pts) ?: openMeteo(pts)
+            val key = encodePolyline(pts)
+            synchronized(cache) { cache[key] }?.let { return@withContext it }
+            val res = google(context.applicationContext, pts, key) ?: openMeteo(pts)
+            if (res != null) synchronized(cache) { cache[key] = res }
+            res
         }
 
     fun sample(points: List<LatLng>, n: Int): List<LatLng> {
@@ -42,44 +52,35 @@ object ElevationClient {
         return out
     }
 
-    private fun google(context: Context, pts: List<LatLng>): FloatArray? = try {
-        val key = RouteClient.apiKey(context)
-        if (key == null) null else {
-            val url = "$GOOGLE?locations=enc:${encodePolyline(pts)}&key=$key"
-            val text = get(url) { conn ->
-                conn.setRequestProperty("X-Android-Package", context.packageName)
-                RouteClient.certSha1(context)?.let { conn.setRequestProperty("X-Android-Cert", it) }
-            }
-            val json = JSONObject(text)
-            val res = json.optJSONArray("results")
-            if (json.optString("status") != "OK" || res == null || res.length() != pts.size) null
-            else FloatArray(pts.size) { res.getJSONObject(it).getDouble("elevation").toFloat() }
-        }
+    private inline fun <T> attempt(block: () -> T?): T? = try {
+        block()
+    } catch (c: CancellationException) {
+        throw c
     } catch (_: Exception) {
         null
     }
 
-    private fun openMeteo(pts: List<LatLng>): FloatArray? = try {
+    private suspend fun google(context: Context, pts: List<LatLng>, encoded: String): FloatArray? = attempt {
+        val key = RouteClient.apiKey(context) ?: return@attempt null
+        val headers = HashMap<String, String>(2)
+        headers["X-Android-Package"] = context.packageName
+        RouteClient.certSha1(context)?.let { headers["X-Android-Cert"] = it }
+        val res = Http.call("$GOOGLE?locations=enc:${URLEncoder.encode(encoded, "UTF-8")}&key=$key", headers = headers, retries = 0)
+        if (!res.ok) return@attempt null
+        val json = JSONObject(res.text)
+        val arr = json.optJSONArray("results")
+        if (json.optString("status") != "OK" || arr == null || arr.length() != pts.size) null
+        else FloatArray(pts.size) { arr.getJSONObject(it).getDouble("elevation").toFloat() }
+    }
+
+    private suspend fun openMeteo(pts: List<LatLng>): FloatArray? = attempt {
         val lat = pts.joinToString(",") { String.format(Locale.US, "%.5f", it.latitude) }
         val lng = pts.joinToString(",") { String.format(Locale.US, "%.5f", it.longitude) }
-        val arr = JSONObject(get("$OPEN_METEO?latitude=$lat&longitude=$lng") { }).optJSONArray("elevation")
+        val res = Http.call("$OPEN_METEO?latitude=$lat&longitude=$lng")
+        if (!res.ok) return@attempt null
+        val arr = JSONObject(res.text).optJSONArray("elevation")
         if (arr == null || arr.length() != pts.size) null
         else FloatArray(pts.size) { arr.getDouble(it).toFloat() }
-    } catch (_: Exception) {
-        null
-    }
-
-    private fun get(url: String, headers: (HttpURLConnection) -> Unit): String {
-        val conn = URL(url).openConnection() as HttpURLConnection
-        try {
-            conn.connectTimeout = 8_000
-            conn.readTimeout = 12_000
-            headers(conn)
-            if (conn.responseCode !in 200..299) throw java.io.IOException("HTTP ${conn.responseCode}")
-            return conn.inputStream.bufferedReader().use { it.readText() }
-        } finally {
-            conn.disconnect()
-        }
     }
 
     private fun encodePolyline(points: List<LatLng>): String {

@@ -4,30 +4,24 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Notification
 import android.content.Intent
-import android.location.Address
-import android.location.Geocoder
-import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import android.widget.EditText
-import android.widget.TextView
 import androidx.activity.viewModels
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import androidx.core.widget.doAfterTextChanged
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.heryts.setloc.BuildConfig
 import com.heryts.setloc.R
 import com.heryts.setloc.adapter.FavListAdapter
 import com.heryts.setloc.databinding.ActivityMapBinding
@@ -51,22 +45,11 @@ import com.google.android.gms.maps.model.Marker
 import com.google.android.gms.maps.model.MarkerOptions
 import com.google.android.gms.maps.model.Polyline
 import com.google.android.gms.maps.model.PolylineOptions
-import com.google.android.material.bottomsheet.BottomSheetDialog
-import com.google.android.material.textfield.TextInputLayout
-import com.google.android.material.chip.ChipGroup
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOn
-import java.io.IOException
 import java.util.Locale
-import java.util.regex.Matcher
-import java.util.regex.Pattern
 
-@AndroidEntryPoint
 class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClickListener,
     GoogleMap.OnMapLongClickListener {
     private val binding by lazy { ActivityMapBinding.inflate(layoutInflater) }
@@ -85,11 +68,22 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     private var routePoints: List<LatLng> = emptyList()
     private var routeDurationS: Double? = null
     private var routeLoading = false
+    private var currentRouteKey: String? = null
     private var routeJob: Job? = null
+    private class CachedRoute(val result: RouteClient.Result, val at: Long, var elev: FloatArray? = null)
+    private val routeCache = object : LinkedHashMap<String, CachedRoute>(8, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CachedRoute>?): Boolean = size > 8
+    }
     private var elevationJob: Job? = null
     private var clearHintShown = false
     private var wasRouteRunning = false
     private val routeReady get() = routePoints.size >= 2 && !routeLoading
+
+    private companion object {
+        const val ROUTE_DEBOUNCE_MS = 700L
+        const val ROUTE_CACHE_TRAFFIC_MS = 5 * 60_000L
+        const val ROUTE_CACHE_MS = 30 * 60_000L
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -104,6 +98,19 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         setFloatActionButton()
         setRouteButton()
         observeRoute()
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.allFavList.collect { favListAdapter.submitList(it) }
+            }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 99 && ::mMap.isInitialized && checkSinglePermission(Manifest.permission.ACCESS_FINE_LOCATION)) {
+            mMap.isMyLocationEnabled = true
+        }
     }
 
     private fun setRunningUi(running: Boolean) {
@@ -186,7 +193,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
                     99
                 )
             }
-            setPadding(0,0,0,170)
+            setPadding(0, 0, 0, (64 * resources.displayMetrics.density).toInt())
             setOnMapClickListener(this@MapActivity)
             setOnMapLongClickListener(this@MapActivity)
             if (viewModel.isStarted){
@@ -255,6 +262,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         routeLine?.remove()
         routeLine = null
         routePoints = emptyList()
+        currentRouteKey = null
         RouteRunner.elevations = null
     }
 
@@ -285,6 +293,36 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         if (routeWaypoints.size >= 2) fetchRoute(dropLastOnFail = false) else updateRouteFab()
     }
 
+    private fun routeKey(stops: List<LatLng>): String {
+        val sb = StringBuilder()
+        stops.forEach { sb.append("%.6f,%.6f;".format(Locale.US, it.latitude, it.longitude)) }
+        return sb.append(PrefManager.routeMode).append(PrefManager.trafficAware).toString()
+    }
+
+    private fun applyRoute(result: RouteClient.Result, key: String, elev: FloatArray?) {
+        currentRouteKey = key
+        routeLine?.remove()
+        routePoints = result.points
+        routeDurationS = result.durationS.takeIf { it > 0.0 }
+        routeLine = mMap.addPolyline(
+            PolylineOptions()
+                .addAll(result.points)
+                .width(12f)
+                .color(ContextCompat.getColor(this@MapActivity, R.color.primary))
+                .zIndex(1f)
+        )
+        routeLoading = false
+        try {
+            val bounds = LatLngBounds.Builder()
+            result.points.forEach { bounds.include(it) }
+            mMap.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds.build(), 140))
+        } catch (_: Exception) {
+        }
+        updateRouteFab()
+        if (elev != null && PrefManager.altitudeFromServer) RouteRunner.elevations = elev
+        else fetchElevations(result.points)
+    }
+
     private fun fetchRoute(dropLastOnFail: Boolean) {
         if (routeWaypoints.size < 2) return
         val stops = routeWaypoints.toList()
@@ -292,39 +330,31 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         elevationJob?.cancel()
         RouteRunner.elevations = null
         updateRouteFab()
+        val key = routeKey(stops)
+        val ttl = if (PrefManager.trafficAware && PrefManager.routeMode >= 2) ROUTE_CACHE_TRAFFIC_MS else ROUTE_CACHE_MS
+        val cached = routeCache[key]?.takeIf { android.os.SystemClock.elapsedRealtime() - it.at < ttl }
+        if (cached != null) {
+            routeJob?.cancel()
+            applyRoute(cached.result, key, cached.elev)
+            return
+        }
         if (!isNetworkConnected()) {
             showToast(getString(R.string.no_internet))
             routeFetchFailed(dropLastOnFail)
             return
         }
-        showToast(getString(R.string.route_searching))
         routeJob?.cancel()
         routeJob = lifecycleScope.launch {
             try {
+                delay(ROUTE_DEBOUNCE_MS)
+                showToast(getString(R.string.route_searching))
                 val result = RouteClient.fetch(this@MapActivity, stops, PrefManager.routeMode)
-                routeLine?.remove()
-                routePoints = result.points
-                routeDurationS = result.durationS.takeIf { it > 0.0 }
-                routeLine = mMap.addPolyline(
-                    PolylineOptions()
-                        .addAll(result.points)
-                        .width(12f)
-                        .color(ContextCompat.getColor(this@MapActivity, R.color.primary))
-                        .zIndex(1f)
-                )
-                routeLoading = false
-                try {
-                    val bounds = LatLngBounds.Builder()
-                    result.points.forEach { bounds.include(it) }
-                    mMap.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds.build(), 140))
-                } catch (_: Exception) {
-                }
-                updateRouteFab()
-                fetchElevations(result.points)
+                routeCache[key] = CachedRoute(result, android.os.SystemClock.elapsedRealtime())
+                applyRoute(result, key, null)
             } catch (c: CancellationException) {
                 throw c
             } catch (e: Exception) {
-                showToast(e.message ?: getString(R.string.address_not_found))
+                showToast((e as? RouteClient.RouteException)?.text(this@MapActivity) ?: e.message ?: getString(R.string.address_not_found))
                 routeFetchFailed(dropLastOnFail)
             }
         }
@@ -354,7 +384,10 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         }
         elevationJob = lifecycleScope.launch {
             val samples = ElevationClient.sample(points, 100)
-            ElevationClient.fetch(this@MapActivity, samples)?.let { RouteRunner.elevations = it }
+            ElevationClient.fetch(this@MapActivity, samples)?.let { e ->
+                RouteRunner.elevations = e
+                currentRouteKey?.let { k -> routeCache[k]?.elev = e }
+            }
         }
     }
 
@@ -397,9 +430,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             position = first
             isVisible = true
         }
-        if (Build.VERSION.SDK_INT >= 33 &&
-            !checkSinglePermission(Manifest.permission.POST_NOTIFICATIONS)
-        ) {
+        if (!checkSinglePermission(Manifest.permission.POST_NOTIFICATIONS)) {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
         }
         val speed = PrefManager.routeSpeed.takeIf { it > 0f }
@@ -412,6 +443,20 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         setRunningUi(true)
         updateRouteFab()
         mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(first, 16f))
+    }
+
+    private fun insideCenter(pos: LatLng): Boolean = try {
+        val b = mMap.projection.visibleRegion.latLngBounds
+        val c = b.center
+        val hLat = (b.northeast.latitude - b.southwest.latitude) / 2 * 0.5
+        var span = b.northeast.longitude - b.southwest.longitude
+        if (span < 0) span += 360.0
+        val hLng = span / 2 * 0.5
+        var dLng = Math.abs(pos.longitude - c.longitude)
+        if (dLng > 180) dLng = 360 - dLng
+        Math.abs(pos.latitude - c.latitude) <= hLat && dLng <= hLng
+    } catch (_: Exception) {
+        false
     }
 
     private fun observeRoute() {
@@ -427,7 +472,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
                                 position = pos
                                 isVisible = true
                             }
-                            mMap.animateCamera(CameraUpdateFactory.newLatLng(pos))
+                            if (!insideCenter(pos)) mMap.animateCamera(CameraUpdateFactory.newLatLng(pos))
                         }
                         setRunningUi(true)
                     }
@@ -449,228 +494,16 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         }
     }
 
-    private fun showRouteOptions() {
-        val sheet = BottomSheetDialog(this)
-        val view = layoutInflater.inflate(R.layout.route_options, null)
-        val summary = view.findViewById<TextView>(R.id.route_summary)
-        val chips = view.findViewById<ChipGroup>(R.id.route_mode)
-        val speedEt = view.findViewById<EditText>(R.id.route_speed)
-        val speedVarEt = view.findViewById<EditText>(R.id.route_speed_var)
-        val unitSp = view.findViewById<android.widget.Spinner>(R.id.route_speed_unit)
-        val varUnitSp = view.findViewById<android.widget.Spinner>(R.id.route_speed_var_unit)
-        val speedLayout = view.findViewById<TextInputLayout>(R.id.route_speed_layout)
-        val speedVarLayout = view.findViewById<TextInputLayout>(R.id.route_speed_var_layout)
-        val waitEt = view.findViewById<EditText>(R.id.route_wait)
-        val waitEndEt = view.findViewById<EditText>(R.id.route_wait_end)
-        val waitLayout = view.findViewById<TextInputLayout>(R.id.route_wait_layout)
-        val waitEndLayout = view.findViewById<TextInputLayout>(R.id.route_wait_end_layout)
-        val altEt = view.findViewById<EditText>(R.id.route_altitude)
-        val altVarEt = view.findViewById<EditText>(R.id.route_altitude_var)
-        val altLayout = view.findViewById<TextInputLayout>(R.id.route_altitude_layout)
-        val altVarLayout = view.findViewById<TextInputLayout>(R.id.route_altitude_var_layout)
-        val altServerCb = view.findViewById<android.widget.CompoundButton>(R.id.route_altitude_server)
-        val trafficCb = view.findViewById<android.widget.CompoundButton>(R.id.route_traffic_aware)
-
-        val modeIds = intArrayOf(R.id.mode_walk, R.id.mode_bike, R.id.mode_motor, R.id.mode_car)
-        val oldMode = PrefManager.routeMode.coerceIn(0, modeIds.size - 1)
-        val distance = RouteRunner.routeLength(routePoints)
-
-        fun selectedMode() = modeIds.indexOf(chips.checkedChipId).let { if (it < 0) oldMode else it }
-        fun autoSpeedKmh() = AutoSpeed.kmh(
-            selectedMode(), distance, if (selectedMode() == oldMode) routeDurationS else null
+    private fun showRouteOptions() = openRouteOptions(
+        RouteOptionsHost(
+            points = { routePoints },
+            durationS = { routeDurationS },
+            waypointCount = { routeWaypoints.size },
+            refetchRoute = { fetchRoute(dropLastOnFail = false) },
+            refetchElevations = { fetchElevations(routePoints) },
+            clearRoute = { clearRoute() }
         )
-
-        val kmPerMile = 1.609344f
-        var mph = PrefManager.speedUnitMph
-        fun toUnit(kmh: Float) = if (mph) kmh / kmPerMile else kmh
-        fun toKmh(v: Float) = if (mph) v * kmPerMile else v
-        fun numU(f: Float) = fmtNum(Math.round(f * 10f) / 10f)
-
-        fun refreshSummary() {
-            val sp = speedEt.text.toString().toFloatOrNull()?.let { toKmh(it) } ?: autoSpeedKmh()
-            summary.text = if (sp > 0f) {
-                getString(
-                    R.string.route_summary,
-                    formatDistance(distance),
-                    formatDuration(distance / (sp / 3.6))
-                )
-            } else formatDistance(distance)
-        }
-
-        var varUnit = PrefManager.speedVarUnit.coerceIn(0, 2)
-        val varUnitNames = arrayOf("%", "km/h", "MPH")
-        fun varToKmh(v: Float, u: Int, speedKmh: Float) = when (u) {
-            0 -> speedKmh * v / 100f
-            2 -> v * kmPerMile
-            else -> v
-        }
-        fun varFromKmh(kmh: Float, u: Int, speedKmh: Float) = when (u) {
-            0 -> if (speedKmh > 0f) kmh / speedKmh * 100f else 0f
-            2 -> kmh / kmPerMile
-            else -> kmh
-        }
-        fun currentSpeedKmh() = speedEt.text.toString().toFloatOrNull()?.let { toKmh(it) } ?: autoSpeedKmh()
-
-        var speedAuto = PrefManager.routeSpeed <= 0f
-        var varAuto = PrefManager.routeSpeedVarRaw < 0f
-        var programmatic = false
-        fun setText(et: EditText, t: String) {
-            programmatic = true
-            et.setText(t)
-            programmatic = false
-        }
-
-        chips.check(modeIds[oldMode])
-        setText(
-            speedEt,
-            numU(toUnit(if (speedAuto) autoSpeedKmh() else PrefManager.routeSpeed))
-        )
-        run {
-            val sp = currentSpeedKmh()
-            val shown = if (varAuto) varFromKmh(sp * 0.08f, varUnit, sp) else PrefManager.routeSpeedVarRaw
-            setText(speedVarEt, numU(shown))
-        }
-        waitEt.setText(fmtNum(PrefManager.routeWaitStart))
-        waitEndEt.setText(if (PrefManager.routeWaitEnd < 0f) "" else fmtNum(PrefManager.routeWaitEnd))
-        altEt.setText(fmtNum(PrefManager.altitudeManual))
-        altVarEt.setText(fmtNum(PrefManager.altitudeVariation))
-        altServerCb.isChecked = PrefManager.altitudeFromServer
-        trafficCb.isChecked = PrefManager.trafficAware
-
-        fun autoLabel(
-            layout: TextInputLayout, et: EditText,
-            autoText: () -> String = { getString(R.string.route_auto) }, normal: () -> String
-        ): () -> Unit {
-            layout.isExpandedHintEnabled = false
-            val apply = {
-                layout.hint = normal()
-                layout.placeholderText = autoText()
-            }
-            et.doAfterTextChanged { apply() }
-            apply()
-            return apply
-        }
-        autoLabel(speedLayout, speedEt) { getString(R.string.route_speed) }
-        val refreshVarLabel = autoLabel(speedVarLayout, speedVarEt) { varUnitNames[varUnit] }
-        autoLabel(waitLayout, waitEt) { getString(R.string.route_wait_start) }
-        autoLabel(waitEndLayout, waitEndEt, { getString(R.string.route_auto_stop) }) { getString(R.string.route_wait_end) }
-        autoLabel(altLayout, altEt) { getString(R.string.route_altitude) }
-        autoLabel(altVarLayout, altVarEt) { getString(R.string.route_altitude_var) }
-
-        unitSp.adapter = android.widget.ArrayAdapter(
-            this, android.R.layout.simple_spinner_item, arrayOf("km/h", "MPH")
-        ).also { it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
-        unitSp.setSelection(if (mph) 1 else 0)
-        unitSp.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(p: android.widget.AdapterView<*>?, v: View?, pos: Int, id: Long) {
-                val newMph = pos == 1
-                if (newMph == mph) return
-                val oldMph = mph
-                mph = newMph
-                speedEt.text.toString().toFloatOrNull()?.let {
-                    val kmh = if (oldMph) it * kmPerMile else it
-                    setText(speedEt, numU(toUnit(kmh)))
-                }
-                refreshSummary()
-            }
-            override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
-        }
-
-        varUnitSp.adapter = android.widget.ArrayAdapter(
-            this, android.R.layout.simple_spinner_item, varUnitNames
-        ).also { it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
-        varUnitSp.setSelection(varUnit)
-        varUnitSp.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(p: android.widget.AdapterView<*>?, v: View?, pos: Int, id: Long) {
-                if (pos == varUnit) return
-                val old = varUnit
-                varUnit = pos
-                speedVarEt.text.toString().toFloatOrNull()?.let {
-                    val sp = currentSpeedKmh()
-                    setText(speedVarEt, numU(varFromKmh(varToKmh(it, old, sp), pos, sp)))
-                }
-                refreshVarLabel()
-            }
-            override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
-        }
-        refreshSummary()
-
-        speedEt.doAfterTextChanged {
-            if (!programmatic) speedAuto = false
-            refreshSummary()
-        }
-        speedVarEt.doAfterTextChanged { if (!programmatic) varAuto = false }
-        chips.setOnCheckedStateChangeListener { _, checkedIds ->
-            val idx = checkedIds.firstOrNull()?.let { modeIds.indexOf(it) } ?: -1
-            if (idx >= 0) {
-                setText(speedEt, numU(toUnit(autoSpeedKmh())))
-                speedAuto = true
-            }
-        }
-
-        view.findViewById<View>(R.id.route_clear).setOnClickListener {
-            clearRoute()
-            sheet.dismiss()
-        }
-        view.findViewById<View>(R.id.route_save).setOnClickListener {
-            val speedBlank = speedEt.text.isNullOrBlank()
-            val typedRaw = speedEt.text.toString().toFloatOrNull()?.let { toKmh(it) }
-            if (!speedBlank && !speedAuto && (typedRaw == null || typedRaw < 1f || typedRaw > 300f)) {
-                showToast(getString(R.string.route_invalid_speed))
-                return@setOnClickListener
-            }
-            val typed: Float? = if (speedBlank || speedAuto) null else typedRaw
-            val sp = typed ?: autoSpeedKmh()
-            val wait = (waitEt.text.toString().toFloatOrNull() ?: 0f).coerceIn(0f, 600f)
-            val newMode = selectedMode()
-            PrefManager.routeSpeed = typed ?: -1f
-            PrefManager.speedVarUnit = varUnit
-            PrefManager.routeSpeedVarRaw =
-                if (speedVarEt.text.isNullOrBlank() || varAuto) -1f
-                else speedVarEt.text.toString().toFloatOrNull()
-                    ?.coerceIn(0f, if (varUnit == 0) 100f else varFromKmh(sp, varUnit, sp)) ?: -1f
-            PrefManager.speedUnitMph = mph
-            PrefManager.routeWaitStart = wait
-            PrefManager.routeWaitEnd = waitEndEt.text.toString().toFloatOrNull()?.coerceIn(0f, 600f) ?: -1f
-            val alt = (altEt.text.toString().toFloatOrNull() ?: 0f).coerceIn(-500f, 9000f)
-            val altVar = (altVarEt.text.toString().toFloatOrNull() ?: 0f).coerceIn(0f, 500f)
-            val fromServer = altServerCb.isChecked
-            val serverChanged = fromServer != PrefManager.altitudeFromServer
-            PrefManager.altitudeManual = alt
-            PrefManager.altitudeVariation = altVar
-            PrefManager.altitudeFromServer = fromServer
-            if (!fromServer) PrefManager.altitudeM = alt
-
-            if (!fromServer || (routePoints.size >= 2 && (serverChanged || RouteRunner.elevations == null))) {
-                fetchElevations(routePoints)
-            }
-            val trafficChanged = trafficCb.isChecked != PrefManager.trafficAware
-            PrefManager.trafficAware = trafficCb.isChecked
-            sheet.dismiss()
-            if (newMode != oldMode) {
-                PrefManager.routeMode = newMode
-                fetchRoute(dropLastOnFail = false)
-            } else if (trafficChanged && newMode >= 2 && routeWaypoints.size >= 2) {
-                fetchRoute(dropLastOnFail = false)
-            }
-        }
-        sheet.setContentView(view)
-        sheet.behavior.skipCollapsed = true
-        sheet.behavior.state = com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED
-        sheet.show()
-    }
-
-    private fun formatDistance(m: Double): String =
-        if (m < 1000) "${m.toInt()} m" else String.format(Locale.US, "%.1f km", m / 1000.0)
-
-    private fun formatDuration(sec: Double): String {
-        val s = sec.toLong()
-        return when {
-            s < 60 -> "$s s"
-            s < 3600 -> "${(s + 30) / 60} min"
-            else -> "${s / 3600} h ${(s % 3600) / 60} min"
-        }
-    }
+    )
 
     private fun moveMapToNewLocation(latLng: LatLng) {
     if (!::mMap.isInitialized) return
@@ -683,37 +516,18 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         }
     }
 
-    private fun aboutDialog(){
-        val alertDialog = MaterialAlertDialogBuilder(this)
-        layoutInflater.inflate(R.layout.about,null).apply {
-            val  tittle = findViewById<TextView>(R.id.design_about_title)
-            val  version = findViewById<TextView>(R.id.design_about_version)
-            val  info = findViewById<TextView>(R.id.design_about_info)
-            tittle.text = getString(R.string.app_name)
-            version.text = BuildConfig.VERSION_NAME
-            info.text = getString(R.string.about_info)
-        }.run {
-            alertDialog.setView(this)
-            alertDialog.show()
-        }
-    }
-
     override fun onCreateOptionsMenu(menu: Menu?): Boolean {
         menuInflater.inflate(R.menu.main_menu,menu)
         return true
     }
 
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-       when(item.itemId){
-            R.id.search -> searchDialog()
-            R.id.add_fav -> addFavouriteDialog()
-            R.id.get_favourite -> openFavouriteListDialog()
-            R.id.settings -> startActivity(Intent(this,SettingsActivity::class.java))
-            R.id.about -> aboutDialog()
-
-            else -> super.onOptionsItemSelected(item)
-        }
-        return true
+    override fun onOptionsItemSelected(item: MenuItem): Boolean = when (item.itemId) {
+        R.id.search -> { searchDialog(); true }
+        R.id.add_fav -> { addFavouriteDialog(); true }
+        R.id.get_favourite -> { openFavouriteListDialog(); true }
+        R.id.settings -> { startActivity(Intent(this, SettingsActivity::class.java)); true }
+        R.id.about -> { showAboutDialog(); true }
+        else -> super.onOptionsItemSelected(item)
     }
 
     private fun searchDialog() {
@@ -721,15 +535,15 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         val view = layoutInflater.inflate(R.layout.dialog_layout,null)
         val editText = view.findViewById<EditText>(R.id.search_edittxt)
         editText.hint = getString(R.string.search_hint)
-        val progressBar = buildProgressDialog("Searching...")
+        val progressBar = buildProgressDialog(getString(R.string.searching))
         alertDialog.setTitle(getString(R.string.search_dialog_title))
         alertDialog.setView(view)
-        alertDialog.setPositiveButton("Search") { _, _ ->
+        alertDialog.setPositiveButton(getString(R.string.search_button)) { _, _ ->
             if (isNetworkConnected()) {
                 val getInput = editText.text.toString().trim()
                 if (getInput.isNotEmpty()) {
                     lifecycleScope.launch {
-                        getSearchAddress(getInput)
+                        searchAddress(this@MapActivity, getInput)
                             .catch { emit(SearchProgress.Fail(getString(R.string.address_not_found))) }
                             .collect { result ->
                                 when (result) {
@@ -761,12 +575,15 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             val editText = view.findViewById<EditText>(R.id.search_edittxt)
             setTitle(getString(R.string.add_fav_dialog_title))
             setPositiveButton(getString(R.string.dialog_button_add)) { _, _ ->
-                val s = editText.text.toString()
                 val here = mLatLng
                 if (mMarker?.isVisible != true || here == null) {
-                showToast(getString(R.string.location_not_selected))
+                    showToast(getString(R.string.location_not_selected))
                 } else {
-                viewModel.storeFavorite(s, here.latitude, here.longitude) { ok -> showToast(getString(if (ok) R.string.record_saved else R.string.cant_save)) }
+                    val label = editText.text.toString().trim()
+                        .ifEmpty { "%.5f, %.5f".format(Locale.US, here.latitude, here.longitude) }
+                    viewModel.storeFavorite(label, here.latitude, here.longitude) { ok ->
+                        showToast(getString(if (ok) R.string.record_saved else R.string.cant_save))
+                    }
                 }
             }
             setView(view)
@@ -775,7 +592,6 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     }
 
     private fun openFavouriteListDialog() {
-        getAllUpdatedFavList()
         val alertDialog = MaterialAlertDialogBuilder(this)
         alertDialog.setTitle(getString(R.string.favourites))
         val view = layoutInflater.inflate(R.layout.fav,null)
@@ -783,7 +599,9 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         rcv.layoutManager = LinearLayoutManager(this)
         rcv.adapter = favListAdapter
         favListAdapter.onItemClick = {
-            moveMapToNewLocation(LatLng(it.lat!!, it.lng!!))
+            val la = it.lat
+            val lo = it.lng
+            if (la != null && lo != null) moveMapToNewLocation(LatLng(la, lo))
             if (dialog.isShowing) dialog.dismiss()
         }
         favListAdapter.onItemDelete = {
@@ -792,66 +610,6 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         alertDialog.setView(view)
         dialog = alertDialog.create()
         dialog.show()
-    }
-
-    private fun getAllUpdatedFavList(){
-        lifecycleScope.launch {
-            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED){
-                viewModel.allFavList.collect {
-                    favListAdapter.submitList(it)
-                }
-            }
-        }
-    }
-
-    private fun buildProgressDialog(message: String): AlertDialog {
-        val pad = (20 * resources.displayMetrics.density).toInt()
-        val row = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.HORIZONTAL
-            gravity = android.view.Gravity.CENTER_VERTICAL
-            setPadding(pad, pad, pad, pad)
-            addView(android.widget.ProgressBar(context))
-            addView(android.widget.TextView(context).apply {
-                text = message
-                setPadding(pad, 0, 0, 0)
-            })
-        }
-        return MaterialAlertDialogBuilder(this).setView(row).setCancelable(false).create()
-    }
-
-    private fun getSearchAddress(address: String): Flow<SearchProgress> = flow {
-        emit(SearchProgress.Progress)
-        emit(resolveAddress(address.trim()))
-    }.flowOn(Dispatchers.IO)
-
-    private suspend fun resolveAddress(input: String): SearchProgress {
-        val notFound = SearchProgress.Fail(getString(R.string.address_not_found))
-        val matcher: Matcher =
-            Pattern.compile("[-+]?\\d{1,3}([.]\\d+)?, *[-+]?\\d{1,3}([.]\\d+)?").matcher(input)
-
-        if (matcher.matches()) {
-            val parts = input.split(",")
-            val la = parts[0].trim().toDoubleOrNull()
-            val lo = parts[1].trim().toDoubleOrNull()
-            return if (la != null && lo != null && la in -90.0..90.0 && lo in -180.0..180.0) {
-                SearchProgress.Complete(la, lo)
-            } else notFound
-        }
-
-        return try {
-            if (!Geocoder.isPresent()) {
-                notFound
-            } else {
-                val list: List<Address>? = Geocoder(this, Locale.getDefault())
-                    .fromName(input, 5)
-                val first = list?.firstOrNull()
-                if (first != null) SearchProgress.Complete(first.latitude, first.longitude) else notFound
-            }
-        } catch (_: IOException) {
-            SearchProgress.Fail(getString(R.string.no_internet))
-        } catch (_: Exception) {
-            notFound
-        }
     }
 
     private fun showStartNotification(address: String){
@@ -868,14 +626,4 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     private fun cancelNotification() {
         notificationsChannel.cancelAllNotifications(this)
     }
-}
-
-private fun AlertDialog.dismissSafe() {
-    try { if (isShowing) dismiss() } catch (_: Exception) {}
-}
-
-sealed class SearchProgress {
-    object Progress : SearchProgress()
-    data class Complete(val lat: Double , val lon : Double) : SearchProgress()
-    data class Fail(val error: String?) : SearchProgress()
 }

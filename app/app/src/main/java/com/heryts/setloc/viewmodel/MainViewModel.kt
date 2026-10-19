@@ -1,40 +1,32 @@
 package com.heryts.setloc.viewmodel
 
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
-import com.heryts.setloc.repository.FavouriteRepository
-import com.heryts.setloc.room.Favourite
+import com.heryts.setloc.favourite.Favourite
+import com.heryts.setloc.favourite.FavouriteStore
 import com.heryts.setloc.utils.PrefManager
 import com.heryts.setloc.utils.ext.onIO
-import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.withContext
-import javax.inject.Inject
 
-@HiltViewModel
-class MainViewModel @Inject constructor(
-    private val favouriteRepository: FavouriteRepository,
-    private val prefManager: PrefManager
-) : ViewModel() {
-    val getLat get() = prefManager.getLat
-    val getLng get() = prefManager.getLng
-    val isStarted get() = prefManager.isStarted
-    val mapType get() = prefManager.mapType
+class MainViewModel : ViewModel() {
+    val getLat get() = PrefManager.getLat
+    val getLng get() = PrefManager.getLng
+    val isStarted get() = PrefManager.isStarted
+    val mapType get() = PrefManager.mapType
 
-    val allFavList: StateFlow<List<Favourite>> = favouriteRepository.getAllFavourites
-        .catch { emit(emptyList()) }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val allFavList: StateFlow<List<Favourite>> = FavouriteStore.all
 
-    fun update(start: Boolean, la: Double, ln: Double) = prefManager.update(start, la, ln)
+    init {
+        onIO { FavouriteStore.load() }
+    }
 
-    fun deleteFavourite(favourite: Favourite) = onIO { favouriteRepository.deleteFavourite(favourite) }
+    fun update(start: Boolean, la: Double, ln: Double) = PrefManager.update(start, la, ln)
+
+    fun deleteFavourite(favourite: Favourite) = onIO { FavouriteStore.remove(favourite) }
 
     fun storeFavorite(address: String, lat: Double, lon: Double, onResult: (Boolean) -> Unit) = onIO {
-        val id = favouriteRepository.addNewFavourite(Favourite(address = address, lat = lat, lng = lon))
-        withContext(Dispatchers.Main) { onResult(id != -1L) }
+        val ok = FavouriteStore.add(address, lat, lon)
+        withContext(Dispatchers.Main) { onResult(ok) }
     }
 }

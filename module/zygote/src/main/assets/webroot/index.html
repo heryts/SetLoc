@@ -340,8 +340,11 @@ const B = {
     await sh(`sh '${MODDIR}/gpsz.sh' set ${lat} ${lng} 2>&1`);
     try { await exec(`sh '${MODDIR}/bridge.sh' setpos ${lat} ${lng} >/dev/null 2>&1`); } catch (e) {}
   },
-  async readCfg() {
-    try { return await sh(`sh '${MODDIR}/bridge.sh' sync >/dev/null 2>&1; settings get global ${CFG_KEY}`); } catch (e) { return ''; }
+  async readCfg(sync = true) {
+    try {
+      return await sh(`${sync ? `sh '${MODDIR}/bridge.sh' sync >/dev/null 2>&1; ` : ''}C=$(settings get global ${CFG_KEY}); echo "$C"; ` +
+        `case "$C" in *';tk=1'*) settings get global gpsz_trk; read U _ < /proc/uptime; echo $(( \${U%.*}\${U#*.} * 10 )) ;; esac`);
+    } catch (e) { return ''; }
   },
   async ensureDaemon() {
     const r = await exec(`sh '${MODDIR}/bridge.sh' ensure 2>&1`);
@@ -491,9 +494,26 @@ function renderApp() {
   $('#appSub').textContent = S.appOn ? 'Terpasang · atur titik lokasi di sini' : 'Belum terpasang di perangkat ini';
 }
 
+function trackPos(trk, nowMs) {
+  const m = {};
+  trk.split(';').forEach(kv => { const i = kv.indexOf('='); if (i > 0) m[kv.slice(0, i)] = kv.slice(i + 1); });
+  const t0 = Number(m.t), tk = Number(m.k);
+  if (!(tk > 0) || !m.d) return null;
+  const rows = m.d.split('|').map(r => r.replace(/^,+/, '')).filter(Boolean).map(r => r.split(',').map(Number));
+  if (!rows.length || rows.some(r => r.length < 5 || r.some(Number.isNaN))) return null;
+  const last = rows.length - 1, pos = Math.max(0, (nowMs - t0) / tk);
+  const i = Math.min(Math.floor(pos), last), j = Math.min(i + 1, last), f = i === last ? 0 : pos - i;
+  return [rows[i][0] + (rows[j][0] - rows[i][0]) * f, rows[i][1] + (rows[j][1] - rows[i][1]) * f];
+}
+
 function renderStatus(raw) {
   const cfg = {};
-  String(raw || '').trim().split(';').forEach(kv => { const i = kv.indexOf('='); if (i > 0) cfg[kv.slice(0, i)] = kv.slice(i + 1); });
+  const [line, trk, now] = String(raw || '').trim().split('\n');
+  line.split(';').forEach(kv => { const i = kv.indexOf('='); if (i > 0) cfg[kv.slice(0, i)] = kv.slice(i + 1); });
+  if (cfg.tk === '1' && trk && now) {
+    const p = trackPos(trk.trim(), Number(now));
+    if (p) { cfg.lat = p[0].toFixed(6); cfg.lng = p[1].toFixed(6); }
+  }
   const has = 'enabled' in cfg;
   const on = cfg.enabled === '1';
   $('#dot').classList.toggle('on', on);
@@ -967,7 +987,7 @@ let _statusBusy = false;
 async function refreshStatus() {
   if (_statusBusy || document.hidden) return;
   _statusBusy = true;
-  try { renderStatus(await B.readCfg()); } catch (e) {}
+  try { renderStatus(await B.readCfg(false)); } catch (e) {}
   _statusBusy = false;
 }
 document.addEventListener('visibilitychange', refreshStatus);

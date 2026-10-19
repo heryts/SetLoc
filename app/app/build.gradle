@@ -2,8 +2,6 @@ plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
     id 'com.google.android.libraries.mapsplatform.secrets-gradle-plugin'
-    id 'dagger.hilt.android.plugin'
-    id 'com.google.devtools.ksp'
 }
 
 def ver = new Properties()
@@ -14,11 +12,10 @@ android {
     compileSdk 34
     defaultConfig {
         applicationId "com.heryts.setloc"
-        minSdk 27
+        minSdk 33
         targetSdk 33
         versionCode ver['versionCode'] as int
         versionName tagName
-        resourceConfigurations.addAll(["en", "in", "id", "fr"])
     }
 
     def ksFile = rootProject.file('keystore.properties')
@@ -45,12 +42,12 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
+    androidResources {
+        localeFilters += ["en", "in", "id"]
+    }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_11
         targetCompatibility JavaVersion.VERSION_11
-    }
-    kotlinOptions {
-        jvmTarget = '11'
     }
     buildFeatures {
         viewBinding true
@@ -62,10 +59,17 @@ android {
     }
     packaging {
         resources {
-            excludes += ['/META-INF/*.version', '/META-INF/{AL2.0,LGPL2.1}', '/META-INF/*.kotlin_module', '/DebugProbesKt.bin', '/kotlin-tooling-metadata.json']
+            excludes += ['/kotlin/**', '/META-INF/*.version', '/META-INF/{AL2.0,LGPL2.1}', '/META-INF/*.kotlin_module', '/DebugProbesKt.bin', '/kotlin-tooling-metadata.json']
         }
     }
     namespace 'com.heryts.setloc'
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11
+        freeCompilerArgs.addAll('-Xno-param-assertions', '-Xno-call-assertions', '-Xno-receiver-assertions')
+    }
 }
 
 dependencies {
@@ -74,18 +78,7 @@ dependencies {
     implementation 'com.google.android.material:material:1.12.0'
     implementation 'androidx.activity:activity-ktx:1.6.1'
     implementation 'com.google.android.gms:play-services-maps:18.1.0'
-    implementation 'androidx.preference:preference:1.2.0'
-
-    implementation "com.google.dagger:hilt-android:2.51.1"
-    ksp "com.google.dagger:hilt-compiler:2.51.1"
-
-    implementation 'androidx.room:room-runtime:2.6.1'
-    implementation 'androidx.room:room-ktx:2.6.1'
-    ksp 'androidx.room:room-compiler:2.6.1'
 
     testImplementation 'junit:junit:4.13.2'
 
-    implementation ("dev.rikka.rikkax.material:material-preference:2.0.0") {
-        exclude group: "dev.rikka.rikkax.appcompat", module: "appcompat"
-    }
 }

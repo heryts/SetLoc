@@ -3,7 +3,7 @@
 Versi Zygisk dari pemalsu lokasi. Pilih titik atau putar rute dari app SetLoc, dan lokasi palsunya dipakai app lain.
 
 ## Syarat
-- Android 8.1 ke atas dengan root dan Zygisk aktif
+- Android 13 ke atas (minSdk 33) dengan root dan Zygisk aktif
 - Manajer root yang bisa memasang modul (Magisk, KernelSU, APatch, atau sejenisnya)
 
 ## Pasang
@@ -28,6 +28,8 @@ Mode spoof:
 
 System-wide dan Heartbeat butuh reboot kalau belum aktif. Kalau terjadi bootloop, buat file `disable` di folder modul dari recovery.
 
+Saat memutar rute, daemon menulis jendela 24 detik (`gpsz_trk`) dan hook menginterpolasi posisi sendiri, jadi Settings hampir tidak ditulis selama rute berjalan. Kalau ada masalah, buat file `disable_trk` di folder modul untuk kembali ke mode lama (satu tulis per tick).
+
 ## Kalau tidak jalan
 ```
 sh /data/adb/modules/setloc_zygisk/gpsz.sh doctor
@@ -45,7 +47,7 @@ sh /data/adb/modules/setloc_zygisk/gpsz.sh pkg all on|off
 `pkg all on` menyuntikkan modul ke semua app. Pakai hati-hati.
 
 ## Build
-Butuh JDK 21, `git`, dan koneksi internet (AndroidVMTools di-clone dan dependensi Gradle diunduh).
+Butuh satu JDK 21 (dipakai app dan modul), `git`, dan koneksi internet (AndroidVMTools di-clone dan dependensi Gradle diunduh).
 
 ```
 MAPS_API_KEY=... sh build-all.sh

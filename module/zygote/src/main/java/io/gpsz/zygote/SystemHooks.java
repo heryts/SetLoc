@@ -2,7 +2,6 @@ package io.gpsz.zygote;
 
 import android.location.Location;
 import android.location.LocationManager;
-import android.os.Build;
 import android.os.SystemClock;
 import android.util.Log;
 
@@ -43,14 +42,11 @@ final class SystemHooks {
     private static Field lpmEmergency;
     private static final Map<String, Object> managers = new ConcurrentHashMap<>();
     private static volatile long lastGpsReport = 0;
+    private static final long IDLE_WAIT_MS = 10_000;
 
     static synchronized boolean install() {
         boolean first = !installed;
         installed = true;
-        if (Build.VERSION.SDK_INT < 33) {
-            if (first) Log.w(TAG, "system hooks: Android < 13 tidak didukung");
-            return false;
-        }
         if (lpmHooks > 0 && (lmsHooks > 0 || lmsTries >= 12)) return isLive();
         int lpm0 = lpmHooks, lms0 = lmsHooks;
         try {
@@ -301,7 +297,7 @@ final class SystemHooks {
             int n = (Integer) resultSize.invoke(result);
             for (int i = 0; i < n; i++) {
                 Object o = resultGet.invoke(result, i);
-                if (o instanceof Location) ((Location) o).set(spoof((Location) o));
+                if (o instanceof Location) apply((Location) o);
             }
             return result;
         }
@@ -355,13 +351,22 @@ final class SystemHooks {
         }
         Thread th = new Thread(() -> {
             long lastScan = 0;
+            long wait = 1000;
             for (;;) {
                 try {
-                    Thread.sleep(250);
+                    Thread.sleep(wait);
+                    wait = 1000;
                     final boolean full = active();
-                    if (!full && !beat()) continue;
+                    if (!full && !beat()) {
+                        synchronized (Config.WAKE) {
+                            if (!active() && !beat()) Config.WAKE.wait(IDLE_WAIT_MS);
+                        }
+                        wait = 0;
+                        continue;
+                    }
                     long now = SystemClock.elapsedRealtime();
-                    if (now - lastGpsReport < 900) continue;
+                    long since = now - lastGpsReport;
+                    if (since < 900) { wait = Math.max(20, 1000 - since); continue; }
                     if (!managers.containsKey(LocationManager.GPS_PROVIDER) && now - lastScan > 5000) {
                         lastScan = now;
                         scanForManagers();
@@ -433,6 +438,7 @@ final class SystemHooks {
     }
 
     private static void applyMotion(Location l) {
+        Config.tick();
         l.setAltitude(Config.altitudeNow());
         l.setSpeed(Config.spd);
         float b = Config.brg;
@@ -442,15 +448,19 @@ final class SystemHooks {
         l.removeVerticalAccuracy();
     }
 
-    private static Location spoof(Location orig) {
-        if (orig == null) return null;
-        Location l = new Location(orig);
+    private static void apply(Location l) {
         Config.Pt p = Config.snapshot();
         l.setLatitude(p.lat);
         l.setLongitude(p.lng);
-        l.setAccuracy(Math.max(1f, Config.acc));
+        l.setAccuracy(Config.accNow());
         applyMotion(l);
         clearMock(l);
+    }
+
+    private static Location spoof(Location orig) {
+        if (orig == null) return null;
+        Location l = new Location(orig);
+        apply(l);
         return l;
     }
 
@@ -459,7 +469,7 @@ final class SystemHooks {
         Config.Pt p = Config.snapshot();
         l.setLatitude(p.lat);
         l.setLongitude(p.lng);
-        l.setAccuracy(Math.max(1f, Config.acc));
+        l.setAccuracy(Config.accNow());
         applyMotion(l);
         l.setTime(System.currentTimeMillis() - 300);
         l.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());

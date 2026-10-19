@@ -2,33 +2,18 @@ package com.heryts.setloc.utils.ext
 
 import android.location.Address
 import android.location.Geocoder
-import android.os.Build
+import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
+private fun CancellableContinuation<List<Address>?>.listener() = object : Geocoder.GeocodeListener {
+    override fun onGeocode(addresses: MutableList<Address>) = resume(addresses)
+    override fun onError(errorMessage: String?) = resumeWithException(java.io.IOException(errorMessage))
+}
+
 suspend fun Geocoder.fromLocation(lat: Double, lng: Double, max: Int): List<Address>? =
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        suspendCancellableCoroutine { c ->
-            getFromLocation(lat, lng, max, object : Geocoder.GeocodeListener {
-                override fun onGeocode(addresses: MutableList<Address>) = c.resume(addresses)
-                override fun onError(errorMessage: String?) =
-                    c.resumeWithException(java.io.IOException(errorMessage))
-            })
-        }
-    } else {
-        @Suppress("DEPRECATION") getFromLocation(lat, lng, max)
-    }
+    suspendCancellableCoroutine { getFromLocation(lat, lng, max, it.listener()) }
 
 suspend fun Geocoder.fromName(name: String, max: Int): List<Address>? =
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        suspendCancellableCoroutine { c ->
-            getFromLocationName(name, max, object : Geocoder.GeocodeListener {
-                override fun onGeocode(addresses: MutableList<Address>) = c.resume(addresses)
-                override fun onError(errorMessage: String?) =
-                    c.resumeWithException(java.io.IOException(errorMessage))
-            })
-        }
-    } else {
-        @Suppress("DEPRECATION") getFromLocationName(name, max)
-    }
+    suspendCancellableCoroutine { getFromLocationName(name, max, it.listener()) }

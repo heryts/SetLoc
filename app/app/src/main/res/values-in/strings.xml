@@ -76,4 +76,24 @@
     <string name="map_not_ready">Peta belum siap</string>
     <string name="location_not_selected">Lokasi belum dipilih</string>
     <string name="search_dialog_title">Cari</string>
+    <string name="dark_theme">Tema gelap</string>
+    <string name="theme_always_off">Selalu mati</string>
+    <string name="theme_always_on">Selalu nyala</string>
+    <string name="theme_follow_system">Ikuti sistem</string>
+    <string name="settings_map">Peta</string>
+    <string name="map_normal">Normal</string>
+    <string name="map_satellite">Satelit</string>
+    <string name="map_terrain">Medan</string>
+    <string name="map_hybrid">Hibrida</string>
+    <string name="settings_random_position">Posisi acak</string>
+    <string name="settings_random_position_summary">Posisi lokasi diacak di sekitar lokasi yang diatur</string>
+    <string name="search_button">Cari</string>
+    <string name="searching">Mencari…</string>
+    <string name="route_err_min_points">Minimal dua titik</string>
+    <string name="route_err_no_key">API key Google Maps tidak ditemukan</string>
+    <string name="route_err_not_found">Rute tidak ditemukan</string>
+    <string name="route_err_connect">Gagal terhubung ke server rute</string>
+    <string name="route_err_process">Gagal memproses rute: %1$s</string>
+    <string name="route_err_http">Rute gagal (HTTP %1$d)</string>
+    <string name="route_err_api">Rute gagal (%1$d): %2$s</string>
 </resources>

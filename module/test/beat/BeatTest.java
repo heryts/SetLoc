@@ -39,6 +39,17 @@ public class BeatTest {
     boolean inside=true; for(int i=0;i<200;i++){ SystemClock.fake+=250; Config.Pt p=Config.snapshot();
       if(Math.abs(p.lat+7.7)*111320.0>8.001 || Math.abs(p.lng-110.4)*111320.0*Math.cos(Math.toRadians(-7.7))>8.001) inside=false; }
     eq("snapshot jitter dalam radius rr",inside,true);
+    SystemClock.fake+=1000; Config.parse("enabled=1;lat=-7.7;lng=110.4;acc=10;random=1;rr=8");
+    double maxStep=0; Config.Pt prev=null; boolean in2=true;
+    for(int i=0;i<300;i++){ SystemClock.fake+=1000; Config.Pt p=Config.snapshot();
+      double dn=(p.lat+7.7)*111320.0, de=(p.lng-110.4)*111320.0*Math.cos(Math.toRadians(-7.7));
+      if(Math.hypot(dn,de)>8.001) in2=false;
+      if(prev!=null){ double st=Math.hypot((p.lat-prev.lat)*111320.0,(p.lng-prev.lng)*111320.0*Math.cos(Math.toRadians(-7.7))); if(st>maxStep) maxStep=st; }
+      prev=p; }
+    eq("jitter: lingkaran (bukan persegi) radius rr",in2,true);
+    eq("jitter: loncatan antar fix 1 dtk <= 8 m (dulu bisa ~22 m)",maxStep<=8.0,true);
+    Config.parse("enabled=1;lat=-7.7;lng=110.4;acc=0;random=0;rr=8");
+    eq("accNow: akurasi 0 -> 1",Config.accNow(),1f);
     java.util.Map<String,String> st=android.provider.Settings.Global.store; int[] ran={0}; boolean[] hooked={false}; java.util.function.BooleanSupplier ready=()->{ ran[0]++; return hooked[0]; }; st.put("boot_count","7");
     SystemClock.fake+=10000; st.put("gpsz_cfg",PL); st.put("gpsz_beat","a"); st.remove("gpsz_sys");
     Config.refresh(null,null,ready);

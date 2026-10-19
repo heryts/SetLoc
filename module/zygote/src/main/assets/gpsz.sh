@@ -4,7 +4,7 @@ PKGDIR="$MODDIR/packages"
 KEY=gpsz_cfg
 case "$1" in sync|check|status|doctor|super) ;; *) sh "$MODDIR/bridge.sh" sync >/dev/null 2>&1 ;; esac
 RAW=$(settings get global $KEY 2>/dev/null)
-get() { echo "$RAW" | tr ';' '\n' | sed -n "s/^$1=//p" | head -1; }
+get() { T=";$RAW;"; V=${T#*";$1="}; [ "$V" = "$T" ] && return; echo "${V%%;*}"; }
 E=$(get enabled);  [ -z "$E" ] && E=0
 LAT=$(get lat);    [ -z "$LAT" ] && LAT=-6.2088
 LNG=$(get lng);    [ -z "$LNG" ] && LNG=106.8456
@@ -124,6 +124,7 @@ case "$1" in
     [ -f "$MODDIR/disable_super" ] && echo "supervisor=dimatikan (disable_super)" || echo "supervisor=aktif"
     echo "modul=$(sed -n 's/^version=//p' "$MODDIR/module.prop" 2>/dev/null) code=$(sed -n 's/^versionCode=//p' "$MODDIR/module.prop" 2>/dev/null)"
     echo "gpsz_sys=$(settings get global gpsz_sys 2>/dev/null) gpsz_beat=$(settings get global gpsz_beat 2>/dev/null) uptime=$(cut -d' ' -f1 /proc/uptime)"
+    [ -f "$MODDIR/disable_trk" ] && echo "trk=dimatikan (disable_trk)" || echo "trk=aktif gpsz_trk=$(settings get global gpsz_trk 2>/dev/null | cut -c1-48)"
     echo "--- hook sistem (logcat -s GpsZ)"
     logcat -d -s GpsZ:I 2>/dev/null | grep -i "system hook" | tail -8 | sed 's/^/  /'
     echo "--- bridge.log (10 baris terakhir)"

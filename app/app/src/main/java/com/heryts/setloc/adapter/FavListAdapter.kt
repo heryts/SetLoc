@@ -9,7 +9,7 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.heryts.setloc.R
-import com.heryts.setloc.room.Favourite
+import com.heryts.setloc.favourite.Favourite
 
 class FavListAdapter : ListAdapter<Favourite, FavListAdapter.ViewHolder>(FavListComparetor()) {
     var onItemClick : ((Favourite) -> Unit)? = null

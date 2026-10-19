@@ -23,23 +23,28 @@ find_jdk() {
 with_jdk() { jh=$1; shift; JAVA_HOME=$jh PATH="$jh/bin:$PATH" "$@"; }
 
 J21=$(find_jdk 21 "$JAVA21_HOME") || exit 1
-JAPP=$J21
-if [ -n "$JAVA17_HOME" ]; then JAPP=$(find_jdk 17 "$JAVA17_HOME") || exit 1; fi
 
 if [ -n "$MAPS_API_KEY" ]; then
-  grep -q '^MAPS_API_KEY=' app/local.properties 2>/dev/null || echo "MAPS_API_KEY=$MAPS_API_KEY" >> app/local.properties
+  { grep -v '^MAPS_API_KEY=' app/local.properties 2>/dev/null || true; echo "MAPS_API_KEY=$MAPS_API_KEY"; } > app/local.properties.new
+  mv -f app/local.properties.new app/local.properties
 fi
 
+SETUP_LOG=$(mktemp)
+trap 'rm -f "$SETUP_LOG"' EXIT
+( cd module && sh setup.sh ) >"$SETUP_LOG" 2>&1 &
+SETUP_PID=$!
+
 echo "== 1/3 build app =="
-TASKS="test assembleRelease"; [ -n "$SKIP_TESTS" ] && TASKS=assembleRelease
-( cd app && with_jdk "$JAPP" sh ./gradlew $TASKS )
+TASKS="testReleaseUnitTest assembleRelease"; [ -n "$SKIP_TESTS" ] && TASKS=assembleRelease
+( cd app && with_jdk "$J21" sh ./gradlew $TASKS )
 APK=$(ls -t app/app/build/outputs/apk/release/*.apk 2>/dev/null | head -n 1)
 [ -n "$APK" ] || { echo "GAGAL: APK rilis tidak ditemukan"; exit 1; }
 mkdir -p module/zygote/src/main/assets/apk
 cp "$APK" module/zygote/src/main/assets/apk/SetLoc.apk
 
 echo "== 2/3 siapkan AndroidVMTools =="
-( cd module && sh setup.sh )
+wait "$SETUP_PID" || { cat "$SETUP_LOG"; exit 1; }
+cat "$SETUP_LOG"
 
 echo "== 3/3 build modul Zygisk =="
 ( cd module && with_jdk "$J21" sh ./gradlew :zygote:assembleRelease )

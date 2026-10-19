@@ -7,7 +7,11 @@ KEY=gpsz_cfg
 LOG="$MODDIR/bridge.log"
 LOCKD="$MODDIR/.daemon.lock"
 BEATKEY=gpsz_beat
+TRKKEY=gpsz_trk
+TRK_W=48
+TRK_LEAD=24
 LASTF="$MODDIR/.last_app_cfg"
+STAMP="$MODDIR/.sync_stamp"
 
 log() {
   [ -f "$LOG" ] && [ "$(stat -c %s "$LOG" 2>/dev/null || echo 0)" -gt 100000 ] && : > "$LOG"
@@ -31,7 +35,7 @@ poke_check() {
   read UP _ < /proc/uptime
   EL=$(( (${UP%.*}${UP#*.} - T0) * 10 ))
   [ $EL -ge 0 ] && [ $EL -lt $(( (NN - 1) * TK )) ] || return 0
-  [ $(( $(date +%s) - $(stat -c %Y "$PREFC" 2>/dev/null || echo 0) )) -ge 4 ] || return 0
+  [ $(( $(date +%s) - $(stat -c %Y "$PREFC" 2>/dev/null || echo 0) )) -ge 15 ] || return 0
   pidof $APP >/dev/null 2>&1 || return 0
   am startservice -n $APP/.route.RouteService -a $APP.route.POKE >/dev/null 2>&1 &
 }
@@ -72,12 +76,96 @@ sget() { cmd settings get global "$1" 2>/dev/null || settings get global "$1" 2>
 sput() { cmd settings put global "$1" "$2" >/dev/null 2>&1 || settings put global "$1" "$2"; }
 numok() { case "$1" in ''|*[!0-9.eE+-]*) return 1 ;; *) return 0 ;; esac; }
 
+compose() {
+  X=";spd=$SPD;alt=$ALT;altv=$ALTV;rr=$RR"
+  numok "$BRG" && X="$X;brg=$BRG"
+  OUT="enabled=$E;lat=$LAT;lng=$LNG;acc=$ACC;random=$R$X$PL"
+}
+
+route_apply() {
+  E=$B_E; R=$B_R; LAT=$B_LAT; LNG=$B_LNG; SPD=$B_SPD; BRG=$B_BRG; ALT=$B_ALT; PL=""; ENDED=0
+  read UP _ < /proc/uptime
+  EL=$(( (${UP%.*}${UP#*.} - RT_T0) * 10 ))
+  if [ $EL -lt 0 ]; then IDX=1; else IDX=$(( EL / RT_TK + 1 )); fi
+  if [ $IDX -ge $RT_NN ]; then IDX=$RT_NN; ENDED=1; fi
+  RIDX=$IDX
+  if [ "$RT_TLW" -gt 0 ]; then
+    TLINE=$(dd if="$RT_TF" bs=$RT_TLW skip=$((IDX - 1)) count=1 2>/dev/null)
+  else
+    TLINE=$(sed -n "${IDX}{p;q}" "$RT_TF")
+  fi
+  set -- $TLINE
+  if numok "$1" && numok "$2" && numok "$3" && numok "$4" && numok "$5"; then
+    LAT=$1; LNG=$2; SPD=$3; BRG=$4; ALT=$5
+    E=1; PL=";pl=1"
+    if [ $ENDED = 1 ]; then
+      R=0; [ "$RT_RND" = true ] && R=1
+      if [ "$RT_HE" -gt 0 ] && [ $EL -ge $(( (RT_NN - 1) * RT_TK + RT_HE )) ]; then E=0; PL=""; fi
+    else
+      R=0
+    fi
+    if [ "$TRK" = 1 ] && [ "$PL" = ";pl=1" ]; then
+      PL=";tk=1;pl=1"; LAT=$T_LAT; LNG=$T_LNG; SPD=0; BRG=; ALT=$T_ALT
+    fi
+  fi
+}
+
+route_due() {
+  read UP _ < /proc/uptime
+  EL=$(( (${UP%.*}${UP#*.} - RT_T0) * 10 ))
+  if [ $EL -lt 0 ]; then DI=1; else DI=$(( EL / RT_TK + 1 )); fi
+  if [ $DI -ge $RT_NN ]; then
+    [ "$RIDX" != "$RT_NN" ] && return 0
+    [ "$RT_HE" -gt 0 ] && [ $EL -ge $(( (RT_NN - 1) * RT_TK + RT_HE )) ] && return 0
+    return 1
+  fi
+  [ "$TRK" != 1 ] && [ "$DI" != "$RIDX" ]
+}
+
+trk_win() {
+  S=$1; C=$TRK_W
+  [ $S -ge $RT_NN ] && { S=$RT_NN; C=1; }
+  [ $((S + C - 1)) -gt $RT_NN ] && C=$((RT_NN - S + 1))
+  D=$(dd if="$RT_TF" bs=$RT_TLW skip=$((S - 1)) count=$C 2>/dev/null | tr -s ' \n' ',|')
+  [ -n "$D" ] || return 1
+  sput $TRKKEY "t=$((RT_T0 * 10 + (S - 1) * RT_TK));k=$RT_TK;a=$((PC * 10));d=$D" || return 1
+  WKEY="$RT_T0:$RT_NN:$RT_TF"; WS=$S; WE=$((S + C - 1)); HOLD_AT=$PC
+  return 0
+}
+
+trk_pump() {
+  read UP _ < /proc/uptime
+  PC=${UP%.*}${UP#*.}
+  EL=$(( (PC - RT_T0) * 10 ))
+  if [ $EL -lt 0 ]; then IX=1; else IX=$(( EL / RT_TK + 1 )); fi
+  [ $IX -gt $RT_NN ] && IX=$RT_NN
+  TRK_NAP=5
+  [ $((RT_NN - IX)) -le 12 ] && TRK_NAP=1
+  NEED=0
+  if [ "$WKEY" != "$RT_T0:$RT_NN:$RT_TF" ] || [ $IX -lt ${WS:-1} ] || [ $IX -gt ${WE:-0} ]; then
+    NEED=1
+  elif [ $WE -lt $RT_NN ]; then
+    [ $IX -ge $((WE - TRK_LEAD)) ] && NEED=1
+  elif [ $IX -ge $RT_NN ] && [ $((PC - HOLD_AT)) -ge 1000 ]; then
+    NEED=1
+  fi
+  [ $NEED = 1 ] && { trk_win $IX || return 1; }
+  return 0
+}
+
 derive() {
+  if [ "$FAST" = 1 ] && [ "$RT_OK" = 1 ]; then
+    route_apply; compose
+    return 0
+  fi
+  FAST=0; RT_OK=0; TRK=0
   if [ -n "$PREFC" ] && [ -f "$PREFC" ]; then PREF=$PREFC; else PREF=$(find_pref); fi
   [ -n "$PREF" ] && [ -f "$PREF" ] || return 2
   PX=$(cat "$PREF" 2>/dev/null)
   START=$(fval boolean start)
   LAT=$(fval float latitude);  LNG=$(fval float longitude)
+  LD=$(fstr latitude_d); LG=$(fstr longitude_d)
+  numok "$LD" && numok "$LG" && { LAT=$LD; LNG=$LG; }
   RND=$(fval boolean random_position); [ -z "$RND" ] && RND=true
   ACC=$(fstr accuracy_settings)
   [ -z "$LAT" ] && LAT=40.7128
@@ -93,44 +181,41 @@ derive() {
   ALTV=$(fval float altitude_var); numok "$ALTV" || ALTV=0
   RR=$(fval float random_radius); numok "$RR" || RR=8
   PL=""
+  B_E=$E; B_R=$R; B_LAT=$LAT; B_LNG=$LNG; B_SPD=$SPD; B_BRG=$BRG; B_ALT=$ALT
   if [ "$(fval boolean route_play)" = true ]; then
     [ -z "$CURBC" ] && CURBC=$(sget boot_count)
     T0=$(fval long route_t0); TK=$(fval long route_tick); NN=$(fval int route_n)
     HE=$(fval long route_hold_end); BC=$(fval int route_bc); [ -z "$HE" ] && HE=0
+    TW=$(fval int route_tlw); numok "$TW" || TW=0
     TF="${PREF%/shared_prefs/*}/files/route_timeline.txt"
     if [ -f "$TF" ] && [ "$BC" = "$CURBC" ] && numok "$T0" && numok "$TK" && numok "$NN" && numok "$HE" \
        && [ "$TK" -gt 0 ] && [ "$NN" -gt 0 ]; then
-      read UP _ < /proc/uptime
-      EL=$(( (${UP%.*}${UP#*.} - T0) * 10 ))
-      if [ $EL -lt 0 ]; then IDX=1; else IDX=$(( EL / TK + 1 )); fi
-      ENDED=0
-      if [ $IDX -ge $NN ]; then IDX=$NN; ENDED=1; fi
-      set -- $(sed -n "${IDX}{p;q}" "$TF")
-      if numok "$1" && numok "$2" && numok "$3" && numok "$4" && numok "$5"; then
-        LAT=$1; LNG=$2; SPD=$3; BRG=$4; ALT=$5
-        E=1; PL=";pl=1"
-        if [ $ENDED = 1 ]; then
-          R=0; [ "$RND" = true ] && R=1
-          if [ "$HE" -gt 0 ] && [ $EL -ge $(( (NN - 1) * TK + HE )) ]; then E=0; PL=""; fi
-        else
-          R=0
+      RT_OK=1; RT_T0=$T0; RT_TK=$TK; RT_NN=$NN; RT_HE=$HE; RT_TLW=$TW; RT_TF=$TF; RT_RND=$RND
+      if [ "$TW" -gt 0 ] && [ ! -f "$MODDIR/disable_trk" ]; then
+        TRK=1
+        if [ "$T0:$NN:$TW:$TF" != "$L1KEY" ]; then
+          set -- $(dd if="$TF" bs=$TW count=1 2>/dev/null)
+          if numok "$1" && numok "$2" && numok "$5"; then T_LAT=$1; T_LNG=$2; T_ALT=$5; L1KEY="$T0:$NN:$TW:$TF"; else TRK=0; fi
         fi
       fi
+      route_apply
     fi
   fi
-  X=";spd=$SPD;alt=$ALT;altv=$ALTV;rr=$RR"
-  numok "$BRG" && X="$X;brg=$BRG"
-  echo "enabled=$E;lat=$LAT;lng=$LNG;acc=$ACC;random=$R$X$PL"
+  compose
 }
 
 sync_cfg() {
-  NEW=$(derive); RC=$?
+  derive; RC=$?
+  NEW=$OUT
   if [ $RC -ne 0 ]; then
     case $RC in 2) MSG="pref app tidak ditemukan ($PREFNAME) di /data/data, /data/user*, /data/misc/*/prefs" ;; *) MSG="lat/lng tidak valid di pref" ;; esac
     [ "$QUIET" != 1 ] && [ "$(cat "$MODDIR/.last_err" 2>/dev/null)" != "$MSG" ] && { log "sync gagal: $MSG"; echo "$MSG" > "$MODDIR/.last_err"; }
     return 1
   fi
   [ -e "$MODDIR/.last_err" ] && rm -f "$MODDIR/.last_err"
+  case "$OUT" in
+    *";tk=1;pl=1") trk_pump || { TRK=0; OF=$FAST; FAST=1; derive; FAST=$OF; NEW=$OUT; } ;;
+  esac
   PREV=; { read -r PREV < "$LASTF"; } 2>/dev/null
   if [ "$1" != force ] && [ "$NEW" = "$PREV" ]; then
     CUR=$(sget $KEY)
@@ -156,12 +241,22 @@ pref_set() {
   rm -f "$TMP"
 }
 
+pref_del() {
+  TMP="$MODDIR/.pref.tmp"
+  grep -q "name=\"$1\"" "$PREF" || return 0
+  sed "/<string name=\"$1\">[^<]*<\/string>/d" "$PREF" > "$TMP"
+  if [ -s "$TMP" ] && ! grep -q "name=\"$1\"" "$TMP"; then
+    cat "$TMP" > "$PREF" || log "pref: gagal menghapus $1"
+  fi
+  rm -f "$TMP"
+}
+
 app_pref() {
   PREF=$(find_pref)
   [ -n "$PREF" ] && [ -f "$PREF" ] || { log "$1: pref app tidak ditemukan"; return 1; }
 }
 
-remember() { NEW=$(derive) && echo "$NEW" > "$LASTF"; return 0; }
+remember() { FAST=0; derive && { NEW=$OUT; echo "$NEW" > "$LASTF"; }; return 0; }
 
 set_app_start() {
   V=false; [ "$1" = 1 ] && V=true
@@ -176,6 +271,7 @@ set_app_pos() {
   numok "$1" && numok "$2" || { log "setpos: koordinat tidak valid"; return 1; }
   app_pref setpos || return 1
   am force-stop "$APP" >/dev/null 2>&1
+  pref_del latitude_d; pref_del longitude_d
   pref_set float latitude "$1"; pref_set float longitude "$2"
   pref_set float speed_ms 0; pref_set float bearing -1
   remember
@@ -250,6 +346,63 @@ start_daemon() {
 
 sig() { [ -n "$PREFC" ] && echo "$PREFC $(stat -c '%i %y %s' "$PREFC" 2>/dev/null)"; }
 
+changed() {
+  [ "$PREFC" != "$SYNCED" ] && return 0
+  [ "$PREFC" -nt "$STAMP" ] && return 0
+  [ $((N % SIGEVERY)) -eq 0 ] && [ "$(sig)" != "$LAST" ] && return 0
+  return 1
+}
+
+ino_stop() { [ -n "$WPID" ] && kill "$WPID" 2>/dev/null; WPID=; WDIR=; INO=0; }
+
+ino_up() {
+  INO=0
+  command -v inotifyd >/dev/null 2>&1 || return 0
+  [ -n "$PREFC" ] || return 0
+  WD=${PREFC%/*}
+  if [ -n "$WPID" ] && [ "$WD" = "$WDIR" ] && kill -0 "$WPID" 2>/dev/null; then INO=1; return 0; fi
+  ino_stop
+  chmod 755 "$MODDIR/notify.sh" 2>/dev/null
+  GPSZ_PID=$$ inotifyd "$MODDIR/notify.sh" "$WD:wyn" >/dev/null 2>&1 &
+  WPID=$!; WDIR=$WD
+  sleep 0.2
+  if kill -0 "$WPID" 2>/dev/null; then INO=1; log "inotifyd aktif di $WD"
+  else WPID=; WDIR=; log "inotifyd tidak jalan, pakai polling"; fi
+}
+
+nap() {
+  if [ "$PLAYING" = 1 ] && [ "$RT_OK" = 1 ] && [ "$TRK" = 1 ]; then
+    if [ "$INO" = 1 ]; then
+      [ "$WOKE" = 1 ] && { WOKE=0; return; }
+      sleep ${TRK_NAP:-5} & SPID=$!
+      wait $SPID 2>/dev/null
+      kill $SPID 2>/dev/null
+      WOKE=0
+    else
+      sleep 1
+    fi
+    return
+  fi
+  if [ "$PLAYING" = 1 ] && [ "$RT_OK" = 1 ]; then
+    read UP _ < /proc/uptime
+    MS=$(( RT_TK - ((${UP%.*}${UP#*.} - RT_T0) * 10) % RT_TK ))
+    [ $MS -gt 500 ] && MS=500
+    [ $MS -lt 50 ] && MS=50
+    FR=$(( MS % 1000 + 1000 ))
+    sleep "0.${FR#1}"
+    return
+  fi
+  if [ "$INO" = 1 ] && [ "$PLAYING" != 1 ]; then
+    [ "$WOKE" = 1 ] && { WOKE=0; return; }
+    sleep 5 & SPID=$!
+    wait $SPID 2>/dev/null
+    kill $SPID 2>/dev/null
+    WOKE=0
+    return
+  fi
+  sleep $DELAY
+}
+
 case "$1" in
   install) install_app; exit $? ;;
   sync)    sync_cfg; exit 0 ;;
@@ -281,7 +434,7 @@ case "$1" in
     if [ -n "$PREF" ] && [ -f "$PREF" ]; then echo "pref=found"; echo "pref_path=$PREF"; echo "pref_mtime=$(stat -c %y "$PREF" 2>/dev/null)"
       echo "pref_start=$(pval boolean start) lat=$(pval float latitude) lng=$(pval float longitude)"
     else echo "pref=missing"; fi
-    echo "derived=$(derive)"
+    FAST=0; OUT=; derive; echo "derived=$OUT"
     echo "cfg=$(sget $KEY)"
     exit 0 ;;
   daemon) ;;
@@ -293,6 +446,7 @@ yield_lock() { lock_fast || { log "daemon: kalah arbitrasi dari pid $WIN, keluar
 acquire_lock || exit 0
 on_exit() {
   RC=$1
+  ino_stop
   rm -f "$LOCKD/$$" "$LOCKD/.t$$" 2>/dev/null
   rmdir "$LOCKD" 2>/dev/null
   log "daemon exit (pid $$, rc $RC)"
@@ -301,6 +455,7 @@ on_sig() { log "daemon menerima sinyal $1 (pid $$)"; exit $2; }
 trap 'on_sig TERM 143' TERM
 trap 'on_sig HUP 129' HUP
 trap 'on_sig INT 130' INT
+trap 'WOKE=1' USR1
 trap 'on_exit $?' EXIT
 log "daemon start (pid $$)"
 until [ "$(getprop sys.boot_completed)" = 1 ]; do
@@ -318,41 +473,67 @@ if ! app_installed || [ "$SUM" != "$(cat "$MODDIR/.apk_sum" 2>/dev/null)" ]; the
 fi
 PREFC=$(find_pref)
 CURBC=$(sget boot_count)
+: > "$STAMP"
+SYNCED=$PREFC
+INO=0; WPID=; WDIR=; WOKE=0
+ino_up
 sync_cfg
 app_installed && keepalive
 LAST=$(sig)
-DELAY=0.5; N=0
+DELAY=0.5; N=0; PLAYING=0; SIGEVERY=10
 while true; do
-  sleep $DELAY
+  nap
   N=$((N+1))
   yield_lock
   if [ $((N % 100)) -eq 0 ]; then lock_clean; fi
   if [ $((N % 20)) -eq 0 ] || [ ! -f "$PREFC" ]; then PREFC=""; PREFC=$(find_pref); fi
-  S=$(sig)
-  is_playing && PLAYING=1 || PLAYING=0
-  if [ "$S" != "$LAST" ] || [ $PLAYING = 1 ]; then
+  if [ "$INO" = 1 ]; then
+    kill -0 "$WPID" 2>/dev/null || ino_up
+  elif [ $((N % 20)) -eq 0 ]; then
+    ino_up
+  fi
+  [ "$INO" = 1 ] && [ "${PREFC%/*}" != "$WDIR" ] && ino_up
+  if changed; then
+    : > "$STAMP"
+    SYNCED=$PREFC
+    S=$(sig)
     [ "$S" != "$LAST" ] && sleep 0.1
     OK=0
-    for R in 1 2 3 4 5 6; do
-      QUIET=1; sync_cfg; RC=$?; QUIET=0
+    for TRY in 1 2 3 4 5 6; do
+      FAST=0; QUIET=1; sync_cfg; RC=$?; QUIET=0
       [ $RC -eq 0 ] && { OK=1; break; }
       sleep 0.05
       PREFC=""; PREFC=$(find_pref)
     done
-    [ $OK = 1 ] && LAST=$S || { sync_cfg && LAST=$S; }
+    [ $OK = 1 ] && LAST=$S || { FAST=0; sync_cfg && LAST=$S; }
+  elif [ $PLAYING = 1 ] && [ "$RT_OK" = 1 ] && route_due; then
+    FAST=1; QUIET=1; sync_cfg; QUIET=0; FAST=0
+  elif [ $PLAYING = 1 ] && [ "$RT_OK" = 1 ] && [ "$TRK" = 1 ]; then
+    trk_pump || { TRK=0; FAST=1; QUIET=1; sync_cfg; QUIET=0; FAST=0; }
   fi
   is_playing && PLAYING=1 || PLAYING=0
   if [ $PLAYING = 1 ]; then
-    read UP _ < /proc/uptime
-    if [ "${UP%.*}" != "$LASTBEAT" ]; then
-      sput $BEATKEY "${UP%.*}" && LASTBEAT=${UP%.*}
+    SIGEVERY=5
+    if [ "$TRK" != 1 ]; then
+      read UP _ < /proc/uptime
+      if [ "${UP%.*}" != "$LASTBEAT" ]; then
+        sput $BEATKEY "${UP%.*}" && LASTBEAT=${UP%.*}
+      fi
     fi
+  elif [ "$INO" = 1 ]; then
+    SIGEVERY=1
+  else
+    SIGEVERY=10
   fi
-  [ $PLAYING = 1 ] && [ $((N % 24)) -eq 0 ] && poke_check
+  if [ $PLAYING = 1 ]; then
+    read UP _ < /proc/uptime
+    PN=${UP%.*}${UP#*.}
+    if [ $((PN - ${PKAT:-0})) -ge 1200 ]; then PKAT=$PN; poke_check; fi
+  fi
   case "$NEW" in
     *enabled=1*)
-      is_playing && DELAY=0.25 || DELAY=0.2
+      DELAY=0.3
       [ "$WASON" != 1 ] && { WASON=1; keepalive; } ;;
-    *) DELAY=0.5; WASON=0 ;;
+    *) DELAY=1; WASON=0 ;;
   esac
 done

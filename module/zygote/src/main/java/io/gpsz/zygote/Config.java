@@ -20,10 +20,13 @@ final class Config {
     static final String KEY = "gpsz_cfg";
     static final String KEY_SYS = "gpsz_sys";
     static final String KEY_BEAT = "gpsz_beat";
+    static final String KEY_TRK = "gpsz_trk";
     private static final long FREEZE_MS = 10_000;
     private static final long OFF_MS = 60_000;
+    private static final long TRK_GRACE_MS = 3_000;
     private static final long GAP_MS = 3_000;
     private static final long POLL_MS = 1_000;
+    private static final long IDLE_POLL_MS = 5_000;
     private static final long FALLBACK_POLL_MS = 250;
     private static final long RETRY_MS = 5_000;
     static volatile boolean enabled;
@@ -31,6 +34,7 @@ final class Config {
     static volatile boolean system;
     static volatile boolean sysHeartbeat;
     static volatile boolean playing;
+    static volatile boolean tkMode;
     static volatile double lat = Double.NaN;
     static volatile double lng = Double.NaN;
     static volatile float acc = 10f;
@@ -42,6 +46,9 @@ final class Config {
     private static final Random RND = new Random();
     private static volatile double altNoise = 0.0;
     private static volatile long altAt = 0;
+    private static final double JITTER_TAU_S = 10.0;
+    private static double jitN = 0.0, jitE = 0.0;
+    private static long jitAt = 0;
 
     static final class Pt {
         final double lat, lng;
@@ -49,7 +56,24 @@ final class Config {
         Pt(double lat, double lng, long at) { this.lat = lat; this.lng = lng; this.at = at; }
     }
 
+    static final class Track {
+        final long t0, wrote;
+        final int tk, n;
+        final double[] la, lo, al;
+        final float[] sp, br;
+        Track(long t0, long wrote, int tk, int n, double[] la, double[] lo, double[] al, float[] sp, float[] br) {
+            this.t0 = t0; this.wrote = wrote; this.tk = tk; this.n = n;
+            this.la = la; this.lo = lo; this.al = al; this.sp = sp; this.br = br;
+        }
+    }
+
     private static volatile Pt snap;
+    private static volatile Track track;
+    private static String trkSeen;
+    private static boolean cfgEn;
+    private static volatile int trkStale = 0;
+    private static long trkMissAt = 0;
+    private static volatile long tickAt = 0;
     private static String beatSeen = null;
     private static long beatChangedAt = 0;
     private static long lastPollAt = 0;
@@ -58,6 +82,7 @@ final class Config {
     private static final Object REFRESH_LOCK = new Object();
     private static long lastTry = -RETRY_MS;
     private static ContentObserver observer;
+    static final Object WAKE = new Object();
 
     static Pt snapshot() {
         Pt p = snap;
@@ -66,23 +91,49 @@ final class Config {
     }
 
     private static synchronized Pt renewSnapshot() {
+        tick();
         long now = SystemClock.elapsedRealtime();
         Pt p = snap;
         if (p != null && now - p.at < 200) return p;
         double la = lat, lo = lng;
         if (jitter) {
+            stepJitter(now);
             double c = Math.cos(Math.toRadians(la));
             if (Math.abs(c) < 1e-6) c = 1e-6;
-            la += meters() / 111320.0;
-            lo += meters() / (111320.0 * c);
+            la += jitN / 111320.0;
+            lo += jitE / (111320.0 * c);
+        } else {
+            jitAt = 0;
         }
         p = new Pt(la, lo, now);
         snap = p;
         return p;
     }
 
-    private static double meters() {
-        return (RND.nextDouble() * 2.0 - 1.0) * rr;
+    private static void stepJitter(long now) {
+        double r = rr;
+        if (r <= 0f) { jitN = 0; jitE = 0; jitAt = now; return; }
+        double sigma = r / 3.0;
+        if (jitAt == 0) {
+            jitN = RND.nextGaussian() * sigma;
+            jitE = RND.nextGaussian() * sigma;
+        } else {
+            double dt = Math.max(0, Math.min(60_000, now - jitAt)) / 1000.0;
+            double a = Math.exp(-dt / JITTER_TAU_S);
+            double s = sigma * Math.sqrt(1.0 - a * a);
+            jitN = jitN * a + RND.nextGaussian() * s;
+            jitE = jitE * a + RND.nextGaussian() * s;
+        }
+        double d = Math.hypot(jitN, jitE);
+        if (d > r) {
+            jitN *= r / d;
+            jitE *= r / d;
+        }
+        jitAt = now;
+    }
+
+    static float accNow() {
+        return Math.max(1f, acc);
     }
 
     static double altitudeNow() {
@@ -120,13 +171,107 @@ final class Config {
         }
     }
 
+    static Track parseTrack(String s) {
+        if (s == null) return null;
+        long t0 = Long.MIN_VALUE, a = Long.MIN_VALUE;
+        int tk = 0;
+        String d = null;
+        for (String kv : s.split(";")) {
+            int i = kv.indexOf('=');
+            if (i < 0) continue;
+            String v = kv.substring(i + 1);
+            try {
+                switch (kv.substring(0, i)) {
+                    case "t": t0 = Long.parseLong(v); break;
+                    case "a": a = Long.parseLong(v); break;
+                    case "k": tk = Integer.parseInt(v); break;
+                    case "d": d = v; break;
+                }
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        if (d == null || tk <= 0 || t0 == Long.MIN_VALUE) return null;
+        String[] rows = d.split("\\|");
+        double[] la = new double[rows.length], lo = new double[rows.length], al = new double[rows.length];
+        float[] sp = new float[rows.length], br = new float[rows.length];
+        int n = 0;
+        for (String r : rows) {
+            int st = 0;
+            while (st < r.length() && r.charAt(st) == ',') st++;
+            if (st == r.length()) continue;
+            String[] f = r.substring(st).split(",");
+            if (f.length < 5) return null;
+            try {
+                la[n] = Double.parseDouble(f[0]);
+                lo[n] = Double.parseDouble(f[1]);
+                sp[n] = Float.parseFloat(f[2]);
+                br[n] = Float.parseFloat(f[3]);
+                al[n] = Double.parseDouble(f[4]);
+            } catch (NumberFormatException e) {
+                return null;
+            }
+            n++;
+        }
+        if (n == 0) return null;
+        return new Track(t0, a == Long.MIN_VALUE ? t0 : a, tk, n, la, lo, al, sp, br);
+    }
+
+    private static int trackStale(long now) {
+        Track t = track;
+        long late;
+        if (t == null) {
+            if (trkMissAt == 0) trkMissAt = now;
+            late = now - trkMissAt;
+        } else {
+            trkMissAt = 0;
+            late = now - Math.max(t.t0 + (long) (t.n - 1) * t.tk, t.wrote);
+        }
+        return late >= OFF_MS ? 2 : late >= TRK_GRACE_MS ? 1 : 0;
+    }
+
+    private static float lerpAngle(float a, float b, double f) {
+        double d = ((b - a + 540.0) % 360.0) - 180.0;
+        return (float) ((a + d * f + 360.0) % 360.0);
+    }
+
+    static void tick() {
+        if (!tkMode) return;
+        long now = SystemClock.elapsedRealtime();
+        long d = now - tickAt;
+        if (d >= 0 && d < 50) return;
+        tickAt = now;
+        applyTrack(now);
+    }
+
+    private static void applyTrack(long now) {
+        int st = trackStale(now);
+        trkStale = st;
+        enabled = cfgEn && st < 2;
+        Track t = track;
+        if (t == null) return;
+        long rel = now - t.t0;
+        double pos = rel <= 0 ? 0.0 : (double) rel / t.tk;
+        int i;
+        double f;
+        if (pos >= t.n - 1) { i = t.n - 1; f = 0.0; } else { i = (int) pos; f = pos - i; }
+        int j = f > 0.0 ? i + 1 : i;
+        lat = t.la[i] + (t.la[j] - t.la[i]) * f;
+        lng = t.lo[i] + (t.lo[j] - t.lo[i]) * f;
+        alt = t.al[i] + (t.al[j] - t.al[i]) * f;
+        spd = st >= 1 ? 0f : Math.max(0f, (float) (t.sp[i] + (t.sp[j] - t.sp[i]) * f));
+        brg = lerpAngle(t.br[i], t.br[j], f);
+    }
+
     static void parse(String s) {
         if (s == null || s.equals("null")) {
             enabled = false;
             playing = false;
+            tkMode = false;
+            cfgEn = false;
             return;
         }
-        boolean en = false, jit = false, pl = false;
+        boolean en = false, jit = false, pl = false, tk = false;
         double la = lat, lo = lng;
         float ac = acc;
 
@@ -154,10 +299,18 @@ final class Config {
                     case "altv": av = Math.max(0f, Float.parseFloat(v)); break;
                     case "rr": rad = Math.max(0f, Math.min(100f, Float.parseFloat(v))); break;
                     case "pl": pl = v.equals("1"); break;
+                    case "tk": tk = v.equals("1"); break;
                 }
             } catch (NumberFormatException ignored) { }
         }
-        lat = la; lng = lo; acc = ac; spd = beatStale >= 1 ? 0f : sp; brg = br; alt = al; altVar = av; rr = rad; jitter = jit; enabled = en && beatStale < 2; playing = pl;
+        tkMode = tk;
+        cfgEn = en;
+        if (tk) { beatStale = 0; beatArmed = false; }
+        acc = ac; altVar = av; rr = rad; jitter = jit; playing = pl;
+        if (!(tk && track != null)) {
+            lat = la; lng = lo; spd = beatStale >= 1 ? 0f : sp; brg = br; alt = al;
+        }
+        enabled = en && beatStale < 2 && (!tk || trkStale < 2);
     }
 
     static void checkBeat(String beat) {
@@ -206,12 +359,26 @@ final class Config {
     static void refresh(ContentResolver cr, Application app, BooleanSupplier onReady) {
         synchronized (REFRESH_LOCK) {
             try {
-                parse(Settings.Global.getString(cr, KEY));
-                checkBeat(Settings.Global.getString(cr, KEY_BEAT));
+                boolean wasOn = enabled && system;
+                String cs = Settings.Global.getString(cr, KEY);
+                long rt = SystemClock.elapsedRealtime();
+                if (cs != null && cs.contains(";tk=1")) {
+                    String ts = Settings.Global.getString(cr, KEY_TRK);
+                    if (!Objects.equals(ts, trkSeen)) { trkSeen = ts; track = parseTrack(ts); }
+                    trkStale = trackStale(rt);
+                } else {
+                    track = null;
+                    trkSeen = null;
+                    trkMissAt = 0;
+                    trkStale = 0;
+                }
+                parse(cs);
+                if (tkMode) applyTrack(rt); else checkBeat(Settings.Global.getString(cr, KEY_BEAT));
                 String sv = Settings.Global.getString(cr, KEY_SYS);
                 boolean wasSystem = system, wasHeartbeat = sysHeartbeat;
                 system = "1".equals(sv) || "2".equals(sv);
                 sysHeartbeat = "2".equals(sv);
+                if (!wasOn && enabled && system) wake();
                 boolean tightened = system && (!wasSystem || (wasHeartbeat && !sysHeartbeat));
                 if (onReady != null && system) {
                     long now = SystemClock.elapsedRealtime();
@@ -226,11 +393,13 @@ final class Config {
         }
     }
 
-    private static boolean observe(ContentResolver cr, final Runnable onChange) {
+    static void wake() {
+        synchronized (WAKE) { WAKE.notifyAll(); }
+    }
+
+    private static boolean observe(ContentResolver cr, Handler h, final Runnable onChange) {
         try {
-            HandlerThread ht = new HandlerThread("gpsz-observer");
-            ht.start();
-            observer = new ContentObserver(new Handler(ht.getLooper())) {
+            observer = new ContentObserver(h) {
                 @Override public void onChange(boolean selfChange) { onChange.run(); }
             };
             cr.registerContentObserver(Settings.Global.getUriFor(KEY), false, observer);
@@ -243,7 +412,7 @@ final class Config {
     }
 
     static void startPolling(final BooleanSupplier onReady) {
-        Thread th = new Thread(() -> {
+        Thread finder = new Thread(() -> {
             Application found = null;
             for (int i = 0; i < 2400 && found == null; i++) {
                 found = currentApplication();
@@ -253,14 +422,20 @@ final class Config {
             final Application app = found;
             final ContentResolver cr = app.getContentResolver();
             final Runnable refresh = () -> refresh(cr, app, onReady);
-            final long interval = observe(cr, refresh) ? POLL_MS : FALLBACK_POLL_MS;
-            for (;;) {
-                refresh.run();
-                sleep(interval);
-            }
-        }, "gpsz-config");
-        th.setDaemon(true);
-        th.start();
+            HandlerThread ht = new HandlerThread("gpsz-config");
+            ht.start();
+            final Handler h = new Handler(ht.getLooper());
+            final boolean observed = observe(cr, h, refresh);
+            final Runnable tick = new Runnable() {
+                @Override public void run() {
+                    refresh.run();
+                    h.postDelayed(this, !observed ? FALLBACK_POLL_MS : playing ? POLL_MS : IDLE_POLL_MS);
+                }
+            };
+            h.post(tick);
+        }, "gpsz-find");
+        finder.setDaemon(true);
+        finder.start();
     }
 
     private static void sleep(long ms) {

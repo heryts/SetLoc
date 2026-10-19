@@ -75,4 +75,24 @@
     <string name="map_not_ready">Map not ready</string>
     <string name="location_not_selected">Location not selected</string>
     <string name="search_dialog_title">Search</string>
+    <string name="dark_theme">Dark theme</string>
+    <string name="theme_always_off">Always off</string>
+    <string name="theme_always_on">Always on</string>
+    <string name="theme_follow_system">Follow system</string>
+    <string name="settings_map">Map</string>
+    <string name="map_normal">Normal</string>
+    <string name="map_satellite">Satellite</string>
+    <string name="map_terrain">Terrain</string>
+    <string name="map_hybrid">Hybrid</string>
+    <string name="settings_random_position">Random position</string>
+    <string name="settings_random_position_summary">Location position will be random around set location</string>
+    <string name="search_button">Search</string>
+    <string name="searching">Searching…</string>
+    <string name="route_err_min_points">At least two points are required</string>
+    <string name="route_err_no_key">Google Maps API key not found</string>
+    <string name="route_err_not_found">Route not found</string>
+    <string name="route_err_connect">Could not reach the route server</string>
+    <string name="route_err_process">Failed to process route: %1$s</string>
+    <string name="route_err_http">Route failed (HTTP %1$d)</string>
+    <string name="route_err_api">Route failed (%1$d): %2$s</string>
 </resources>

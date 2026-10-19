@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.min
@@ -40,6 +41,8 @@ object RouteRunner {
     private var active = false
 
     private const val TICK_MS = 500L
+    private const val PREF_EVERY = 10
+    const val TIMELINE_LINE_WIDTH = 48
     private const val SPEED_VARIATION = 0.08
     private const val SPEED_PULL = 0.1
     private const val SPEED_STEP = 0.22
@@ -47,6 +50,7 @@ object RouteRunner {
     @Volatile var elevations: FloatArray? = null
 
     private var lastBearing = -1f
+    private var prefTicks = 0
 
     fun start(
         points: List<LatLng>, speedKmh: Float, waitAtStartMin: Float, waitAtEndMin: Float, speedVarKmh: Float
@@ -55,6 +59,7 @@ object RouteRunner {
         synchronized(lock) {
             job?.cancel()
             active = true
+            prefTicks = 0
             lastBearing = bearing(points[0], points[1])
             PrefManager.updateNow(
                 true, points.first().latitude, points.first().longitude,
@@ -120,11 +125,17 @@ object RouteRunner {
         return out
     }
 
-    private fun timelineText(ticks: List<Tick>): String {
-        val sb = StringBuilder(ticks.size * 48)
+    private fun writeTimeline(ticks: List<Tick>, w: java.io.Writer): Long {
+        val sb = StringBuilder(TIMELINE_LINE_WIDTH + 8)
         val fmt = java.util.Formatter(sb, java.util.Locale.US)
-        for (t in ticks) fmt.format("%.6f %.6f %.3f %.2f %.2f\n", t.lat, t.lng, t.spd, t.brg, t.alt)
-        return sb.toString()
+        var chars = 0L
+        for (t in ticks) {
+            sb.setLength(0)
+            fmt.format("%11.6f %11.6f %7.3f %6.2f %8.2f\n", t.lat, t.lng, t.spd, t.brg, t.alt)
+            chars += sb.length
+            w.append(sb)
+        }
+        return chars
     }
 
     private suspend fun run(
@@ -137,11 +148,14 @@ object RouteRunner {
         val endWaitMs = if (autoStop) 0L else (waitAtEndMin * 60_000f).toLong()
         val t0 = SystemClock.elapsedRealtime() + waitMs
 
-        if (PrefManager.writeRouteTimeline(timelineText(ticks))) {
+        var chars = 0L
+        val written = PrefManager.writeRouteTimeline { chars = writeTimeline(ticks, it) }
+        val lineWidth = if (chars == n.toLong() * TIMELINE_LINE_WIDTH) TIMELINE_LINE_WIDTH else 0
+        if (written) {
             val first = ticks[0]
             synchronized(lock) {
                 if (!active) return
-                PrefManager.beginPlayback(t0 / 10, TICK_MS, n, if (autoStop) 1L else endWaitMs)
+                PrefManager.beginPlayback(t0 / 10, TICK_MS, n, if (autoStop) 1L else endWaitMs, lineWidth)
                 PrefManager.updateNow(
                     true, first.lat, first.lng, 0f, lastBearing, first.alt, routeActive = true, routePlay = true
                 )
@@ -151,7 +165,7 @@ object RouteRunner {
         while (currentCoroutineContext().isActive) {
             val rem = t0 - SystemClock.elapsedRealtime()
             if (rem <= 0) break
-            delay(min(rem, TICK_MS))
+            delay(rem)
         }
 
         var shown = -1
@@ -179,7 +193,7 @@ object RouteRunner {
             while (currentCoroutineContext().isActive) {
                 val rem = endAt - SystemClock.elapsedRealtime()
                 if (rem <= 0) break
-                delay(min(rem, TICK_MS))
+                delay(rem)
             }
             finish(points.last(), spoofOff = true)
         } else {
@@ -190,7 +204,9 @@ object RouteRunner {
     private fun write(p: LatLng, pct: Int, speedMs: Float, brg: Float, alt: Float): Boolean = synchronized(lock) {
         if (!active) return false
         if (brg >= 0f) lastBearing = brg
-        PrefManager.updateNow(true, p.latitude, p.longitude, speedMs, lastBearing, alt, routeActive = true, routePlay = true)
+        if (prefTicks++ % PREF_EVERY == 0) {
+            PrefManager.updateNow(true, p.latitude, p.longitude, speedMs, lastBearing, alt, routeActive = true, routePlay = true)
+        }
         _state.value = State(running = true, position = p, progressPercent = pct)
         true
     }
@@ -233,10 +249,17 @@ object RouteRunner {
         }
     }
 
+    private const val EARTH_R = 6371000.0
+    private const val NEAR_RAD = 0.01
+
     fun meters(a: LatLng, b: LatLng): Double {
-        val r = 6371000.0
+        val r = EARTH_R
         val dLat = Math.toRadians(b.latitude - a.latitude)
         val dLng = Math.toRadians(b.longitude - a.longitude)
+        if (abs(dLat) < NEAR_RAD && abs(dLng) < NEAR_RAD) {
+            val x = dLng * cos(Math.toRadians((a.latitude + b.latitude) * 0.5))
+            return r * sqrt(dLat * dLat + x * x)
+        }
         val h = sin(dLat / 2) * sin(dLat / 2) +
             cos(Math.toRadians(a.latitude)) * cos(Math.toRadians(b.latitude)) *
             sin(dLng / 2) * sin(dLng / 2)

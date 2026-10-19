@@ -4,11 +4,9 @@ import android.app.Application
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.os.LocaleListCompat
 import com.heryts.setloc.utils.PrefManager
-import dagger.hilt.android.HiltAndroidApp
 
 lateinit var gsApp: App
 
-@HiltAndroidApp
 class App : Application() {
     override fun onCreate() {
         super.onCreate()

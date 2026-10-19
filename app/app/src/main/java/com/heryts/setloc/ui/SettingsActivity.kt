@@ -1,87 +1,31 @@
 package com.heryts.setloc.ui
 
 import android.os.Bundle
-import android.text.Editable
 import android.text.InputType
-import android.text.TextWatcher
-import android.text.method.DigitsKeyListener
 import android.view.MenuItem
+import android.view.View
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
-import androidx.preference.EditTextPreference
-import androidx.preference.PreferenceDataStore
-import androidx.preference.PreferenceFragmentCompat
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.heryts.setloc.R
+import com.heryts.setloc.databinding.SettingHeaderBinding
+import com.heryts.setloc.databinding.SettingRowBinding
 import com.heryts.setloc.databinding.SettingsActivityBinding
 import com.heryts.setloc.utils.PrefManager
 import com.heryts.setloc.utils.ext.fmtNum
-import rikka.preference.SimpleMenuPreference
 
 class SettingsActivity : AppCompatActivity() {
-    private val binding by lazy {
-        SettingsActivityBinding.inflate(layoutInflater)
-    }
-
-    class SettingPreferenceDataStore : PreferenceDataStore() {
-        override fun getBoolean(key: String?, defValue: Boolean): Boolean {
-            return when (key) {
-                "random_position" -> PrefManager.isRandomPosition
-                "altitude_from_server" -> PrefManager.altitudeFromServer
-                "route_traffic_aware" -> PrefManager.trafficAware
-                else -> throw IllegalArgumentException("Invalid key $key")
-            }
-        }
-
-        override fun putBoolean(key: String?, value: Boolean) {
-            return when (key) {
-                "random_position" -> PrefManager.isRandomPosition = value
-                "altitude_from_server" -> PrefManager.altitudeFromServer = value
-                "route_traffic_aware" -> PrefManager.trafficAware = value
-                else -> throw IllegalArgumentException("Invalid key $key")
-            }
-        }
-
-        override fun getString(key: String?, defValue: String?): String? {
-            return when (key) {
-                "accuracy_settings" -> PrefManager.accuracy
-                "map_type" -> PrefManager.mapType.toString()
-                "darkTheme" -> PrefManager.darkTheme.toString()
-                "altitude_manual" -> fmtNum(PrefManager.altitudeManual)
-                "altitude_var" -> fmtNum(PrefManager.altitudeVariation)
-                "random_radius" -> fmtNum(PrefManager.randomRadius)
-                else -> throw IllegalArgumentException("Invalid key $key")
-            }
-        }
-
-        override fun putString(key: String?, value: String?) {
-            return when (key) {
-                "accuracy_settings" -> PrefManager.accuracy = value
-                "map_type" -> PrefManager.mapType = value!!.toInt()
-                "darkTheme" -> PrefManager.darkTheme = value!!.toInt()
-                "altitude_manual" -> PrefManager.altitudeManual =
-                    (value?.toFloatOrNull() ?: 0f).coerceIn(-500f, 9000f)
-                "altitude_var" -> PrefManager.altitudeVariation =
-                    (value?.toFloatOrNull() ?: 0f).coerceIn(0f, 500f)
-                "random_radius" -> PrefManager.randomRadius =
-                    (value?.toFloatOrNull() ?: 8f).coerceIn(0f, 100f)
-                else -> throw IllegalArgumentException("Invalid key $key")
-            }
-        }
-    }
+    private val binding by lazy { SettingsActivityBinding.inflate(layoutInflater) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
         setSupportActionBar(binding.toolbar)
-        if (savedInstanceState == null) {
-            supportFragmentManager
-                .beginTransaction()
-                .replace(R.id.settings_container, SettingsPreferenceFragment())
-                .commit()
-        }
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
+        build()
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
@@ -92,71 +36,157 @@ class SettingsActivity : AppCompatActivity() {
         return super.onOptionsItemSelected(item)
     }
 
-    class SettingsPreferenceFragment : PreferenceFragmentCompat() {
-        override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
-            preferenceManager?.preferenceDataStore = SettingPreferenceDataStore()
-            setPreferencesFromResource(R.xml.setting, rootKey)
+    private fun header(title: Int) {
+        val h = SettingHeaderBinding.inflate(layoutInflater, binding.settingsList, false)
+        h.root.setText(title)
+        binding.settingsList.addView(h.root)
+    }
 
-            findPreference<androidx.preference.SwitchPreference>("random_position")?.let {
-                if (PrefManager.routeActive) {
-                    it.isEnabled = false
-                    it.summary = getString(R.string.settings_random_paused)
-                }
-            }
+    private fun row(title: String, icon: Int?): SettingRowBinding {
+        val r = SettingRowBinding.inflate(layoutInflater, binding.settingsList, false)
+        r.settingTitle.text = title
+        if (icon != null) r.settingIcon.setImageResource(icon) else r.settingIcon.visibility = View.INVISIBLE
+        binding.settingsList.addView(r.root)
+        return r
+    }
 
-            findPreference<EditTextPreference>("accuracy_settings")?.let {
-                it.summary = "${PrefManager.accuracy} m."
-                it.setOnBindEditTextListener { editText ->
-                    editText.inputType = InputType.TYPE_CLASS_NUMBER
-                    editText.keyListener = DigitsKeyListener.getInstance("0123456789.,")
-                    editText.addTextChangedListener(getCommaReplacerTextWatcher(editText))
-                }
+    private fun setSummary(r: SettingRowBinding, text: String?) {
+        r.settingSummary.text = text
+        r.settingSummary.visibility = if (text.isNullOrEmpty()) View.GONE else View.VISIBLE
+    }
 
-                it.setOnPreferenceChangeListener { preference, newValue ->
-                    preference.summary = "$newValue m."
-                    true
-                }
-            }
+    private fun setEnabled(r: SettingRowBinding, enabled: Boolean) {
+        r.root.isEnabled = enabled
+        r.settingSwitch.isEnabled = enabled
+        r.root.alpha = if (enabled) 1f else 0.5f
+    }
 
-            for ((key, signed) in listOf("altitude_manual" to true, "altitude_var" to false, "random_radius" to false)) {
-                findPreference<EditTextPreference>(key)?.let { pref ->
-                    val show = { v: String? -> pref.summary = "${v ?: "0"} m" }
-                    show(preferenceManager.preferenceDataStore?.getString(key, "0"))
-                    pref.setOnBindEditTextListener { editText ->
-                        editText.inputType = InputType.TYPE_CLASS_NUMBER or
-                            InputType.TYPE_NUMBER_FLAG_DECIMAL or
-                            (if (signed) InputType.TYPE_NUMBER_FLAG_SIGNED else 0)
-                        editText.addTextChangedListener(getCommaReplacerTextWatcher(editText))
+    private fun choice(
+        title: String, icon: Int, entriesRes: Int, valuesRes: Int,
+        get: () -> Int, set: (Int) -> Unit, onChanged: () -> Unit = {}
+    ) {
+        val entries = resources.getStringArray(entriesRes)
+        val values = resources.getStringArray(valuesRes).map { it.toInt() }
+        val r = row(title, icon)
+        val refresh = { setSummary(r, entries.getOrNull(values.indexOf(get()))) }
+        refresh()
+        r.root.setOnClickListener {
+            MaterialAlertDialogBuilder(this)
+                .setTitle(title)
+                .setSingleChoiceItems(entries, values.indexOf(get())) { d, which ->
+                    d.dismiss()
+                    if (values[which] != get()) {
+                        set(values[which])
+                        refresh()
+                        onChanged()
                     }
-                    pref.setOnPreferenceChangeListener { _, newValue ->
-                        val ok = (newValue as? String)?.toFloatOrNull() != null
-                        if (ok) show(newValue as String)
-                        else Toast.makeText(requireContext(), getString(R.string.enter_valid_input), Toast.LENGTH_SHORT).show()
-                        ok
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+    }
+
+    private fun toggle(
+        title: String, icon: Int?, summary: String?, get: () -> Boolean, set: (Boolean) -> Unit,
+        onChanged: (Boolean) -> Unit = {}
+    ): SettingRowBinding {
+        val r = row(title, icon)
+        setSummary(r, summary)
+        r.settingSwitch.visibility = View.VISIBLE
+        r.settingSwitch.isChecked = get()
+        r.root.setOnClickListener { r.settingSwitch.toggle() }
+        r.settingSwitch.setOnCheckedChangeListener { _, checked ->
+            set(checked)
+            onChanged(checked)
+        }
+        return r
+    }
+
+    private fun number(
+        title: String, icon: Int?, signed: Boolean, get: () -> String, validate: (String) -> Boolean,
+        set: (String) -> Unit
+    ): SettingRowBinding {
+        val r = row(title, icon)
+        val refresh = { setSummary(r, "${get()} m") }
+        refresh()
+        r.root.setOnClickListener {
+            val input = EditText(this).apply {
+                inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or
+                    (if (signed) InputType.TYPE_NUMBER_FLAG_SIGNED else 0)
+                setText(get())
+                setSelection(text.length)
+            }
+            val pad = (24 * resources.displayMetrics.density).toInt()
+            val box = FrameLayout(this).apply { setPadding(pad, pad / 2, pad, 0); addView(input) }
+            MaterialAlertDialogBuilder(this)
+                .setTitle(title)
+                .setView(box)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(android.R.string.ok) { _, _ ->
+                    val text = input.text.toString().replace(',', '.')
+                    if (validate(text)) {
+                        set(text)
+                        refresh()
+                    } else {
+                        Toast.makeText(this, getString(R.string.enter_valid_input), Toast.LENGTH_SHORT).show()
                     }
                 }
-            }
-
-            findPreference<SimpleMenuPreference>("darkTheme")?.setOnPreferenceChangeListener { _, newValue ->
-                val newMode = (newValue as String).toInt()
-                if (PrefManager.darkTheme != newMode) {
-                    AppCompatDelegate.setDefaultNightMode(newMode)
-                    activity?.recreate()
-                }
-                true
-            }
+                .show()
         }
+        return r
+    }
 
-        private fun getCommaReplacerTextWatcher(editText: EditText) = object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(editable: Editable) {
-                val text = editable.toString()
-                if (text.contains(",")) {
-                    editText.setText(text.replace(",", "."))
-                    editText.setSelection(editText.text.length)
-                }
-            }
-        }
+    private fun build() {
+        header(R.string.preference_category_general)
+        choice(
+            getString(R.string.dark_theme), R.drawable.ic_dark_mode, R.array.theme_texts, R.array.theme_values,
+            { PrefManager.darkTheme }, { PrefManager.darkTheme = it },
+            { AppCompatDelegate.setDefaultNightMode(PrefManager.darkTheme) }
+        )
+        choice(
+            getString(R.string.settings_map), R.drawable.ic_map_type, R.array.map_type, R.array.map_value,
+            { PrefManager.mapType }, { PrefManager.mapType = it }
+        )
+
+        header(R.string.settings_location)
+        number(
+            getString(R.string.settings_of_accuracy), R.drawable.ic_accuracy, false,
+            { PrefManager.accuracy ?: "10" }, { it.toFloatOrNull() != null }, { PrefManager.accuracy = it }
+        )
+        lateinit var radius: SettingRowBinding
+        val paused = PrefManager.routeActive
+        toggle(
+            getString(R.string.settings_random_position), R.drawable.ic_random_position,
+            if (paused) getString(R.string.settings_random_paused)
+            else getString(R.string.settings_random_position_summary),
+            { PrefManager.isRandomPosition }, { PrefManager.isRandomPosition = it },
+            { on -> setEnabled(radius, on) }
+        ).also { if (paused) setEnabled(it, false) }
+        radius = number(
+            getString(R.string.settings_random_radius), null, false,
+            { fmtNum(PrefManager.randomRadius) }, { it.toFloatOrNull() != null },
+            { PrefManager.randomRadius = it.toFloat().coerceIn(0f, 100f) }
+        )
+        setEnabled(radius, PrefManager.isRandomPosition)
+        toggle(
+            getString(R.string.settings_altitude_server), null, getString(R.string.settings_altitude_server_summary),
+            { PrefManager.altitudeFromServer }, { PrefManager.altitudeFromServer = it }
+        )
+        number(
+            getString(R.string.settings_altitude), null, true,
+            { fmtNum(PrefManager.altitudeManual) }, { it.toFloatOrNull() != null },
+            { PrefManager.altitudeManual = it.toFloat().coerceIn(-500f, 9000f) }
+        )
+        number(
+            getString(R.string.settings_altitude_var), null, false,
+            { fmtNum(PrefManager.altitudeVariation) }, { it.toFloatOrNull() != null },
+            { PrefManager.altitudeVariation = it.toFloat().coerceIn(0f, 500f) }
+        )
+
+        header(R.string.settings_route)
+        toggle(
+            getString(R.string.settings_traffic_aware), null, getString(R.string.settings_traffic_aware_summary),
+            { PrefManager.trafficAware }, { PrefManager.trafficAware = it }
+        )
     }
 }

@@ -2,7 +2,6 @@ package io.gpsz.zygote;
 
 import android.location.Location;
 import android.location.LocationManager;
-import android.os.Build;
 import android.os.SystemClock;
 import android.util.Log;
 
@@ -23,10 +22,6 @@ final class LocationHooks {
     private static boolean crashed = false;
 
     static void install() {
-        if (Build.VERSION.SDK_INT < 33) {
-            Log.w(ZygoteEntry.TAG, "Android < 13 tidak didukung");
-            return;
-        }
         hook(Location.class, "getLatitude", K_LAT);
         hook(Location.class, "getLongitude", K_LNG);
         hook(Location.class, "getAccuracy", K_ACC);
@@ -64,7 +59,7 @@ final class LocationHooks {
                     Object value;
                     if (kind == K_LAST_KNOWN) value = fakeLastKnown(frame);
                     else if (kind == K_LAT || kind == K_LNG || kind == K_DIST || kind == K_BEARING_TO) value = fakePos(kind, frame);
-                    else value = fake(kind);
+                    else value = isFix(frame.accessor().getReference(0)) ? fake(kind) : null;
                     if (value != null) {
                         frame.accessor().setValue(EmulatedStackFrame.RETURN_VALUE_IDX, value);
                         handled = true;
@@ -102,24 +97,38 @@ final class LocationHooks {
         return e;
     }
 
+    private static boolean isFix(Object o) {
+        return o instanceof Location && ((Location) o).getElapsedRealtimeNanos() != 0;
+    }
+
+    private static Snap posOf(Location l) {
+        return isFix(l) ? snapOf(l) : new Snap(l.getLatitude(), l.getLongitude(), 0, 0);
+    }
+
     private static Object fakePos(int kind, EmulatedStackFrame frame) {
         Object self = frame.accessor().getReference(0);
         if (!(self instanceof Location)) return null;
-        Snap a = snapOf((Location) self);
-        if (kind == K_LAT) return Double.valueOf(a.lat);
-        if (kind == K_LNG) return Double.valueOf(a.lng);
+        Location me = (Location) self;
+        if (kind == K_LAT || kind == K_LNG) {
+            if (!isFix(me)) return null;
+            Snap a = snapOf(me);
+            return Double.valueOf(kind == K_LAT ? a.lat : a.lng);
+        }
         Object other = frame.accessor().getReference(1);
         if (!(other instanceof Location)) return null;
-        Snap b = snapOf((Location) other);
+        Location dest = (Location) other;
+        if (!isFix(me) && !isFix(dest)) return null;
+        Snap a = posOf(me), b = posOf(dest);
         float[] r = new float[2];
         Location.distanceBetween(a.lat, a.lng, b.lat, b.lng, r);
         return Float.valueOf(kind == K_DIST ? r[0] : r[1]);
     }
 
     private static Object fake(int kind) {
+        Config.tick();
         switch (kind) {
             case K_ACC:
-                return Float.valueOf(Config.acc);
+                return Float.valueOf(Config.accNow());
             case K_SPD:
                 return Float.valueOf(Config.spd);
             case K_BRG: {
@@ -142,9 +151,10 @@ final class LocationHooks {
         Object arg = frame.accessor().getReference(1);
         String provider = arg instanceof String ? (String) arg : LocationManager.GPS_PROVIDER;
         Location l = new Location(provider);
-        l.setLatitude(Config.lat);
-        l.setLongitude(Config.lng);
-        l.setAccuracy(Config.acc);
+        Config.Pt p = Config.snapshot();
+        l.setLatitude(p.lat);
+        l.setLongitude(p.lng);
+        l.setAccuracy(Config.accNow());
         l.setAltitude(Config.altitudeNow());
         l.setSpeed(Config.spd);
         if (!Float.isNaN(Config.brg)) l.setBearing(Config.brg);

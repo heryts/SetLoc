@@ -6,7 +6,7 @@ if [ "$OLD_MOD" != "$MODPATH" ] && [ -d "$OLD_MOD/packages" ]; then
   else
     ui_print "  ! gagal menyalin konfigurasi lama"
   fi
-  for f in .hb_default disable_super; do
+  for f in .hb_default disable_super disable_trk; do
     if [ -f "$OLD_MOD/$f" ]; then cp -a "$OLD_MOD/$f" "$MODPATH/$f"; fi
   done
 fi
