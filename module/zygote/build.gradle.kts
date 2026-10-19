@@ -24,7 +24,7 @@ android {
     sourceSets {
         getByName("main") {
             java {
-                srcDirs(Path(rootDir.path, "external", "AndroidVMTools", "src", "main", "java"))
+                directories.add(Path(rootDir.path, "external", "AndroidVMTools", "src", "main", "java").toString())
             }
         }
     }
@@ -32,6 +32,12 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
+    }
+
+    packaging {
+        jniLibs {
+            keepDebugSymbols += "**/libzygisk_loader.so"
+        }
     }
 }
 
