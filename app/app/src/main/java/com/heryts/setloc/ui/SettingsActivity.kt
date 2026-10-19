@@ -37,6 +37,9 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun header(title: Int) {
+        if (binding.settingsList.childCount > 0) {
+            binding.settingsList.addView(layoutInflater.inflate(R.layout.setting_divider, binding.settingsList, false))
+        }
         val h = SettingHeaderBinding.inflate(layoutInflater, binding.settingsList, false)
         h.root.setText(title)
         binding.settingsList.addView(h.root)
