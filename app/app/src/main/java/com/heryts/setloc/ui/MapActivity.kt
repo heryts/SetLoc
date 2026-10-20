@@ -9,7 +9,6 @@ import android.provider.Settings
 import android.view.Gravity
 import android.view.Menu
 import android.view.MenuItem
-import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
@@ -71,6 +70,9 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     private var pinListener: ((LatLng) -> Unit)? = null
 
     private var floatingDialog: AlertDialog? = null
+    private var dialogMoved = false
+    private var adjustPending = false
+    private var pinAdjustWanted = false
 
     private val routeWaypoints = mutableListOf<LatLng>()
     private val routeMarkers = mutableListOf<Marker>()
@@ -202,6 +204,12 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
                 )
             }
             setPadding(0, 0, 0, (64 * resources.displayMetrics.density).toInt())
+            setOnCameraIdleListener {
+                if (pinAdjustWanted) {
+                    pinAdjustWanted = false
+                    requestDialogAdjust()
+                }
+            }
             setOnMapClickListener(this@MapActivity)
             setOnMapLongClickListener(this@MapActivity)
             if (viewModel.isStarted){
@@ -222,6 +230,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             it.isVisible = true
             mMap.animateCamera(CameraUpdateFactory.newLatLng(latLng))
             pinListener?.invoke(latLng)
+            onPinChanged()
         }
     }
 
@@ -524,11 +533,17 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             showInfoWindow()
         }
         pinListener?.invoke(latLng)
+        onPinChanged()
     }
 
     override fun onCreateOptionsMenu(menu: Menu?): Boolean {
         menuInflater.inflate(R.menu.main_menu,menu)
         return true
+    }
+
+    override fun onMenuOpened(featureId: Int, menu: Menu): Boolean {
+        floatingDialog?.dismissSafe()
+        return super.onMenuOpened(featureId, menu)
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean = when (item.itemId) {
@@ -543,6 +558,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     private fun AlertDialog.makeFloating(): AlertDialog {
         floatingDialog?.let { if (it !== this) it.dismissSafe() }
         floatingDialog = this
+        dialogMoved = false
         setCanceledOnTouchOutside(false)
         setOnDismissListener {
             if (floatingDialog === this) { floatingDialog = null; pinListener = null }
@@ -555,34 +571,14 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             val place = {
                 setGravity(if (imeUp) Gravity.TOP or Gravity.CENTER_HORIZONTAL else Gravity.CENTER)
                 val lp = attributes
+                lp.x = 0
                 lp.y = if (imeUp) binding.toolbar.height + (8 * resources.displayMetrics.density).toInt() else 0
                 attributes = lp
+                dialogMoved = false
             }
             place()
-            var forward = false
-            decorView.setOnTouchListener { v, ev ->
-                if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
-                    val panel = v.findViewById<View>(androidx.appcompat.R.id.parentPanel)
-                    forward = if (panel == null) true else {
-                        val loc = IntArray(2)
-                        panel.getLocationOnScreen(loc)
-                        ev.rawX < loc[0] || ev.rawX > loc[0] + panel.width ||
-                            ev.rawY < loc[1] || ev.rawY > loc[1] + panel.height
-                    }
-                }
-                if (forward) {
-                    val target = this@MapActivity.window.decorView
-                    val a = IntArray(2)
-                    val d = IntArray(2)
-                    target.getLocationOnScreen(a)
-                    v.getLocationOnScreen(d)
-                    val copy = MotionEvent.obtain(ev)
-                    copy.offsetLocation((d[0] - a[0]).toFloat(), (d[1] - a[1]).toFloat())
-                    target.dispatchTouchEvent(copy)
-                    copy.recycle()
-                }
-                forward
-            }
+            attachTouchRouting(this@MapActivity.window, true) { dialogMoved = true }
+            decorView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> requestDialogAdjust() }
             ViewCompat.setOnApplyWindowInsetsListener(decorView) { _, insets ->
                 val up = insets.isVisible(WindowInsetsCompat.Type.ime())
                 if (up != imeUp) {
@@ -593,6 +589,60 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             }
         }
         return this
+    }
+
+    private fun requestDialogAdjust() {
+        if (adjustPending) return
+        adjustPending = true
+        binding.root.postDelayed({
+            adjustPending = false
+            adjustDialogForPin()
+        }, 120)
+    }
+
+    private fun onPinChanged() {
+        dialogMoved = false
+        pinAdjustWanted = true
+        requestDialogAdjust()
+        binding.root.postDelayed({ pinAdjustWanted = false }, 1500)
+    }
+
+    private fun adjustDialogForPin() {
+        val dlg = floatingDialog ?: return
+        if (dialogMoved || !dlg.isShowing || !::mMap.isInitialized) return
+        val marker = mMarker ?: return
+        if (!marker.isVisible) return
+        val w = dlg.window ?: return
+        val panel = w.decorView.findViewById<View>(androidx.appcompat.R.id.parentPanel) ?: return
+        if (panel.height == 0) return
+        val mapView = supportFragmentManager.findFragmentById(R.id.map)?.view ?: return
+        val d = resources.displayMetrics.density
+        val pt = mMap.projection.toScreenLocation(marker.position)
+        val ml = IntArray(2)
+        mapView.getLocationOnScreen(ml)
+        val px = ml[0] + pt.x
+        val py = ml[1] + pt.y
+        val pinTop = py - 64 * d
+        val pinBottom = py + 8 * d
+        val pl = IntArray(2)
+        panel.getLocationOnScreen(pl)
+        val overlap = pl[0] < px + 24 * d && pl[0] + panel.width > px - 24 * d &&
+            pl[1] < pinBottom && pl[1] + panel.height > pinTop
+        if (!overlap) return
+        val tl = IntArray(2)
+        binding.toolbar.getLocationOnScreen(tl)
+        val minTop = tl[1] + binding.toolbar.height + 4 * d
+        val above = pinTop - panel.height - 8 * d
+        val below = pinBottom + 8 * d
+        val screenH = resources.displayMetrics.heightPixels
+        val newTop = when {
+            above >= minTop -> above
+            below + panel.height <= screenH -> below
+            else -> minTop
+        }
+        val lp = w.attributes
+        lp.y += (newTop - pl[1]).toInt()
+        w.attributes = lp
     }
 
     private fun AlertDialog.backTo(action: (() -> Unit)?): AlertDialog {
