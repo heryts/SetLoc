@@ -22,7 +22,9 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -547,10 +549,23 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         window?.apply {
             clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
             addFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL)
-            setGravity(Gravity.TOP or Gravity.CENTER_HORIZONTAL)
-            val lp = attributes
-            lp.y = binding.toolbar.height + (8 * resources.displayMetrics.density).toInt()
-            attributes = lp
+            WindowCompat.setDecorFitsSystemWindows(this, false)
+            var imeUp = false
+            val place = {
+                setGravity(if (imeUp) Gravity.TOP or Gravity.CENTER_HORIZONTAL else Gravity.CENTER)
+                val lp = attributes
+                lp.y = if (imeUp) binding.toolbar.height + (8 * resources.displayMetrics.density).toInt() else 0
+                attributes = lp
+            }
+            place()
+            ViewCompat.setOnApplyWindowInsetsListener(decorView) { _, insets ->
+                val up = insets.isVisible(WindowInsetsCompat.Type.ime())
+                if (up != imeUp) {
+                    imeUp = up
+                    place()
+                }
+                insets
+            }
         }
         return this
     }
