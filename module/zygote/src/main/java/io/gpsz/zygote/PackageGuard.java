@@ -42,9 +42,7 @@ final class PackageGuard {
                     hookFilter(m, n);
                 }
             }
-        } catch (Throwable t) {
-            ZygoteEntry.w("PackageGuard install: " + t);
-        }
+        } catch (Throwable ignored) { }
     }
 
     private static void hookThrow(Method m, String methodName) {
@@ -64,9 +62,7 @@ final class PackageGuard {
                     ZygoteEntry.<RuntimeException>sneaky(t);
                 }
             }, Hooks.EntryPointType.DIRECT);
-        } catch (Throwable t) {
-            ZygoteEntry.w("PackageGuard throwHook " + methodName + ": " + t);
-        }
+        } catch (Throwable ignored) { }
     }
 
     private static void hookFilter(Method m, String methodName) {
@@ -96,13 +92,9 @@ final class PackageGuard {
                         dst.add(item);
                     }
                     if (found) frame.accessor().setValue(RET, dst);
-                } catch (Throwable t) {
-                    ZygoteEntry.warnOnce("PackageGuard filter", t);
-                }
+                } catch (Throwable ignored) { }
             }, Hooks.EntryPointType.DIRECT);
-        } catch (Throwable t) {
-            ZygoteEntry.w("PackageGuard filterHook " + methodName + ": " + t);
-        }
+        } catch (Throwable ignored) { }
     }
 
     private PackageGuard() { }

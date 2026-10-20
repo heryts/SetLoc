@@ -95,25 +95,19 @@ final class LocationHooks {
                 if (!m.getName().equals("createFromParcel") || m.isBridge() || m.getReturnType() != Location.class) continue;
                 Hooks.hook(m, Hooks.EntryPointType.DIRECT, transformer(K_CREATE), Hooks.EntryPointType.DIRECT);
             }
-        } catch (Throwable t) {
-            ZygoteEntry.w("creator hook failed: " + t);
-        }
+        } catch (Throwable ignored) { }
     }
 
     private static void hookAll(String className, String name, int kind) {
         try {
             hookAll(Class.forName(className), name, kind);
-        } catch (Throwable t) {
-            ZygoteEntry.w("no such class " + className);
-        }
+        } catch (Throwable ignored) { }
     }
 
     private static void hookAll(Class<?> c, String name, int kind) {
         if (crashed) return;
-        boolean found = false;
         for (Method m : c.getDeclaredMethods()) {
             if (!m.getName().equals(name)) continue;
-            found = true;
             int k = kind;
             if (kind == K_BT_DROP) {
                 Class<?> r = m.getReturnType();
@@ -123,11 +117,9 @@ final class LocationHooks {
                 Hooks.hook(m, Hooks.EntryPointType.DIRECT, transformer(k), Hooks.EntryPointType.DIRECT);
             } catch (Throwable t) {
                 crashed = true;
-                ZygoteEntry.e("hook failed: " + name, t);
                 return;
             }
         }
-        if (!found) ZygoteEntry.w("no such method " + name);
     }
 
     private static void hook(Class<?> c, String name, int kind, Class<?>... params) {
@@ -135,11 +127,9 @@ final class LocationHooks {
         try {
             Method m = c.getDeclaredMethod(name, params);
             Hooks.hook(m, Hooks.EntryPointType.DIRECT, transformer(kind), Hooks.EntryPointType.DIRECT);
-        } catch (NoSuchMethodException e) {
-            ZygoteEntry.w("no such method " + name);
+        } catch (NoSuchMethodException ignored) {
         } catch (Throwable t) {
             crashed = true;
-            ZygoteEntry.e("hook failed: " + name, t);
         }
     }
 
@@ -156,9 +146,7 @@ final class LocationHooks {
                         Object r = frame.accessor().getReference(EmulatedStackFrame.RETURN_VALUE_IDX);
                         if (isFix(r)) snapOf((Location) r);
                     }
-                } catch (Throwable t) {
-                    ZygoteEntry.warnOnce("create fix", t);
-                }
+                } catch (Throwable ignored) { }
                 return;
             }
             boolean handled = false;
@@ -218,9 +206,7 @@ final class LocationHooks {
                         handled = true;
                     }
                 }
-            } catch (Throwable t) {
-                ZygoteEntry.warnOnce("fake getter", t);
-            }
+            } catch (Throwable ignored) { }
             if (denied != null) ZygoteEntry.<RuntimeException>sneaky(denied);
             if (!handled) {
                 try {
@@ -439,15 +425,11 @@ final class LocationHooks {
         Class<?> gnssCallbackClass = null;
         try {
             gnssCallbackClass = Class.forName("android.location.GnssStatus$Callback");
-        } catch (Throwable t) {
-            ZygoteEntry.w("GnssStatus.Callback not found: " + t);
-        }
+        } catch (Throwable ignored) { }
         final Class<?> cbClass = gnssCallbackClass;
 
-        boolean found = false;
         for (Method m : LocationManager.class.getDeclaredMethods()) {
             if (!m.getName().equals("registerGnssStatusCallback")) continue;
-            found = true;
             final int nParams = m.getParameterTypes().length;
             final boolean returnsBool = (m.getReturnType() == boolean.class);
             try {
@@ -481,11 +463,8 @@ final class LocationHooks {
                         } catch (Throwable ignored) { }
                     }
                 }, Hooks.EntryPointType.DIRECT);
-            } catch (Throwable t) {
-                ZygoteEntry.w("hookGnssCallback: " + t);
-            }
+            } catch (Throwable ignored) { }
         }
-        if (!found) ZygoteEntry.w("registerGnssStatusCallback: not found");
     }
 
     private LocationHooks() { }

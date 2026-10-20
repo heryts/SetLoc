@@ -67,18 +67,14 @@ final class SettingsGuard {
                     }
                 }
             }
-        } catch (Throwable t) {
-            ZygoteEntry.w("observer hook failed: " + t);
-        }
+        } catch (Throwable ignored) { }
     }
 
     private static void hookExec() {
         try {
             Method m = ProcessBuilder.class.getDeclaredMethod("start");
             put(m, K_EXEC, 0, 0);
-        } catch (Throwable t) {
-            ZygoteEntry.w("exec hook failed: " + t);
-        }
+        } catch (Throwable ignored) { }
     }
 
     private static boolean hiddenUri(Uri u) {
@@ -99,9 +95,7 @@ final class SettingsGuard {
                     put(m, K_MAP, 0, 0);
                 }
             }
-        } catch (Throwable t) {
-            ZygoteEntry.w("settings cache hook failed: " + t);
-        }
+        } catch (Throwable ignored) { }
     }
 
     private static void hookProvider(Class<?> c) {
@@ -121,9 +115,7 @@ final class SettingsGuard {
     private static void put(Method m, int kind, int a, int b) {
         try {
             Hooks.hook(m, Hooks.EntryPointType.DIRECT, transformer(kind, a, b), Hooks.EntryPointType.DIRECT);
-        } catch (Throwable t) {
-            ZygoteEntry.w("settings hook failed: " + m.getName() + ": " + t);
-        }
+        } catch (Throwable ignored) { }
     }
 
     private static boolean reveals(String part) {
@@ -305,9 +297,7 @@ final class SettingsGuard {
                     } else if (kind == K_QUERY) {
                         sUri = settingsUri(frame, a);
                     }
-                } catch (Throwable t) {
-                    ZygoteEntry.warnOnce("settings guard", t);
-                }
+                } catch (Throwable ignored) { }
             }
             boolean hide = false;
             if (guard && kind == K_QUERY && sUri) {
@@ -332,9 +322,7 @@ final class SettingsGuard {
                 } else if (kind == K_MAP && r instanceof Map) {
                     stripMap((Map<?, ?>) r);
                 }
-            } catch (Throwable t) {
-                ZygoteEntry.warnOnce("settings guard post", t);
-            }
+            } catch (Throwable ignored) { }
         };
     }
 
