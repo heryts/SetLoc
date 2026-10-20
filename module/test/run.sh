@@ -37,6 +37,35 @@ EOS
 chmod +x "$T/bin/"*
 PATH="$T/bin:$PATH"; export PATH
 
+SALT="Qx7mK2vTnL9p"
+tag() {
+  rest="$SALT$1"
+  h=2166136261
+  while [ -n "$rest" ]; do
+    c=${rest%"${rest#?}"}
+    rest=${rest#?}
+    o=$(printf '%d' "'$c")
+    h=$(( ((h ^ o) * 16777619) & 2147483647 ))
+  done
+  printf '%06x' $((h & 16777215))
+}
+enc() {
+  rest="$1"
+  krest="$SALT"
+  out=""
+  while [ -n "$rest" ]; do
+    c=${rest%"${rest#?}"}; rest=${rest#?}
+    [ -n "$krest" ] || krest="$SALT"
+    k=${krest%"${krest#?}"}; krest=${krest#?}
+    cv=$(printf '%d' "'$c")
+    kv=$(printf '%d' "'$k")
+    x=$(( (cv + kv) % 256 ))
+    out="$out$(printf '%02x' "$x")"
+  done
+  printf '%s' "$out"
+}
+SYSTAG=da59e5; TRKTAG=7ff7c7
+
 echo "[sintaks]"
 for f in "$A"/*.sh "$A"/customize.d/*.sh "$A/../../../../setup.sh"; do
   [ -f "$f" ] && check "sh -n $(basename "$f")" "sh -n '$f'"
@@ -99,7 +128,7 @@ check "system on -> pending" '$G system status | grep -q "state=pending"'
 touch -d @100 "$PK/android"
 check "mtime lama -> live" '$G system status | grep -q "state=live"'
 $G system heartbeat >/dev/null
-check "heartbeat -> gpsz_sys=2" '$G system status | grep -q "gpsz_sys=2"'
+check "heartbeat -> sys=2" '$G system status | grep -q "sys=2"'
 $G system off >/dev/null
 check "system off menghapus berkas dan menandai .sysoff" '[ ! -e "$PK/android" ] && [ -e "$PK/.sysoff" ]'
 $G super off >/dev/null
@@ -213,16 +242,16 @@ echo "[bridge.sh: jendela trk]"
 TL="$T/tl100.txt"; : > "$TL"; i=0
 while [ $i -lt 100 ]; do printf '%11.6f %11.6f %7.3f %6.2f %8.2f\n' "-7.$i" "110.5" 5 90 12 >> "$TL"; i=$((i+1)); done
 sed -n '/^numok()/p;/^sput()/p;/^TRKKEY=/p;/^TRK_W=/p;/^TRK_LEAD=/p;/^trk_win() {/,/^}/p;/^trk_pump() {/,/^}/p;/^route_due() {/,/^}/p' "$A/bridge.sh" > "$T/trk_fn.sh"
-rm -f "$T/st/gpsz_trk"
+rm -f "$T/st/$TRKTAG"
 out=$( . "$T/trk_fn.sh"; RT_TK=500; RT_NN=100; RT_TLW=48; RT_TF="$TL"; RT_HE=0; TRK=1
   read UP _ < /proc/uptime; PC0=${UP%.*}${UP#*.}; RT_T0=$PC0
   trk_pump; echo "rc=$? ws=$WS we=$WE"
-  V=$(cat "$T/st/gpsz_trk"); echo "val=$V"
-  echo SENT > "$T/st/gpsz_trk"; trk_pump; echo "again=$(cat "$T/st/gpsz_trk")"
-  RT_T0=$((PC0 - 450)); WKEY="$RT_T0:$RT_NN:$RT_TF"; WS=1; WE=48; trk_pump; echo "mid=$(cat "$T/st/gpsz_trk")"
-  WE=30; trk_pump; echo "near=$WS/$WE"; cat "$T/st/gpsz_trk" | cut -c1-12 | sed 's/^/nearval=/'
-  RT_T0=$((PC0 - 6000)); WKEY="$RT_T0:$RT_NN:$RT_TF"; WS=53; WE=100; HOLD_AT=$((PC0 - 500)); echo SENT > "$T/st/gpsz_trk"; trk_pump; echo "hold5=$(cat "$T/st/gpsz_trk")"
-  HOLD_AT=$((PC0 - 1500)); trk_pump; echo "hold15=$(cat "$T/st/gpsz_trk")"; echo "holdws=$WS/$WE" )
+  V=$(cat "$T/st/$TRKTAG"); echo "val=$V"
+  echo SENT > "$T/st/$TRKTAG"; trk_pump; echo "again=$(cat "$T/st/$TRKTAG")"
+  RT_T0=$((PC0 - 450)); WKEY="$RT_T0:$RT_NN:$RT_TF"; WS=1; WE=48; trk_pump; echo "mid=$(cat "$T/st/$TRKTAG")"
+  WE=30; trk_pump; echo "near=$WS/$WE"; cat "$T/st/$TRKTAG" | cut -c1-12 | sed 's/^/nearval=/'
+  RT_T0=$((PC0 - 6000)); WKEY="$RT_T0:$RT_NN:$RT_TF"; WS=53; WE=100; HOLD_AT=$((PC0 - 500)); echo SENT > "$T/st/$TRKTAG"; trk_pump; echo "hold5=$(cat "$T/st/$TRKTAG")"
+  HOLD_AT=$((PC0 - 1500)); trk_pump; echo "hold15=$(cat "$T/st/$TRKTAG")"; echo "holdws=$WS/$WE" )
 check "pump awal: jendela 48 tick ditulis (ws=1 we=48)" 'echo "$out" | grep -q "rc=0 ws=1 we=48"'
 check "nilai trk memuat t=,k=500,a=,d= dan 48 baris" 'echo "$out" | grep "^val=" | grep -q "^val=t=[0-9]*;k=500;a=[0-9]*;d=," && [ "$(echo "$out" | grep "^val=" | tr -cd "|" | wc -c)" = 48 ]'
 check "pump kedua langsung: tidak menulis ulang" 'echo "$out" | grep -q "^again=SENT"'
@@ -300,21 +329,31 @@ check "modul lama sama dengan tujuan: dilewati tanpa error" '[ -e "$O/packages/c
 
 echo "[service.sh: mode system hook tidak ditimpa]"
 svc() {
-  S="$T/svc"; rm -rf "$S"; mkdir -p "$S"; cp "$A/service.sh" "$S/"
+  S="$T/svc"; rm -rf "$S"; mkdir -p "$S"; cp "$A/service.sh" "$A/bridge.sh" "$S/"
   [ -n "$2" ] && : > "$S/.hb_default"
-  if [ "$1" = unset ]; then rm -f "$T/st/gpsz_sys"; else printf '%s' "$1" > "$T/st/gpsz_sys"; fi
+  if [ "$1" = unset ]; then rm -f "$T/st/$SYSTAG"; else enc "$1" > "$T/st/$SYSTAG"; fi
   ( setsid sh -c 'echo $$ > "$1/pgid"; exec sh "$1/service.sh"' sh "$S" >/dev/null 2>&1 & )
   sleep 1.5
   kill -9 -- "-$(cat "$S/pgid")" 2>/dev/null
 }
+sysval() { cat "$T/st/$SYSTAG" 2>/dev/null | ( read -r h; [ -n "$h" ] || { echo ''; exit; }
+  krest="$SALT"; out=""; rest="$h"
+  while [ -n "$rest" ]; do
+    pair=$(printf '%s' "$rest" | cut -c1-2); rest=$(printf '%s' "$rest" | cut -c3-)
+    [ -n "$krest" ] || krest="$SALT"; k=${krest%"${krest#?}"}; krest=${krest#?}
+    kv=$(printf '%d' "'$k"); xv=$(( 0x$pair )); v=$(( (xv - kv + 256) % 256 ))
+    out="$out$(printf "\\$(printf '%03o' "$v")")"
+  done
+  printf '%s' "$out" )
+}
 svc 1
-check "reinstall: mode penuh (1) tidak ditimpa jadi heartbeat, penanda dibuat" '[ "$(cat "$T/st/gpsz_sys")" = 1 ] && [ -e "$S/.hb_default" ]'
+check "reinstall: mode penuh (1) tidak ditimpa jadi heartbeat, penanda dibuat" '[ "$(sysval)" = 1 ] && [ -e "$S/.hb_default" ]'
 svc 0
-check "reinstall: mode mati (0) tidak ditimpa, penanda dibuat" '[ "$(cat "$T/st/gpsz_sys")" = 0 ] && [ -e "$S/.hb_default" ]'
+check "reinstall: mode mati (0) tidak ditimpa, penanda dibuat" '[ "$(sysval)" = 0 ] && [ -e "$S/.hb_default" ]'
 svc unset
-check "pemasangan pertama: default heartbeat (2) diterapkan, penanda dibuat" '[ "$(cat "$T/st/gpsz_sys")" = 2 ] && [ -e "$S/.hb_default" ]'
+check "pemasangan pertama: default heartbeat (2) diterapkan, penanda dibuat" '[ "$(sysval)" = 2 ] && [ -e "$S/.hb_default" ]'
 svc 1 marker
-check "penanda sudah ada: tidak menyentuh pengaturan" '[ "$(cat "$T/st/gpsz_sys")" = 1 ]'
+check "penanda sudah ada: tidak menyentuh pengaturan" '[ "$(sysval)" = 1 ]'
 
 echo "[hook: Config.checkBeat (beat daemon)]"
 TD="$(cd "$(dirname "$0")" && pwd)"
@@ -334,7 +373,7 @@ const e = trackPos('t=1000;k=500;a=1000;d=,-7.0,110.0,0,0,0|', 5000);
 console.log(r[0].toFixed(3) + ' ' + r[1].toFixed(3) + ' ' + e[0].toFixed(3) + ' ' + (trackPos('t=1;k=500;d=,1,2|', 5) === null));
 EOJ
   check "trackPos: interpolasi tengah tick dan tahan titik terakhir, data rusak -> null" '[ "$(node "$T/tp.js")" = "-7.100 110.200 -7.000 true" ]'
-  check "readCfg: perintah shell membaca cfg, trk, dan uptime hanya saat tk=1" 'grep -q "gpsz_trk; read U" "$WJ"'
+  check "readCfg: perintah shell membaca cfg, trk, dan uptime hanya saat tk=1" 'grep -q "SK.trk} 2>/dev/null; read U" "$WJ"'
 else
   echo "  lewati (node tidak ada)"
 fi
