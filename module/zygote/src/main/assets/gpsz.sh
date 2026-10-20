@@ -1,58 +1,42 @@
 #!/system/bin/sh
 MODDIR=$(cd "$(dirname "$0")" && pwd)
 PKGDIR="$MODDIR/packages"
-SALT="Qx7mK2vTnL9p"
-tag() {
-  rest="$SALT$1"
-  h=2166136261
-  while [ -n "$rest" ]; do
-    c=${rest%"${rest#?}"}
-    rest=${rest#?}
-    o=$(printf '%d' "'$c")
-    h=$(( ((h ^ o) * 16777619) & 2147483647 ))
-  done
-  printf '%06x' $((h & 16777215))
-}
+KV="81 120 55 109 75 50 118 84 110 76 57 112 "
 enc() {
-  rest="$1"
-  krest="$SALT"
-  out=""
-  while [ -n "$rest" ]; do
-    c=${rest%"${rest#?}"}; rest=${rest#?}
-    [ -n "$krest" ] || krest="$SALT"
-    k=${krest%"${krest#?}"}; krest=${krest#?}
-    cv=$(printf '%d' "'$c")
-    kv=$(printf '%d' "'$k")
-    x=$(( (cv + kv) % 256 ))
-    out="$out$(printf '%02x' "$x")"
+  kr=$KV
+  vals=
+  for cv in $(printf %s "$1" | od -An -v -tu1); do
+    k=${kr%% *}
+    kr=${kr#* }
+    [ -n "$kr" ] || kr=$KV
+    vals="$vals $(( (cv + k) % 256 ))"
   done
-  printf '%s' "$out"
+  [ -n "$vals" ] && printf '%02x' $vals
 }
 dec() {
   rest="$1"
   case "$rest" in ''|null) return ;; *[!0-9a-fA-F]*) return ;; esac
   [ $((${#rest} % 2)) -eq 0 ] || return
-  krest="$SALT"
-  out=""
+  kr=$KV
+  esc=
   while [ -n "$rest" ]; do
-    pair=$(printf '%s' "$rest" | cut -c1-2)
-    rest=$(printf '%s' "$rest" | cut -c3-)
-    [ -n "$krest" ] || krest="$SALT"
-    k=${krest%"${krest#?}"}; krest=${krest#?}
-    kv=$(printf '%d' "'$k")
-    xv=$(( 0x$pair ))
-    v=$(( (xv - kv + 256) % 256 ))
-    out="$out$(printf "\\$(printf '%03o' "$v")")"
+    pair=${rest%"${rest#??}"}
+    rest=${rest#??}
+    k=${kr%% *}
+    kr=${kr#* }
+    [ -n "$kr" ] || kr=$KV
+    v=$(( (0x$pair - k + 256) % 256 ))
+    esc="$esc\\$(( (v>>6)&7 ))$(( (v>>3)&7 ))$(( v&7 ))"
   done
-  printf '%s' "$out"
+  printf "$esc"
 }
-KEY=$(tag cfg)
-SYSKEY=$(tag sys)
-BEATKEY=$(tag beat)
-TRKKEY=$(tag trk)
-NETKEY=$(tag net)
-BTKEY=$(tag bt)
-case "$1" in sync|check|status|doctor|super|net|bt|sysraw|netbt|cfgraw|trkraw) ;; *) sh "$MODDIR/bridge.sh" sync >/dev/null 2>&1 ;; esac
+KEY=691c6a
+SYSKEY=da59e5
+BEATKEY=eccaa8
+TRKKEY=7ff7c7
+NETKEY=5770df
+BTKEY=c60482
+case "$1" in sync|check|status|doctor|super|net|bt) ;; *) sh "$MODDIR/bridge.sh" sync >/dev/null 2>&1 ;; esac
 RAW=$(dec "$(settings get global $KEY 2>/dev/null)")
 get() { T=";$RAW;"; V=${T#*";$1="}; [ "$V" = "$T" ] && return; echo "${V%%;*}"; }
 E=$(get enabled);  [ -z "$E" ] && E=0
@@ -116,10 +100,6 @@ case "$1" in
       off) settings put global $NETKEY "$(enc 0)"; mirror; echo "sembunyikan Wi-Fi/cell: mati" ;;
       *)   [ "$(dec "$(settings get global $NETKEY 2>/dev/null)")" = 0 ] && echo "net=mati" || echo "net=aktif" ;;
     esac ;;
-  sysraw)  dec "$(settings get global $SYSKEY 2>/dev/null)" ;;
-  netbt)   echo "$(dec "$(settings get global $NETKEY 2>/dev/null)")|$(dec "$(settings get global $BTKEY 2>/dev/null)")" ;;
-  cfgraw)  echo "$RAW" ;;
-  trkraw)  settings get global $TRKKEY 2>/dev/null ;;
   show)   echo "enabled=$E lat=$LAT lng=$LNG acc=$ACC random=$RND spd=${SPD:-0} brg=${BRG:--} alt=${ALT:-0} altv=${ALTV:-0} rr=${RR:-8}"
           [ -e "$PKGDIR/.all" ] && echo "packages: ALL apps (listed ones below are EXCLUDED)"
           ls -1A "$PKGDIR" 2>/dev/null | grep -v '^\.\(all\|sysoff\|sysmt\)$' | sed 's/^/  pkg: /' ;;

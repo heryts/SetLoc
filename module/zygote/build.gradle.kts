@@ -39,6 +39,16 @@ android {
             keepDebugSymbols += "**/libzygisk_loader.so"
         }
     }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+    }
 }
 
 val targetPackages = (providers.gradleProperty("gpsz.packages").orNull ?: "")

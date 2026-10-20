@@ -68,6 +68,8 @@ input { font: inherit; color: inherit; }
 }
 .hero h1 { font-size: 20px; font-weight: 600; letter-spacing: .2px; }
 .hero p { font-size: 12.5px; opacity: .85; }
+.hero h1 .ver { display: inline-block; font-size: 11px; font-weight: 500; letter-spacing: 0; padding: 1px 8px; margin-left: 8px; border-radius: 999px; background: rgba(255,255,255,.22); vertical-align: 3px; }
+.hero h1 .ver:empty { display: none; }
 .hero .grow { flex: 1; min-width: 0; }
 .icon-btn {
   width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center;
@@ -203,6 +205,10 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .set .d { font-size: 12.5px; color: var(--text2); margin-top: 2px; }
 .seg { display: flex; background: var(--chip); border-radius: 12px; padding: 3px; }
 .seg button { padding: 6px 11px; border-radius: 9px; font-size: 13px; color: var(--text2); }
+.tabs { margin-bottom: 4px; }
+.tabs button { flex: 1; }
+.tabs .sep { width: 1px; background: var(--border); margin: 6px 3px; flex: none; }
+.tabs + .set { border-top: 0; }
 .seg button.active { background: var(--card); color: var(--text); box-shadow: 0 1px 3px var(--shadow); }
 .btn { padding: 10px 16px; border-radius: 12px; background: var(--chip); font-weight: 500; }
 .btn.primary { background: linear-gradient(135deg, var(--primary), var(--accent)); color: #fff; }
@@ -227,7 +233,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
       <svg viewBox="0 0 24 24"><path d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.6"/></svg>
     </div>
     <div class="grow">
-      <h1>SetLoc</h1>
+      <h1>SetLoc<span class="ver" id="ver"></span></h1>
       <p>Pilih app yang di-hook · Zygisk</p>
     </div>
     <button class="icon-btn" id="btnReload" aria-label="Muat ulang">
@@ -291,6 +297,18 @@ const MODID  = 'setloc_zygisk';
 const MODDIR = '/data/adb/modules/' + MODID;
 const PKGDIR = MODDIR + '/packages';
 const APP_PKG = 'com.heryts.setloc';
+const SALT = 'Qx7mK2vTnL9p';
+const SK = { cfg: '691c6a', sys: 'da59e5', net: '5770df', bt: 'c60482', trk: '7ff7c7' };
+function decHex(h) {
+  h = String(h || '').trim();
+  if (!h || h === 'null' || h.length % 2 || /[^0-9a-f]/i.test(h)) return '';
+  let o = '';
+  for (let i = 0; i < h.length; i += 2) {
+    const k = SALT.charCodeAt((i / 2) % SALT.length);
+    o += String.fromCharCode((parseInt(h.substr(i, 2), 16) - k + 256) % 256);
+  }
+  return o;
+}
 
 const NO_STOP = new Set([
   'android', 'system', 'com.android.systemui', 'com.android.phone',
@@ -322,7 +340,9 @@ const B = {
   },
   async readSys() {
     try {
-      const out = await sh(`F='${PKGDIR}/android'; O='${PKGDIR}/.sysoff'; boot=$(( $(date +%s) - $(cut -d. -f1 /proc/uptime) )); g=$(sh '${MODDIR}/gpsz.sh' sysraw 2>/dev/null); ` +
+      const gv = decHex(await sh(`settings get global ${SK.sys} 2>/dev/null`)).trim();
+      const g = /^[0-9]$/.test(gv) ? gv : '';
+      const out = await sh(`F='${PKGDIR}/android'; O='${PKGDIR}/.sysoff'; boot=$(( $(date +%s) - $(cut -d. -f1 /proc/uptime) )); g='${g}'; ` +
         `if [ -e "$F" ] && { [ "$g" = 1 ] || [ "$g" = 2 ]; }; then mt=$(stat -c %Y "$F" 2>/dev/null || echo 0); if [ "$mt" -lt "$boot" ]; then if [ "$g" = 2 ]; then echo heartbeat; else echo live; fi; else if [ "$g" = 2 ]; then echo pendinghb; else echo pending; fi; fi; ` +
         `elif [ -e "$O" ]; then mt=$(stat -c %Y "$O" 2>/dev/null || echo 0); if [ "$mt" -ge "$boot" ]; then echo offpending; else echo off; fi; else echo off; fi`);
       const m = /(heartbeat|live|pendinghb|pending|offpending|off)/.exec(out || '');
@@ -331,9 +351,9 @@ const B = {
   },
   async readHide() {
     try {
-      const out = await sh(`sh '${MODDIR}/gpsz.sh' netbt 2>/dev/null`);
+      const out = await sh(`echo "$(settings get global ${SK.net} 2>/dev/null)|$(settings get global ${SK.bt} 2>/dev/null)"`);
       const p = out.trim().split('|');
-      return { net: p[0] !== '0', bt: p[1] === '1' };
+      return { net: decHex(p[0]) !== '0', bt: decHex(p[1]) === '1' };
     } catch (e) { return { net: true, bt: false }; }
   },
   async setNet(on) { await sh(`sh '${MODDIR}/gpsz.sh' net ${on ? 'on' : 'off'} 2>&1`); },
@@ -350,8 +370,10 @@ const B = {
   },
   async readCfg(sync = true) {
     try {
-      return await sh(`${sync ? `sh '${MODDIR}/bridge.sh' sync >/dev/null 2>&1; ` : ''}C=$(sh '${MODDIR}/gpsz.sh' cfgraw 2>/dev/null); echo "$C"; ` +
-        `case "$C" in *';tk=1'*) sh '${MODDIR}/gpsz.sh' trkraw 2>/dev/null; read U _ < /proc/uptime; echo $(( \${U%.*}\${U#*.} * 10 )) ;; esac`);
+      const c = decHex(await sh(`${sync ? `sh '${MODDIR}/bridge.sh' sync >/dev/null 2>&1; ` : ''}settings get global ${SK.cfg} 2>/dev/null`));
+      if (!c.includes(';tk=1')) return c;
+      const t = await sh(`settings get global ${SK.trk} 2>/dev/null; read U _ < /proc/uptime; echo $(( \${U%.*}\${U#*.} * 10 ))`);
+      return c + '\n' + t;
     } catch (e) { return ''; }
   },
   async ensureDaemon() {
@@ -394,6 +416,12 @@ const B = {
   },
   async grantSecure() { await sh(`pm grant ${APP_PKG} android.permission.WRITE_SECURE_SETTINGS 2>&1`); },
   async appInstalled() { const r = await exec(`pm path ${APP_PKG} 2>/dev/null`); return /^package:/m.test(r.stdout || ''); },
+  async readVer(withApp) {
+    const clean = r => String((r && r.stdout) || '').trim().replace(/^v/i, '');
+    const mod = clean(await exec(`sed -n 's/^version=//p' '${MODDIR}/module.prop' 2>/dev/null | head -1`));
+    const app = withApp ? clean(await exec(`dumpsys package ${APP_PKG} 2>/dev/null | sed -n 's/^ *versionName=//p' | head -1`)) : '';
+    return { mod, app };
+  },
   async launch() {
     await sh(`am start --user 0 -n ${APP_PKG}/${APP_PKG}.ui.MapActivity >/dev/null 2>&1 || monkey -p ${APP_PKG} -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1`);
   },
@@ -501,7 +529,12 @@ function renderApp() {
   b.disabled = S.appBusy || S.appOn === null;
   if (S.appOn === null) { b.textContent = '…'; $('#appSub').textContent = 'Memeriksa…'; return; }
   b.textContent = S.appBusy ? 'Memasang…' : (S.appOn ? 'Buka' : 'Pasang app');
-  $('#appSub').textContent = S.appOn ? 'Terpasang · atur titik lokasi di sini' : 'Belum terpasang di perangkat ini';
+  const v = S.ver || { mod: '', app: '' };
+  const mism = S.appOn && v.app && v.mod && v.app !== v.mod;
+  $('#appSub').textContent = !S.appOn ? 'Belum terpasang di perangkat ini'
+    : mism ? `Terpasang v${v.app} · beda dengan modul v${v.mod}`
+    : `Terpasang${v.app ? ' · v' + v.app : ''} · atur titik lokasi di sini`;
+  $('#ver').textContent = v.mod ? 'v' + v.mod : '';
 }
 
 function trackPos(trk, nowMs) {
@@ -555,6 +588,7 @@ async function load() {
     renderStatus(cfg);
     S.appOn = await B.appInstalled().catch(() => null);
     S.secure = S.appOn ? await B.secureGranted().catch(() => null) : null;
+    S.ver = await B.readVer(S.appOn).catch(() => null);
     renderApp();
 
     const sysSet = new Set(sys);
@@ -610,6 +644,7 @@ async function appAction() {
     await B.installApp();
     S.appOn = true;
     S.secure = await B.secureGranted().catch(() => null);
+    S.ver = await B.readVer(true).catch(() => S.ver);
     renderBanners();
     toast('SetLoc terpasang');
   } catch (e) { toast('Gagal memasang: ' + e.message, true); }
@@ -685,16 +720,11 @@ window.addEventListener('popstate', () => {
   if (sheetHave) { sheetHave = false; sheetWant = false; hideSheetDom(); }
 });
 
+let setTab = 'sys';
 function openSheet() {
   const t = theme();
-  showSheet(`
-    <h2>Pengaturan</h2>
-    <div class="set">
-      <div class="grow"><div>Tema</div></div>
-      <div class="seg" id="segTheme">
-        ${[['system', 'Sistem'], ['light', 'Terang'], ['dark', 'Gelap']].map(([k, v]) => `<button data-th="${k}" class="${t === k ? 'active' : ''}">${v}</button>`).join('')}
-      </div>
-    </div>
+  const panes = {
+    sys: `
     <div class="set">
       <div class="grow">
         <div>Hook semua app</div>
@@ -717,6 +747,10 @@ function openSheet() {
       <button class="switch" id="swHb" role="switch" aria-checked="${S.hb}"></button>
     </div>
     <div class="set">
+      <div class="grow"><div>Folder konfigurasi</div><div class="d mono">${esc(PKGDIR)}</div></div>
+    </div>`,
+    priv: `
+    <div class="set">
       <div class="grow">
         <div>Sembunyikan Wi-Fi dan seluler</div>
         <div class="d">App yang di-hook tidak melihat daftar Wi-Fi, access point tersambung, atau menara seluler.</div>
@@ -729,10 +763,16 @@ function openSheet() {
         <div class="d">App yang di-hook tidak bisa mencari perangkat Bluetooth. Bisa merusak pairing jam tangan dan headset.</div>
       </div>
       <button class="switch" id="swBt" role="switch" aria-checked="${S.bt}"></button>
+    </div>`
+  };
+  showSheet(`
+    <h2>Pengaturan</h2>
+    <div class="seg tabs" id="segTab">
+      ${[['sys', 'Sistem'], ['priv', 'Privasi']].map(([k, v]) => `<button data-tab="${k}" class="${setTab === k ? 'active' : ''}">${v}</button>`).join('')}
+      <i class="sep"></i>
+      ${[['light', 'Terang'], ['dark', 'Gelap']].map(([k, v]) => `<button data-th="${k}" class="${t === k ? 'active' : ''}">${v}</button>`).join('')}
     </div>
-    <div class="set">
-      <div class="grow"><div>Folder konfigurasi</div><div class="d mono">${esc(PKGDIR)}</div></div>
-    </div>`);
+    ${panes[setTab] || panes.sys}`);
 }
 
 function parseCoords(txt) {
@@ -927,11 +967,13 @@ $('#btnSpoof').addEventListener('click', async () => {
     toast('Gagal: ' + e.message, true);
   }
 });
-$('#btnSettings').addEventListener('click', openSheet);
+$('#btnSettings').addEventListener('click', () => { setTab = 'sys'; openSheet(); });
 $('#scrim').addEventListener('click', closeSheet);
 $('#sheet').addEventListener('click', e => {
+  const tb = e.target.closest('[data-tab]');
+  if (tb) { setTab = tb.dataset.tab; openSheet(); return; }
   const th = e.target.closest('[data-th]');
-  if (th) { applyTheme(th.dataset.th); openSheet(); return; }
+  if (th) { applyTheme(theme() === th.dataset.th ? 'system' : th.dataset.th); openSheet(); return; }
   if (e.target.closest('#swAll')) { S.all ? setAllMode(false) : confirmAll(); return; }
   if (e.target.closest('#swSys')) { S.sys ? setSysMode(false) : confirmSys(); return; }
   if (e.target.closest('#swHb')) { S.hb ? setSysMode(false) : setHbMode(); return; }
