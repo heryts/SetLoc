@@ -66,7 +66,12 @@ zygisk {
     isAddVariantToArchiveName = true
 }
 
+configurations.configureEach {
+    exclude(group = "io.github.vova7878", module = "SunUnsafeWrapper")
+}
+
 dependencies {
+    implementation(project(":unsafe"))
     implementation(libs.r8annotations)
 
     api(androidvmtools.panama.core)

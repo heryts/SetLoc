@@ -5,5 +5,6 @@ W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 cp -r "$D/stubs/." "$W/"
 cp "$SRC" "$W/io/gpsz/zygote/Config.java"
 cp "$D/BeatTest.java" "$D/TrackTest.java" "$W/io/gpsz/zygote/"
-( cd "$W" && javac -d out $(find . -name '*.java') ) || exit 1
+JC=javac; command -v javac >/dev/null 2>&1 || JC="java -m jdk.compiler/com.sun.tools.javac.Main"
+( cd "$W" && $JC -d out $(find . -name '*.java') ) || exit 1
 java -cp "$W/out" io.gpsz.zygote.BeatTest && java -cp "$W/out" io.gpsz.zygote.TrackTest

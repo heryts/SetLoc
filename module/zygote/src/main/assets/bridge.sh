@@ -339,6 +339,12 @@ set_app_pos() {
   remember
 }
 
+pulse() {
+  read UP _ < /proc/uptime
+  [ "${UP%.*}" != "$LASTBEAT" ] && csput $BEATKEY "${UP%.*}" && LASTBEAT=${UP%.*}
+  return 0
+}
+
 is_playing() { case "$NEW" in *";pl=1") return 0 ;; *) return 1 ;; esac; }
 
 is_daemon_pid() { [ -r "/proc/$1/cmdline" ] && tr '\0' ' ' < "/proc/$1/cmdline" | grep -q 'bridge.sh daemon'; }
@@ -583,12 +589,7 @@ while true; do
   is_playing && PLAYING=1 || PLAYING=0
   if [ $PLAYING = 1 ]; then
     SIGEVERY=5
-    if [ "$TRK" != 1 ]; then
-      read UP _ < /proc/uptime
-      if [ "${UP%.*}" != "$LASTBEAT" ]; then
-        sput $BEATKEY "${UP%.*}" && LASTBEAT=${UP%.*}
-      fi
-    fi
+    [ "$TRK" != 1 ] && pulse
   elif [ "$INO" = 1 ]; then
     SIGEVERY=1
   else

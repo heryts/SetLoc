@@ -7,11 +7,14 @@ public class BeatTest {
   static String sget(String k){ return Config.dec(android.provider.Settings.Global.store.get(Config.tag(k))); }
   static void poll(long t,String cfg,String beat){ SystemClock.fake=t; Config.parse(cfg); Config.checkBeat(beat); }
   public static void main(String[] x){
+    for(String[] w:new String[][]{{"WIRE_PLAIN","WIRE_HEX"},{"WIRE_PLAIN5","WIRE_HEX5"}}){ String pl=System.getenv(w[0]), hx=System.getenv(w[1]); if(pl==null||hx==null||pl.isEmpty()||hx.isEmpty()){ fails++; System.out.println("FAIL interop: "+w[0]+"/"+w[1]+" tidak diisi dari bridge.sh"); } else eq("interop: nilai beat bridge.sh terbaca Config.dec ("+pl+")",Config.dec(hx),pl); }
     String PL="enabled=1;lat=-7.7;lng=110.4;acc=10;random=0;spd=33.0;alt=1;altv=0;rr=8;brg=30;pl=1";
     String SP="enabled=1;lat=-7.7;lng=110.4;acc=10;random=1;spd=0;alt=1;altv=0;rr=8";
     long t=1000;
     for(int i=0;i<20;i++){ poll(t,PL,""+(i/4)); t+=250; }
     eq("normal enabled",Config.enabled,true); eq("normal spd",Config.spd,33.0f);
+    for(int up=36000;up<36030;up++) for(int q=0;q<4;q++){ poll(t,PL,Config.dec(Config.enc(""+up))); t+=250; }
+    eq("uptime 5 digit: beat berganti tiap detik tidak dianggap basi",Config.spd,33.0f);
     String last="4"; long t0=t;
     for(;t<t0+9000;t+=250) poll(t,PL,last);
     eq("9s stale: still moving",Config.spd,33.0f);
@@ -89,6 +92,9 @@ public class BeatTest {
     eq("refresh: perubahan cfg langsung",Config.enabled,false);
     sput("cfg",PL); Config.refresh(null,null,null); for(int i=0;i<12;i++){ SystemClock.fake+=1000; Config.refresh(null,null,null); }
     eq("refresh: beat basi 12 dtk -> freeze",Config.spd,0f);
+    SystemClock.fake=2_000_000; double[] pv=Config.networkOffset(-7.7); long lc=SystemClock.fake, mn=Long.MAX_VALUE, mx=0, sm=0; int cn=0;
+    for(long tt=2_000_000;tt<2_000_000+900_000L;tt+=50){ SystemClock.fake=tt; double[] o=Config.networkOffset(-7.7); if(o[0]!=pv[0]||o[1]!=pv[1]){ long d=tt-lc; mn=Math.min(mn,d); mx=Math.max(mx,d); sm+=d; cn++; lc=tt; pv=o; } }
+    eq("networkOffset: interval ganti acak 20-40 dtk",cn>=10&&mn>=20000&&mx<=40100&&sm/cn>=24000,true);
     System.out.println(fails==0?"ALL PASS":"FAILURES "+fails); System.exit(fails);
   }
 }

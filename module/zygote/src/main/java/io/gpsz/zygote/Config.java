@@ -198,6 +198,7 @@ final class Config {
     private static long gAt = 0;
     private static double netLat = 0, netLng = 0;
     private static long netAt = 0;
+    private static long netGap = 0;
 
     static synchronized int[] gnssExtras() {
         long now = SystemClock.elapsedRealtime();
@@ -231,7 +232,8 @@ final class Config {
 
     static synchronized double[] networkOffset(double refLat) {
         long now = SystemClock.elapsedRealtime();
-        if (netAt == 0 || now - netAt > 20_000 + RND.nextInt(20_000)) {
+        if (netAt == 0 || now - netAt > netGap) {
+            netGap = 20_000 + RND.nextInt(20_000);
             double ang = RND.nextDouble() * 2 * Math.PI;
             double dist = 35 + RND.nextDouble() * 90;
             double c = Math.cos(Math.toRadians(refLat));

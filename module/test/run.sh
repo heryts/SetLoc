@@ -64,7 +64,7 @@ enc() {
   done
   printf '%s' "$out"
 }
-SYSTAG=da59e5; TRKTAG=7ff7c7
+SYSTAG=da59e5; TRKTAG=7ff7c7; BEATTAG=eccaa8
 
 echo "[sintaks]"
 for f in "$A"/*.sh "$A"/customize.d/*.sh "$A/../../../../setup.sh"; do
@@ -355,13 +355,39 @@ check "pemasangan pertama: default heartbeat (2) diterapkan, penanda dibuat" '[ 
 svc 1 marker
 check "penanda sudah ada: tidak menyentuh pengaturan" '[ "$(sysval)" = 1 ]'
 
+echo "[kunci Settings.Global dan beat terenkripsi]"
+for p in KEY:cfg SYSKEY:sys BEATKEY:beat TRKKEY:trk NETKEY:net BTKEY:bt; do
+  for f in bridge.sh gpsz.sh; do
+    check "$f ${p%%:*} cocok dengan tag(${p#*:})" '[ "$(sed -n "s/^${p%%:*}=//p" "$A/$f")" = "$(tag "${p#*:}")" ]'
+  done
+done
+sed -n '/^KV=/p;/^enc() {/,/^}/p;/^dec() {/,/^}/p;/^BEATKEY=/p;/^sput() {/p;/^csput() {/p;/^pulse() {/,/^}/p' "$A/bridge.sh" > "$T/beat_fn.sh"
+rm -f "$T/st/$BEATTAG"
+( . "$T/beat_fn.sh"; LASTBEAT=; pulse; echo "$LASTBEAT" > "$T/beat_up"; enc 12345 > "$T/wire5" )
+WIRE_PLAIN=$(cat "$T/beat_up"); WIRE_HEX=$(cat "$T/st/$BEATTAG" 2>/dev/null); WIRE_PLAIN5=12345; WIRE_HEX5=$(cat "$T/wire5")
+export WIRE_PLAIN WIRE_HEX WIRE_PLAIN5 WIRE_HEX5
+check "beat tidak pernah ditulis lewat sput polos" '! grep -nE "\\bsput[[:space:]]+\"?[$]BEATKEY" "$A/bridge.sh" "$A/gpsz.sh"'
+check "pulse: beat ditulis terenkripsi, bukan teks polos" '[ -n "$WIRE_PLAIN" ] && [ "$WIRE_HEX" = "$(enc "$WIRE_PLAIN")" ] && [ "$WIRE_HEX" != "$WIRE_PLAIN" ]'
+check "pulse: detik yang sama tidak ditulis ulang" '( . "$T/beat_fn.sh"; LASTBEAT=$WIRE_PLAIN; echo SENT > "$T/st/$BEATTAG"; pulse; [ "$(cat "$T/st/$BEATTAG")" = SENT ] )'
+check "enc bridge.sh identik dengan enc referensi (uptime 5 digit)" '[ "$WIRE_HEX5" = "$(enc 12345)" ]'
+
 echo "[hook: Config.checkBeat (beat daemon)]"
 TD="$(cd "$(dirname "$0")" && pwd)"
-if command -v javac >/dev/null 2>&1 && command -v java >/dev/null 2>&1; then
+if command -v java >/dev/null 2>&1 && { command -v javac >/dev/null 2>&1 || java --list-modules 2>/dev/null | grep -q '^jdk.compiler@'; }; then
   check "checkBeat + refresh: freeze, off, resume, jeda poll, titik tunggal, snapshot, flag sistem, onReady sekali" 'sh "$TD/beat/run.sh" >"$T/beat.log" 2>&1 || { cat "$T/beat.log"; false; }'
 else
-  echo "  lewati (javac/java tidak ada)"
+  bad "tes Java dilewati: javac/java tidak ada"
 fi
+
+echo "[unsafe: SunUnsafe milik sendiri menggantikan SunUnsafeWrapper]"
+if command -v java >/dev/null 2>&1 && { command -v javac >/dev/null 2>&1 || java --list-modules 2>/dev/null | grep -q '^jdk.compiler@'; }; then
+  check "SunUnsafe: API identik v1.0.2, nol warning javac, bytecode valid, memori/CAS/fence jalan" 'sh "$TD/unsafe/run.sh" >"$T/unsafe.log" 2>&1 || { cat "$T/unsafe.log"; false; }'
+else
+  bad "tes SunUnsafe dilewati: javac/java tidak ada"
+fi
+check "settings.gradle.kts memuat :stub dan :unsafe" 'grep -q "include(\":stub\")" "$TD/../settings.gradle.kts" && grep -q "include(\":unsafe\")" "$TD/../settings.gradle.kts"'
+check "zygote mengeluarkan SunUnsafeWrapper dan memakai :unsafe" 'grep -q "module = \"SunUnsafeWrapper\"" "$TD/../zygote/build.gradle.kts" && grep -q "implementation(project(\":unsafe\"))" "$TD/../zygote/build.gradle.kts"'
+check "stub hanya compileOnly (tidak ikut ke dex)" 'grep -q "compileOnly(project(\":stub\"))" "$TD/../unsafe/build.gradle.kts" && ! grep -q "project(\":stub\")" "$TD/../zygote/build.gradle.kts"'
 
 echo "[webui: posisi dari jendela trk]"
 if command -v node >/dev/null 2>&1; then
@@ -375,7 +401,7 @@ EOJ
   check "trackPos: interpolasi tengah tick dan tahan titik terakhir, data rusak -> null" '[ "$(node "$T/tp.js")" = "-7.100 110.200 -7.000 true" ]'
   check "readCfg: perintah shell membaca cfg, trk, dan uptime hanya saat tk=1" 'grep -q "SK.trk} 2>/dev/null; read U" "$WJ"'
 else
-  echo "  lewati (node tidak ada)"
+  bad "tes webui dilewati: node tidak ada"
 fi
 
 echo

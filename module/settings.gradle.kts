@@ -23,4 +23,6 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "SetLocZygisk"
+include(":stub")
+include(":unsafe")
 include(":zygote")

@@ -9,6 +9,7 @@ import android.provider.Settings
 import android.view.Gravity
 import android.view.Menu
 import android.view.MenuItem
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
@@ -558,6 +559,30 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
                 attributes = lp
             }
             place()
+            var forward = false
+            decorView.setOnTouchListener { v, ev ->
+                if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
+                    val panel = v.findViewById<View>(androidx.appcompat.R.id.parentPanel)
+                    forward = if (panel == null) true else {
+                        val loc = IntArray(2)
+                        panel.getLocationOnScreen(loc)
+                        ev.rawX < loc[0] || ev.rawX > loc[0] + panel.width ||
+                            ev.rawY < loc[1] || ev.rawY > loc[1] + panel.height
+                    }
+                }
+                if (forward) {
+                    val target = this@MapActivity.window.decorView
+                    val a = IntArray(2)
+                    val d = IntArray(2)
+                    target.getLocationOnScreen(a)
+                    v.getLocationOnScreen(d)
+                    val copy = MotionEvent.obtain(ev)
+                    copy.offsetLocation((d[0] - a[0]).toFloat(), (d[1] - a[1]).toFloat())
+                    target.dispatchTouchEvent(copy)
+                    copy.recycle()
+                }
+                forward
+            }
             ViewCompat.setOnApplyWindowInsetsListener(decorView) { _, insets ->
                 val up = insets.isVisible(WindowInsetsCompat.Type.ime())
                 if (up != imeUp) {
