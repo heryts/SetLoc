@@ -8,7 +8,7 @@ public class TrackTest {
   static final String CFG="enabled=1;lat=-7.0;lng=110.0;acc=10;random=0;spd=0;alt=5;altv=0;rr=8;tk=1;pl=1";
   static String trk(long t0,long a,int k,String rows){ return "t="+t0+";k="+k+";a="+a+";d="+rows; }
   static void refresh(Map<String,String> st,long now,String cfg,String trk){
-    SystemClock.fake=now; st.put("gpsz_cfg",cfg); if(trk==null) st.remove("gpsz_trk"); else st.put("gpsz_trk",trk);
+    SystemClock.fake=now; st.put(Config.KEY,Config.enc(cfg)); if(trk==null) st.remove(Config.KEY_TRK); else st.put(Config.KEY_TRK,trk);
     Config.refresh(null,null,null);
   }
   public static void main(String[] x){
@@ -82,7 +82,7 @@ public class TrackTest {
     near("kembali ke tk: lat dari jendela (tick 1)", Config.lat, -8.1, 1e-9);
 
     SystemClock.fake=L+700000;
-    st.put("gpsz_cfg","enabled=1;lat=-6.5;lng=106.5;acc=10;random=0;spd=7;alt=1;altv=0;rr=8;pl=1;tk=1");
+    st.put(Config.KEY,Config.enc("enabled=1;lat=-6.5;lng=106.5;acc=10;random=0;spd=7;alt=1;altv=0;rr=8;pl=1;tk=1"));
     Config.refresh(null,null,null);
     eq("tk di akhir cfg juga dikenali", Config.tkMode, true);
 

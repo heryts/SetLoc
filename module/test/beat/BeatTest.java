@@ -3,6 +3,8 @@ import android.os.SystemClock;
 public class BeatTest {
   static int fails=0;
   static void eq(String n, Object a, Object b){ if(!a.equals(b)){fails++; System.out.println("FAIL "+n+": "+a+" != "+b);} else System.out.println("ok   "+n); }
+  static void sput(String k,String v){ android.provider.Settings.Global.store.put(Config.tag(k),Config.enc(v)); }
+  static String sget(String k){ return Config.dec(android.provider.Settings.Global.store.get(Config.tag(k))); }
   static void poll(long t,String cfg,String beat){ SystemClock.fake=t; Config.parse(cfg); Config.checkBeat(beat); }
   public static void main(String[] x){
     String PL="enabled=1;lat=-7.7;lng=110.4;acc=10;random=0;spd=33.0;alt=1;altv=0;rr=8;brg=30;pl=1";
@@ -59,33 +61,33 @@ public class BeatTest {
     eq("input tidak valid: altv negatif -> 0",Config.altVar,0f);
     eq("input tidak valid: rr NaN -> 8",Config.rr,8f);
     java.util.Map<String,String> st=android.provider.Settings.Global.store; int[] ran={0}; boolean[] hooked={false}; java.util.function.BooleanSupplier ready=()->{ ran[0]++; return hooked[0]; }; st.put("boot_count","7");
-    SystemClock.fake+=10000; st.put("gpsz_cfg",PL); st.put("gpsz_beat","a"); st.remove("gpsz_sys");
+    SystemClock.fake+=10000; sput("cfg",PL); sput("beat","a"); st.remove(Config.tag("sys"));
     Config.refresh(null,null,ready);
     eq("refresh: cfg terbaca",Config.enabled,true); eq("refresh: sys off",Config.system,false); eq("refresh: onReady belum jalan",ran[0],0);
-    st.put("gpsz_sys","1"); Config.refresh(null,null,ready);
+    sput("sys","1"); Config.refresh(null,null,ready);
     eq("refresh: penanda baca dibersihkan",Config.READING.get()==null,true);
     eq("refresh: sys on",Config.system,true); eq("refresh: heartbeat off",Config.sysHeartbeat,false); eq("refresh: onReady jalan",ran[0],1);
-    eq("refresh: hook gagal -> live tidak dipublikasikan",st.containsKey("gpsz_sys_live"),false);
-    st.put("gpsz_sys","2"); Config.refresh(null,null,ready); Config.refresh(null,null,ready);
+    eq("refresh: hook gagal -> live tidak dipublikasikan",st.containsKey(Config.tag("live")),false);
+    sput("sys","2"); Config.refresh(null,null,ready); Config.refresh(null,null,ready);
     eq("refresh: heartbeat on",Config.sysHeartbeat,true); eq("refresh: percobaan ulang ditahan jeda",ran[0],1);
     SystemClock.fake+=6000; Config.refresh(null,null,ready); Config.refresh(null,null,ready);
-    eq("refresh: hook masih gagal -> coba ulang sesudah jeda",ran[0],2); eq("refresh: tetap tidak dipublikasikan",st.containsKey("gpsz_sys_live"),false);
+    eq("refresh: hook masih gagal -> coba ulang sesudah jeda",ran[0],2); eq("refresh: tetap tidak dipublikasikan",st.containsKey(Config.tag("live")),false);
     hooked[0]=true; android.app.Application app=new android.app.Application(); st.put("boot_count","7");
     SystemClock.fake+=6000; Config.refresh(null,app,ready); Config.refresh(null,app,ready);
-    eq("refresh: hook sukses -> onReady jalan",ran[0],3); eq("refresh: hook sukses -> live = boot_count","7".equals(st.get("gpsz_sys_live")),true);
+    eq("refresh: hook sukses -> onReady jalan",ran[0],3); eq("refresh: hook sukses -> live = boot_count","7".equals(sget("live")),true);
     st.put("boot_count","8"); SystemClock.fake+=6000; Config.refresh(null,app,ready);
-    eq("refresh: boot_count naik belakangan -> live menyusul","8".equals(st.get("gpsz_sys_live")),true);
+    eq("refresh: boot_count naik belakangan -> live menyusul","8".equals(sget("live")),true);
     hooked[0]=false; SystemClock.fake+=6000; Config.refresh(null,app,ready);
-    eq("refresh: hook hilang -> live dicabut","".equals(st.get("gpsz_sys_live")),true);
+    eq("refresh: hook hilang -> live dicabut","".equals(sget("live")),true);
     hooked[0]=true; SystemClock.fake+=6000; Config.refresh(null,app,ready);
-    eq("refresh: hook pulih -> live terbit lagi","8".equals(st.get("gpsz_sys_live")),true);
-    hooked[0]=false; st.put("gpsz_sys","1"); Config.refresh(null,app,ready);
-    eq("refresh: heartbeat -> mode penuh tanpa hook LMS -> live dicabut tanpa jeda","".equals(st.get("gpsz_sys_live")),true);
-    hooked[0]=true; st.put("gpsz_sys","2"); SystemClock.fake+=6000; Config.refresh(null,app,ready);
-    eq("refresh: kembali ke heartbeat -> live terbit lagi","8".equals(st.get("gpsz_sys_live")),true);
-    st.put("gpsz_cfg","enabled=0;lat=-7.7;lng=110.4;acc=10;random=0"); Config.refresh(null,null,ready);
+    eq("refresh: hook pulih -> live terbit lagi","8".equals(sget("live")),true);
+    hooked[0]=false; sput("sys","1"); Config.refresh(null,app,ready);
+    eq("refresh: heartbeat -> mode penuh tanpa hook LMS -> live dicabut tanpa jeda","".equals(sget("live")),true);
+    hooked[0]=true; sput("sys","2"); SystemClock.fake+=6000; Config.refresh(null,app,ready);
+    eq("refresh: kembali ke heartbeat -> live terbit lagi","8".equals(sget("live")),true);
+    sput("cfg","enabled=0;lat=-7.7;lng=110.4;acc=10;random=0"); Config.refresh(null,null,ready);
     eq("refresh: perubahan cfg langsung",Config.enabled,false);
-    st.put("gpsz_cfg",PL); Config.refresh(null,null,null); for(int i=0;i<12;i++){ SystemClock.fake+=1000; Config.refresh(null,null,null); }
+    sput("cfg",PL); Config.refresh(null,null,null); for(int i=0;i<12;i++){ SystemClock.fake+=1000; Config.refresh(null,null,null); }
     eq("refresh: beat basi 12 dtk -> freeze",Config.spd,0f);
     System.out.println(fails==0?"ALL PASS":"FAILURES "+fails); System.exit(fails);
   }
