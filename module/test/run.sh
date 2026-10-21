@@ -402,9 +402,9 @@ cfg: route t0=500 n=40" ]'
 echo "[bridge.sh: jendela trk]"
 TL="$T/tl100.txt"; : > "$TL"; i=0
 while [ $i -lt 100 ]; do printf '%11.6f %11.6f %7.3f %6.2f %8.2f\n' "-7.$i" "110.5" 5 90 12 >> "$TL"; i=$((i+1)); done
-sed -n '/^numok() {/,/^}/p;/^sput()/p;/^TRKKEY=/p;/^TRK_W=/p;/^TRK_LEAD=/p;/^trk_win() {/,/^}/p;/^trk_pump() {/,/^}/p;/^route_due() {/,/^}/p' "$A/bridge.sh" > "$T/trk_fn.sh"
+sed -n '/^numok() {/,/^}/p;/^sput()/p;/^TRKKEY=/p;/^TRK_W=/p;/^TRK_LEAD=/p;/^TRKF=/p;/^mirror_trk() {/,/^}/p;/^trk_win() {/,/^}/p;/^trk_pump() {/,/^}/p;/^route_due() {/,/^}/p' "$A/bridge.sh" > "$T/trk_fn.sh"
 rm -f "$T/st/$TRKTAG"
-out=$( . "$T/trk_fn.sh"; log() { echo "LOG $*" >> "$T/trklog"; }; RT_TK=500; RT_NN=100; RT_TLW=48; RT_TF="$TL"; RT_HE=0; TRK=1
+out=$( . "$T/trk_fn.sh"; TRKF="$T/trkmirror"; log() { echo "LOG $*" >> "$T/trklog"; }; RT_TK=500; RT_NN=100; RT_TLW=48; RT_TF="$TL"; RT_HE=0; TRK=1
   read UP _ < /proc/uptime; PC0=${UP%.*}${UP#*.}; RT_T0=$PC0
   trk_pump; echo "rc=$? ws=$WS we=$WE"
   V=$(cat "$T/st/$TRKTAG"); echo "val=$V"
@@ -416,6 +416,7 @@ out=$( . "$T/trk_fn.sh"; log() { echo "LOG $*" >> "$T/trklog"; }; RT_TK=500; RT_
 check "pump awal: jendela 48 tick ditulis (ws=1 we=48)" 'echo "$out" | grep -q "rc=0 ws=1 we=48"'
 check "nilai trk memuat t=,k=500,a=,d= dan 48 baris" 'echo "$out" | grep "^val=" | grep -q "^val=t=[0-9]*;k=500;a=[0-9]*;d=," && [ "$(echo "$out" | grep "^val=" | tr -cd "|" | wc -c)" = 48 ]'
 check "jendela pertama rute baru dicatat di log sekali (bukan tiap jendela)" '[ "$(grep -c "trk: jendela pertama" "$T/trklog")" = 1 ] && grep -q "n=100 mulai tick 1" "$T/trklog"'
+check "pump awal menyalin timeline penuh ke berkas mirror dengan header t=,k=,n=" '[ "$(head -1 "$T/trkmirror" | sed "s/^t=[0-9]*;//")" = "k=500;n=100" ] && tail -n +2 "$T/trkmirror" | cmp -s - "$TL"'
 check "pump kedua langsung: tidak menulis ulang" 'echo "$out" | grep -q "^again=SENT"'
 check "di tengah jendela (tick 10 dari 48): tidak menulis" 'echo "$out" | grep -q "^mid=SENT"'
 check "mendekati akhir jendela (tick 10, we=30): jendela baru mulai di tick 10" 'echo "$out" | grep -q "^near=10/57"'

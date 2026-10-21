@@ -13,8 +13,10 @@ import com.v7878.unsafe.Reflection;
 import java.io.FileInputStream;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
+import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Random;
+import java.util.StringTokenizer;
 import java.util.function.BooleanSupplier;
 
 final class Config {
@@ -75,6 +77,8 @@ final class Config {
     private static final long FALLBACK_POLL_MS = 250;
     private static final long RETRY_MS = 5_000;
     private static final long SNAP_MS = 50;
+    private static final int TRK_FILE_MAX = 16 << 20;
+    static String trkFile = "/data/system/gpsz_trk";
     static volatile boolean enabled;
     static volatile boolean jitter;
     static volatile boolean system;
@@ -132,6 +136,11 @@ final class Config {
 
     private static volatile Pt snap;
     private static volatile Track track;
+    private static Track winTrack, fileTrack;
+    private static String fileTrackSig;
+    private static long fileTrackAt;
+    private static long lastElapsed, lastUptime;
+    private static volatile long resumeAt;
     private static String trkSeen;
     private static boolean cfgEn;
     private static volatile int trkStale = 0;
@@ -335,15 +344,94 @@ final class Config {
         return new Track(t0, a == Long.MIN_VALUE ? t0 : a, tk, n, la, lo, al, sp, br);
     }
 
+    private static synchronized void noteResume(long now) {
+        long up = SystemClock.uptimeMillis();
+        if (lastElapsed != 0 && (now - lastElapsed) - (up - lastUptime) > GAP_MS) resumeAt = now;
+        lastElapsed = now;
+        lastUptime = up;
+    }
+
+    private static Track loadTrackFile() {
+        java.io.File f = new java.io.File(trkFile);
+        long len = f.length();
+        if (len <= 0 || len > TRK_FILE_MAX) return null;
+        byte[] buf = new byte[(int) len];
+        int off = 0;
+        try (FileInputStream in = new FileInputStream(f)) {
+            int r;
+            while (off < buf.length && (r = in.read(buf, off, buf.length - off)) > 0) off += r;
+        } catch (Throwable t) {
+            return null;
+        }
+        if (off != buf.length) return null;
+        String s = new String(buf, StandardCharsets.US_ASCII);
+        int nl = s.indexOf('\n');
+        if (nl < 0) return null;
+        long t0 = Long.MIN_VALUE;
+        int tk = 0, n = 0;
+        for (String kv : s.substring(0, nl).split(";")) {
+            int i = kv.indexOf('=');
+            if (i < 0) continue;
+            String v = kv.substring(i + 1).trim();
+            try {
+                switch (kv.substring(0, i).trim()) {
+                    case "t": t0 = Long.parseLong(v); break;
+                    case "k": tk = Integer.parseInt(v); break;
+                    case "n": n = Integer.parseInt(v); break;
+                }
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        if (t0 == Long.MIN_VALUE || tk <= 0 || n <= 0 || n > len / 10) return null;
+        double[] la = new double[n], lo = new double[n], al = new double[n];
+        float[] sp = new float[n], br = new float[n];
+        StringTokenizer st = new StringTokenizer(s.substring(nl + 1));
+        try {
+            for (int r = 0; r < n; r++) {
+                la[r] = Double.parseDouble(st.nextToken());
+                lo[r] = Double.parseDouble(st.nextToken());
+                sp[r] = Float.parseFloat(st.nextToken());
+                br[r] = Float.parseFloat(st.nextToken());
+                al[r] = Double.parseDouble(st.nextToken());
+            }
+        } catch (NumberFormatException | NoSuchElementException e) {
+            return null;
+        }
+        return new Track(t0, t0, tk, n, la, lo, al, sp, br);
+    }
+
+    private static boolean reloadTrackFile(long now, boolean force) {
+        if (!force && now - fileTrackAt < FILE_CHECK_MS) return false;
+        fileTrackAt = now;
+        java.io.File f = new java.io.File(trkFile);
+        String sig = f.lastModified() + ":" + f.length();
+        if (sig.equals(fileTrackSig)) return false;
+        fileTrackSig = sig;
+        fileTrack = loadTrackFile();
+        return true;
+    }
+
+    private static Track withFile(Track w) {
+        Track f = fileTrack;
+        if (w == null || f == null || f.tk != w.tk) return w;
+        long d = w.t0 - f.t0;
+        if (d < 0 || d % f.tk != 0 || d / f.tk >= f.n) return w;
+        int i = (int) (d / f.tk);
+        if (Math.abs(f.la[i] - w.la[0]) > 1e-5 || Math.abs(f.lo[i] - w.lo[0]) > 1e-5) return w;
+        return new Track(f.t0, w.wrote, f.tk, f.n, f.la, f.lo, f.al, f.sp, f.br);
+    }
+
     private static int trackStale(long now) {
+        noteResume(now);
         Track t = track;
         long late;
         if (t == null) {
             if (trkMissAt == 0) trkMissAt = now;
-            late = now - trkMissAt;
+            late = now - Math.max(trkMissAt, resumeAt);
         } else {
             trkMissAt = 0;
-            late = now - Math.max(t.t0 + (long) (t.n - 1) * t.tk, t.wrote);
+            late = now - Math.max(Math.max(t.t0 + (long) (t.n - 1) * t.tk, t.wrote), resumeAt);
         }
         return late >= OFF_MS ? 2 : late >= TRK_GRACE_MS ? 1 : 0;
     }
@@ -494,10 +582,16 @@ final class Config {
                 long rt = SystemClock.elapsedRealtime();
                 if (cs != null && cs.contains(";tk=1")) {
                     String ts = Settings.Global.getString(cr, KEY_TRK);
-                    if (!Objects.equals(ts, trkSeen)) { trkSeen = ts; track = parseTrack(ts); }
+                    boolean fresh = !Objects.equals(ts, trkSeen);
+                    if (fresh) { trkSeen = ts; winTrack = parseTrack(ts); }
+                    boolean fileNew = reloadTrackFile(rt, fresh);
+                    if (fresh || fileNew) track = withFile(winTrack);
                     trkStale = trackStale(rt);
                 } else {
                     track = null;
+                    winTrack = null;
+                    fileTrack = null;
+                    fileTrackSig = null;
                     trkSeen = null;
                     trkMissAt = 0;
                     trkStale = 0;

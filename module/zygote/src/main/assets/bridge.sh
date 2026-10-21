@@ -46,6 +46,7 @@ TRK_LEAD=24
 LASTF="$MODDIR/.last_app_cfg"
 CFGS=/data/system/gpsz_config
 CFGF=/data/adb/gpsz_config
+TRKF=/data/system/gpsz_trk
 STAMP="$MODDIR/.sync_stamp"
 
 log() {
@@ -177,12 +178,23 @@ route_due() {
   [ "$TRK" != 1 ] && [ "$DI" != "$RIDX" ]
 }
 
+mirror_trk() {
+  [ "$TMKEY" = "$RT_T0:$RT_NN:$RT_TF" ] && return 0
+  { printf 't=%s;k=%s;n=%s\n' "$((RT_T0 * 10))" "$RT_TK" "$RT_NN"; cat "$RT_TF"; } > "$TRKF.tmp" 2>/dev/null || { rm -f "$TRKF.tmp"; return 1; }
+  chmod 600 "$TRKF.tmp"
+  chown 1000:1000 "$TRKF.tmp" 2>/dev/null
+  chcon u:object_r:system_data_file:s0 "$TRKF.tmp" 2>/dev/null
+  mv -f "$TRKF.tmp" "$TRKF" || return 1
+  TMKEY="$RT_T0:$RT_NN:$RT_TF"
+}
+
 trk_win() {
   S=$1; C=$TRK_W
   [ $S -ge $RT_NN ] && { S=$RT_NN; C=1; }
   [ $((S + C - 1)) -gt $RT_NN ] && C=$((RT_NN - S + 1))
   D=$(dd if="$RT_TF" bs=$RT_TLW skip=$((S - 1)) count=$C 2>/dev/null | tr -s ' \n' ',|')
   [ -n "$D" ] || return 1
+  mirror_trk
   sput $TRKKEY "t=$((RT_T0 * 10 + (S - 1) * RT_TK));k=$RT_TK;a=$((PC * 10));d=$D" || return 1
   [ "$WKEY" != "$RT_T0:$RT_NN:$RT_TF" ] && log "trk: jendela pertama t0=$RT_T0 n=$RT_NN mulai tick $S"
   WKEY="$RT_T0:$RT_NN:$RT_TF"; WS=$S; WE=$((S + C - 1)); HOLD_AT=$PC
@@ -303,6 +315,7 @@ sync_cfg() {
     *) CLS=static ;;
   esac
   [ "$CLS" != "$LASTCLS" ] && { LASTCLS=$CLS; log "cfg: $CLS"; }
+  case "$CLS" in trk*) ;; *) [ -e "$TRKF" ] && rm -f "$TRKF"; TMKEY= ;; esac
   PREV=; { read -r PREV < "$LASTF"; } 2>/dev/null
   if [ "$1" != force ] && [ "$NEW" = "$PREV" ]; then
     CUR=$(csget $KEY)

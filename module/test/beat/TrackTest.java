@@ -11,7 +11,7 @@ public class TrackTest {
     SystemClock.fake=now; st.put(Config.KEY,Config.enc(cfg)); if(trk==null) st.remove(Config.KEY_TRK); else st.put(Config.KEY_TRK,trk);
     Config.refresh(null,null,null);
   }
-  public static void main(String[] x){
+  public static void main(String[] x) throws Exception {
     Map<String,String> st=android.provider.Settings.Global.store;
     String rows=",-7.000000,110.000000,0.000,350.00,10.00|,-7.100000,110.200000,10.000,10.00,20.00|,-7.200000,110.400000,10.000,10.00,30.00|";
     Config.Track t=Config.parseTrack(trk(100000,100000,500,rows));
@@ -98,6 +98,46 @@ public class TrackTest {
     near("meridian 180: seperempat tick", Config.pos.lng, 179.95, 1e-6);
     SystemClock.fake=A+375; Config.tick();
     near("meridian 180: tiga perempat tick", Config.pos.lng, -179.95, 1e-6);
+
+    {
+      java.io.File tf=java.io.File.createTempFile("gpsz_trk",".txt"); tf.deleteOnExit(); Config.trkFile=tf.getPath();
+      long F0=2000000; StringBuilder full=new StringBuilder("t="+F0+";k=500;n=200\n");
+      StringBuilder win=new StringBuilder(",");
+      for(int i=0;i<200;i++){ String ln=String.format(java.util.Locale.US,"%11.6f %11.6f %7.3f %6.2f %8.2f\n",-7.0-i*0.001,110.0+i*0.001,5.0,90.0,10.0); full.append(ln); if(i>=10&&i<13) win.append(String.format(java.util.Locale.US,"%.6f,%.6f,5.000,90.00,10.00|,",-7.0-i*0.001,110.0+i*0.001)); }
+      java.nio.file.Files.write(tf.toPath(),full.toString().getBytes("US-ASCII"));
+      String w="t="+(F0+10*500)+";k=500;a="+(F0+5000)+";d="+win;
+      refresh(st,F0+5000,CFG,w);
+      SystemClock.fake=F0+5000+2000; Config.tick();
+      near("file: jendela habis, posisi tetap berjalan dari timeline penuh (tick 14)",Config.pos.lat,-7.014,1e-9);
+      eq("file: jendela habis, masih enabled",Config.enabled,true); eq("file: spd tidak 0",Config.spd,5f);
+      SystemClock.fake=F0+60000; Config.tick();
+      near("file: tick 120",Config.pos.lat,-7.120,1e-9); eq("file: 55 dtk setelah jendela, enabled",Config.enabled,true);
+      SystemClock.fake=F0+99500; Config.tick();
+      near("file: tick terakhir",Config.pos.lat,-7.199,1e-9);
+      SystemClock.fake=F0+99500+3500; Config.tick();
+      eq("file: lewat akhir rute 3,5 dtk: spd 0",Config.spd,0f); eq("file: lewat akhir rute 3,5 dtk: enabled",Config.enabled,true);
+      SystemClock.fake=F0+99500+61000; Config.tick();
+      eq("file: lewat akhir rute 61 dtk tanpa daemon: mati",Config.enabled,false);
+      String bad="t="+(F0+10*500)+";k=500;a="+(F0+5000)+";d=,-1.000000,1.000000,5.000,90.00,10.00|,";
+      refresh(st,F0+6000,CFG,bad);
+      near("file tidak cocok dengan jendela: pakai jendela",Config.pos.lat,-1.0,1e-9);
+      tf.delete();
+      refresh(st,F0+7000,CFG,w);
+      near("file hilang: pakai jendela",Config.pos.lat,-7.012,1e-9);
+      java.nio.file.Files.write(tf.toPath(),"t=1;k=500;n=3\n1 2\n".getBytes("US-ASCII"));
+      refresh(st,F0+8000,CFG,w+"x");
+      eq("file rusak: diabaikan, tetap hidup",Config.enabled,true);
+      tf.delete();
+      long R=F0+400000; refresh(st,R,CFG,w); SystemClock.up=-1;
+      SystemClock.fake=R+30000; Config.tick();
+      SystemClock.fake=R+130000; SystemClock.up=R+31000; Config.tick();
+      eq("tidur (suspend) 100 dtk: spoof tidak mati, daemon diberi masa tunggu baru",Config.enabled,true);
+      SystemClock.fake=R+130000+4000; SystemClock.up=R+35000; Config.tick();
+      eq("setelah bangun 4 dtk: spd 0",Config.spd,0f); eq("setelah bangun 4 dtk: masih enabled",Config.enabled,true);
+      SystemClock.fake=R+130000+62000; SystemClock.up=R+93000; Config.tick();
+      eq("setelah bangun 62 dtk tanpa daemon: mati",Config.enabled,false);
+      SystemClock.up=-1;
+          }
     if(fails>0){ System.out.println(fails+" GAGAL"); System.exit(1); }
     System.out.println("ALL PASS");
   }
