@@ -4,7 +4,6 @@ APP=com.heryts.setloc
 APK="$MODDIR/apk/SetLoc.apk"
 PREFNAME="${APP}_prefs.xml"
 
-LOG="$MODDIR/bridge.log"
 LOCKD="$MODDIR/.daemon.lock"
 KV="81 120 55 109 75 50 118 84 110 76 57 112 "
 enc() {
@@ -48,11 +47,6 @@ CFGS=/data/system/gpsz_config
 CFGF=/data/adb/gpsz_config
 TRKF=/data/system/gpsz_trk
 STAMP="$MODDIR/.sync_stamp"
-
-log() {
-  [ -f "$LOG" ] && [ "$(stat -c %s "$LOG" 2>/dev/null || echo 0)" -gt 100000 ] && : > "$LOG"
-  echo "$(date '+%m-%d %H:%M:%S') $*" >> "$LOG"
-}
 
 keepalive() {
   ( pm grant $APP android.permission.WRITE_SECURE_SETTINGS
@@ -98,7 +92,6 @@ install_app() {
   OUT=$(pm install -r -d /data/local/tmp/gpsz_app.apk 2>&1)
   rm -f /data/local/tmp/gpsz_app.apk
   echo "$OUT"
-  log "pm install: $OUT"
   case "$OUT" in
     *Success*) pm grant $APP android.permission.WRITE_SECURE_SETTINGS >/dev/null 2>&1; return 0 ;;
     *) return 1 ;;
@@ -196,7 +189,6 @@ mirror_trk() {
   fi
   if [ -n "$MERR" ]; then
     rm -f "$MT"
-    [ "$TMFK" = "$MK" ] || log "trk: $MERR timeline ke $TRKF gagal"
     TMFK=$MK; TMFAT=$MNOW
     return 1
   fi
@@ -212,7 +204,6 @@ trk_win() {
   [ -n "$D" ] || return 1
   mirror_trk
   sput $TRKKEY "t=$((RT_T0 * 10 + (S - 1) * RT_TK));k=$RT_TK;a=$((PC * 10));d=$D" || return 1
-  [ "$WKEY" != "$RT_T0:$RT_NN:$RT_TF" ] && log "trk: jendela pertama t0=$RT_T0 n=$RT_NN mulai tick $S"
   WKEY="$RT_T0:$RT_NN:$RT_TF"; WS=$S; WE=$((S + C - 1)); HOLD_AT=$PC
   return 0
 }
@@ -316,11 +307,8 @@ sync_cfg() {
   derive; RC=$?
   NEW=$OUT
   if [ $RC -ne 0 ]; then
-    case $RC in 2) MSG="pref app tidak ditemukan ($PREFNAME) di /data/data, /data/user*, /data/misc/*/prefs" ;; *) MSG="lat/lng tidak valid di pref" ;; esac
-    [ "$QUIET" != 1 ] && [ "$(cat "$MODDIR/.last_err" 2>/dev/null)" != "$MSG" ] && { log "sync gagal: $MSG"; echo "$MSG" > "$MODDIR/.last_err"; }
     return 1
   fi
-  [ -e "$MODDIR/.last_err" ] && rm -f "$MODDIR/.last_err"
   case "$OUT" in
     *";tk=1;pl=1") trk_pump || { TRK=0; OF=$FAST; FAST=1; derive; FAST=$OF; NEW=$OUT; } ;;
   esac
@@ -330,14 +318,13 @@ sync_cfg() {
     *";pl=1") CLS="route t0=$RT_T0 n=$RT_NN" ;;
     *) CLS=static ;;
   esac
-  [ "$CLS" != "$LASTCLS" ] && { LASTCLS=$CLS; log "cfg: $CLS"; }
   case "$CLS" in trk*) ;; *) { [ -e "$TRKF" ] || [ -e "$TRKF.tmp" ]; } && rm -f "$TRKF" "$TRKF.tmp"; TMKEY=; TMFK= ;; esac
   PREV=; { read -r PREV < "$LASTF"; } 2>/dev/null
   if [ "$1" != force ] && [ "$NEW" = "$PREV" ]; then
     CUR=$(csget $KEY)
     [ "$CUR" = "$NEW" ] && { mirror_stale "$CUR" && mirror_cfg "$CUR"; return 0; }
   fi
-  csput $KEY "$NEW" || { log "settings put GAGAL"; return 1; }
+  csput $KEY "$NEW" || return 1
   echo "$NEW" > "$LASTF"
   mirror_cfg
   return 0
@@ -352,9 +339,7 @@ pref_set() {
 </map>|" "$PREF" > "$TMP"
   fi
   if [ -s "$TMP" ] && grep -q "name=\"$2\" value=\"$3\"" "$TMP"; then
-    cat "$TMP" > "$PREF" || log "pref: gagal menulis $2"
-  else
-    log "pref: gagal menyusun $2"
+    cat "$TMP" > "$PREF"
   fi
   rm -f "$TMP"
 }
@@ -368,9 +353,7 @@ pref_str() {
 </map>|" "$PREF" > "$TMP"
   fi
   if [ -s "$TMP" ] && grep -q "<string name=\"$1\">$2</string>" "$TMP" && grep -q '</map>' "$TMP"; then
-    cat "$TMP" > "$PREF" || log "pref: gagal menulis $1"
-  else
-    log "pref: gagal menyusun $1"
+    cat "$TMP" > "$PREF"
   fi
   rm -f "$TMP"
 }
@@ -380,14 +363,14 @@ pref_del() {
   grep -q "name=\"$1\"" "$PREF" || return 0
   sed "/<string name=\"$1\">[^<]*<\/string>/d" "$PREF" > "$TMP"
   if [ -s "$TMP" ] && ! grep -q "name=\"$1\"" "$TMP"; then
-    cat "$TMP" > "$PREF" || log "pref: gagal menghapus $1"
+    cat "$TMP" > "$PREF"
   fi
   rm -f "$TMP"
 }
 
 app_pref() {
   PREF=$(find_pref)
-  [ -n "$PREF" ] && [ -f "$PREF" ] || { log "$1: pref app tidak ditemukan"; return 1; }
+  [ -n "$PREF" ] && [ -f "$PREF" ] || return 1
 }
 
 remember() { FAST=0; derive && { NEW=$OUT; echo "$NEW" > "$LASTF"; }; return 0; }
@@ -402,9 +385,9 @@ set_app_start() {
 }
 
 set_app_pos() {
-  numok "$1" && numok "$2" && inrange "$1" 90 && inrange "$2" 180 || { log "setpos: koordinat tidak valid"; return 1; }
+  numok "$1" && numok "$2" && inrange "$1" 90 && inrange "$2" 180 || return 1
   if [ -n "$3" ]; then
-    case "$3" in *[!0-9.]*|*.*.*|.|'') log "setpos: akurasi tidak valid"; return 1 ;; esac
+    case "$3" in *[!0-9.]*|*.*.*|.|'') return 1 ;; esac
   fi
   app_pref setpos || return 1
   am force-stop "$APP" >/dev/null 2>&1
@@ -416,7 +399,7 @@ set_app_pos() {
 }
 
 set_app_random() {
-  case "$1" in 0) V=false ;; 1) V=true ;; *) log "setrandom: nilai tidak valid"; return 1 ;; esac
+  case "$1" in 0) V=false ;; 1) V=true ;; *) return 1 ;; esac
   app_pref setrandom || return 1
   [ "$(pval boolean random_position)" = "$V" ] && return 0
   am force-stop "$APP" >/dev/null 2>&1
@@ -481,7 +464,6 @@ acquire_lock() {
   sleep 0.3
   lock_clean
   lock_fast && return 0
-  log "daemon: kalah arbitrasi dari pid $WIN saat start (pid $$), keluar"
   rm -f "$LOCKD/$$" 2>/dev/null
   return 1
 }
@@ -507,10 +489,9 @@ sigdue() {
 }
 
 changed() {
-  WHY=
-  [ "$PREFC" != "$SYNCED" ] && { WHY=path; return 0; }
-  [ "$PREFC" -nt "$STAMP" ] && { WHY=nt; return 0; }
-  sigdue && [ "$(sig)" != "$LAST" ] && { WHY=sig; return 0; }
+  [ "$PREFC" != "$SYNCED" ] && return 0
+  [ "$PREFC" -nt "$STAMP" ] && return 0
+  sigdue && [ "$(sig)" != "$LAST" ] && return 0
   return 1
 }
 
@@ -527,8 +508,8 @@ ino_up() {
   GPSZ_PID=$$ inotifyd "$MODDIR/notify.sh" "$WD:wyn" >/dev/null 2>&1 &
   WPID=$!; WDIR=$WD
   sleep 0.2
-  if kill -0 "$WPID" 2>/dev/null; then INO=1; log "inotifyd aktif di $WD"
-  else WPID=; WDIR=; log "inotifyd tidak jalan, pakai polling"; fi
+  if kill -0 "$WPID" 2>/dev/null; then INO=1
+  else WPID=; WDIR=; fi
 }
 
 wait_wake() {
@@ -579,20 +560,12 @@ case "$1" in
   setrandom) set_app_random "$2"; exit $? ;;
   ensure)
     daemon_running || { [ -z "$(ls "$LOCKD" 2>/dev/null)" ] && sleep 2; daemon_running; } \
-      && { echo "daemon=running"; rm -f "$MODDIR/.super_fail"; exit 0; }
-    if [ "$2" = super ]; then
-      STALEP=$(ls "$LOCKD" 2>/dev/null | grep '^[0-9][0-9]*$' | tr '\n' ' ')
-      STALEP=${STALEP% }
-      if [ -n "$STALEP" ]; then log "supervisor: daemon (pid $STALEP) mati TANPA baris exit -> SIGKILL/OOM; restart"
-      else log "supervisor: daemon tidak berjalan (alasan: lihat baris 'daemon exit' di atas); restart"; fi
-    fi
+      && { echo "daemon=running"; exit 0; }
     if start_daemon; then
       echo "daemon=running"
-      [ "$2" = super ] && { log "supervisor: restart OK"; rm -f "$MODDIR/.super_fail"; }
       exit 0
     fi
     echo "daemon=stopped"
-    [ "$2" = super ] && [ ! -f "$MODDIR/.super_fail" ] && { log "supervisor: restart GAGAL (dicoba lagi tiap siklus)"; : > "$MODDIR/.super_fail"; }
     exit 1 ;;
   status)
     daemon_running && echo "daemon=running" || echo "daemon=stopped"
@@ -615,24 +588,20 @@ case "$1" in
   *) echo "usage: bridge.sh ensure [super]|sync|mirror|force|setstart 0|1|setpos <lat> <lng> [acc]|setrandom 0|1|status|install|sysdefault"; exit 1 ;;
 esac
 
-yield_lock() { lock_fast || { log "daemon: kalah arbitrasi dari pid $WIN, keluar"; exit 0; }; }
+yield_lock() { lock_fast || exit 0; }
 
 acquire_lock || exit 0
 { echo -1000 > /proc/$$/oom_score_adj; } 2>/dev/null
 on_exit() {
-  RC=$1
   ino_stop
   rm -f "$LOCKD/$$" "$LOCKD/.t$$" 2>/dev/null
   rmdir "$LOCKD" 2>/dev/null
-  log "daemon exit (pid $$, rc $RC)"
 }
-on_sig() { log "daemon menerima sinyal $1 (pid $$)"; exit $2; }
-trap 'on_sig TERM 143' TERM
-trap 'on_sig HUP 129' HUP
-trap 'on_sig INT 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+trap 'exit 130' INT
 trap 'WOKE=1; SIGNOW=1' USR1
-trap 'on_exit $?' EXIT
-log "daemon start (pid $$)"
+trap on_exit EXIT
 until [ "$(getprop sys.boot_completed)" = 1 ]; do
   yield_lock
   sleep 1
@@ -643,7 +612,6 @@ for _ in 1 2 3 4 5; do
 done
 SUM=$(md5sum "$APK" 2>/dev/null | cut -d' ' -f1)
 if ! app_installed || [ "$SUM" != "$(cat "$MODDIR/.apk_sum" 2>/dev/null)" ]; then
-  log "pasang APK modul (sum $SUM)"
   install_app >/dev/null && echo "$SUM" > "$MODDIR/.apk_sum"
 fi
 PREFC=$(find_pref)
@@ -669,23 +637,22 @@ while true; do
   fi
   [ "$INO" = 1 ] && [ "${PREFC%/*}" != "$WDIR" ] && ino_up
   if changed; then
-    log "pref berubah via=$WHY play=$PLAYING trk=$TRK"
     : > "$STAMP"
     SYNCED=$PREFC
     S=$(sig)
     [ "$S" != "$LAST" ] && sleep 0.1
     OK=0
     for TRY in 1 2 3 4 5 6; do
-      FAST=0; QUIET=1; sync_cfg; RC=$?; QUIET=0
+      FAST=0; sync_cfg; RC=$?
       [ $RC -eq 0 ] && { OK=1; break; }
       sleep 0.05
       PREFC=""; PREFC=$(find_pref)
     done
     [ $OK = 1 ] && LAST=$S || { FAST=0; sync_cfg && LAST=$S; }
   elif [ $PLAYING = 1 ] && [ "$RT_OK" = 1 ] && route_due; then
-    FAST=1; QUIET=1; sync_cfg; QUIET=0; FAST=0
+    FAST=1; sync_cfg; FAST=0
   elif [ $PLAYING = 1 ] && [ "$RT_OK" = 1 ] && [ "$TRK" = 1 ]; then
-    trk_pump || { TRK=0; FAST=1; QUIET=1; sync_cfg; QUIET=0; FAST=0; }
+    trk_pump || { TRK=0; FAST=1; sync_cfg; FAST=0; }
   fi
   is_playing && PLAYING=1 || PLAYING=0
   if [ $PLAYING = 1 ]; then

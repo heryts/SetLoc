@@ -33,7 +33,7 @@ Saat memutar rute, daemon menulis jendela 24 detik (`gpsz_trk`) dan hook mengint
 ## Catatan deteksi
 - Hook getter per-app bisa dilewati kalau ART meng-inline `getLatitude` dan sejenisnya di kode app yang sudah dikompilasi. Hook `Location.CREATOR` menulis nilai palsu ke field objek saat objek dibuat, jadi pembacaan inline pun mendapat nilai palsu, tetapi ini mitigasi, bukan jaminan. Andalkan mode System-wide atau Heartbeat sebagai jalur utama.
 - Key `Settings.Global` modul (`gpsz_*`) disembunyikan di app yang disuntik (kecuali app SetLoc) dari `Settings.Global.getString` dan sejenisnya, `ContentResolver.query/call`, dan `ContentProviderClient.query/call`. Notifikasi `ContentObserver` untuk URI key `gpsz_*` dibuang, dan `ProcessBuilder.start` yang perintahnya memuat `gpsz_` atau memanggil `settings`/`content` ditolak dengan IOException.
-- Di mode System-wide dan Heartbeat, `registerGnssStatusCallback` diblokir untuk app biasa. Google Play Services dan komponen sistem tetap lolos.
+- Di mode Per-app dan System-wide, callback GNSS status, NMEA, pengukuran GNSS, dan info antena tetap terdaftar dan menerima data satelit palsu yang konsisten dengan lokasi palsu: `onStarted`, `onFirstFix`, lalu `onSatelliteStatusChanged`, kalimat NMEA, dan `GnssMeasurementsEvent` tiap detik. Navigation message dan batching tetap ditolak. Google Play Services dan komponen sistem tetap lolos.
 - Log modul hanya ditulis di proses `android`, tidak di proses app.
 
 ## Kalau tidak jalan

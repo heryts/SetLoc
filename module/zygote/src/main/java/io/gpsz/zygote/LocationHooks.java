@@ -1,9 +1,14 @@
 package io.gpsz.zygote;
 
 import android.app.AppOpsManager;
+import android.location.GnssAntennaInfo;
+import android.location.GnssMeasurementsEvent;
+import android.location.GnssStatus;
 import android.location.Location;
 import android.location.LocationManager;
+import android.location.OnNmeaMessageListener;
 import android.net.wifi.ScanResult;
+import android.net.wifi.WifiSsid;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -15,6 +20,8 @@ import com.v7878.unsafe.invoke.Transformers;
 import com.v7878.vmtools.HookTransformer;
 import com.v7878.vmtools.Hooks;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
@@ -36,6 +43,7 @@ final class LocationHooks {
     private static final int K_EXT = 30, K_NO_BOOL = 30, K_EMPTY_LIST = 31, K_BSSID = 32, K_NULL = 33, K_CELL_UPDATE = 34, K_SSID = 40, K_CELL_LIST_ARG = 35, K_DROP = 36;
     private static final int K_BT_DROP = 37, K_BT_INT = 38, K_BT_TRUE = 39, K_CREATE = 41, K_GNSS_TRUE = 42, K_TOSTRING = 43, K_DELIVER = 44;
     private static final int K_WIFI_SCAN = 45, K_WIFI_SSID = 47, K_CELL_ALL = 48, K_CELL_LOC = 49;
+    private static final int K_FEED_NMEA = 50, K_FEED_MEAS = 51, K_FEED_ANT = 52, K_UNFEED = 53;
     private static final Object VOID_RESULT = new Object();
     private static final Object NULL_RESULT = new Object();
     private static final int K_SPD = 5, K_BRG = 6, K_ALT = 7, K_HAS_SPD = 8, K_HAS_BRG = 9, K_HAS_ALT = 10;
@@ -71,11 +79,15 @@ final class LocationHooks {
         hook(Location.class, "distanceTo", K_DIST, Location.class);
         hook(Location.class, "bearingTo", K_BEARING_TO, Location.class);
         hook(LocationManager.class, "getLastKnownLocation", K_LAST_KNOWN, String.class);
-        hookAll(LocationManager.class, "addNmeaListener", K_NO_BOOL);
-        hookAll(LocationManager.class, "registerGnssMeasurementsCallback", K_NO_BOOL);
+        hookAll(LocationManager.class, "addNmeaListener", K_FEED_NMEA);
+        hookAll(LocationManager.class, "registerGnssMeasurementsCallback", K_FEED_MEAS);
         hookAll(LocationManager.class, "registerGnssNavigationMessageCallback", K_NO_BOOL);
-        hookAll(LocationManager.class, "registerAntennaInfoListener", K_NO_BOOL);
+        hookAll(LocationManager.class, "registerAntennaInfoListener", K_FEED_ANT);
         hookGnssCallback();
+        hookAll(LocationManager.class, "unregisterGnssStatusCallback", K_UNFEED);
+        hookAll(LocationManager.class, "removeNmeaListener", K_UNFEED);
+        hookAll(LocationManager.class, "unregisterGnssMeasurementsCallback", K_UNFEED);
+        hookAll(LocationManager.class, "unregisterAntennaInfoListener", K_UNFEED);
         hookAll(LocationManager.class, "addGpsStatusListener", K_GNSS_TRUE);
         hookCreator();
         installAppOps();
@@ -204,6 +216,17 @@ final class LocationHooks {
                 } catch (Throwable ignored) { }
                 return;
             }
+            if (kind == K_UNFEED) {
+                try {
+                    GnssFake.stop(frame.accessor().getReference(1));
+                } catch (Throwable ignored) { }
+                try {
+                    Transformers.invokeExactNoChecks(original, frame);
+                } catch (Throwable t) {
+                    ZygoteEntry.<RuntimeException>sneaky(t);
+                }
+                return;
+            }
             if (PARSING.get() != null) {
                 try {
                     Transformers.invokeExactNoChecks(original, frame);
@@ -260,6 +283,9 @@ final class LocationHooks {
                     }
                     else if (kind == K_CELL_LOC) {
                         value = Config.hideNet ? NULL_RESULT : null;
+                    }
+                    else if (kind >= K_FEED_NMEA) {
+                        value = Boolean.valueOf(feed(kind, frame, np));
                     }
                     else if (kind >= K_EXT) value = (kind == K_NO_BOOL || kind == K_GNSS_TRUE || (kind >= K_BT_DROP && kind <= K_BT_TRUE ? Config.hideBt : Config.hideNet)) ? fakeExt(kind) : null;
                     else if (kind == K_LAT || kind == K_LNG || kind == K_DIST || kind == K_BEARING_TO) value = fakePos(kind, frame);
@@ -477,18 +503,38 @@ final class LocationHooks {
             List<EnvSim.Ap> aps = EnvSim.wifiFor(fix);
             List<ScanResult> out = new ArrayList<>(aps.size());
             for (EnvSim.Ap ap : aps) {
-                ScanResult sr = new ScanResult();
-                try { sr.SSID = ap.ssid; } catch (Throwable ignored) { }
-                try { sr.BSSID = ap.bssid; } catch (Throwable ignored) { }
-                try { sr.level = ap.rssi; } catch (Throwable ignored) { }
-                try { sr.frequency = ap.freq; } catch (Throwable ignored) { }
-                try { sr.timestamp = SystemClock.elapsedRealtime() * 1000L; } catch (Throwable ignored) { }
-                out.add(sr);
+                ScanResult sr = newScanResult(ap);
+                if (sr != null) out.add(sr);
             }
             return out;
         } catch (Throwable t) {
             return Collections.emptyList();
         }
+    }
+
+    private static ScanResult newScanResult(EnvSim.Ap ap) {
+        try {
+            Constructor<ScanResult> ctor = ScanResult.class.getDeclaredConstructor();
+            ctor.setAccessible(true);
+            ScanResult sr = ctor.newInstance();
+            putField(sr, "wifiSsid", WifiSsid.fromBytes(ap.ssid.getBytes(StandardCharsets.UTF_8)));
+            putField(sr, "SSID", ap.ssid);
+            putField(sr, "BSSID", ap.bssid);
+            putField(sr, "level", ap.rssi);
+            putField(sr, "frequency", ap.freq);
+            putField(sr, "timestamp", SystemClock.elapsedRealtime() * 1000L);
+            return sr;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static void putField(Object target, String name, Object value) {
+        try {
+            Field f = target.getClass().getField(name);
+            f.setAccessible(true);
+            f.set(target, value);
+        } catch (Throwable ignored) { }
     }
 
     private static Object fakeWifiSsid() {
@@ -597,47 +643,109 @@ final class LocationHooks {
         return l;
     }
 
-    private static void hookGnssCallback() {
-        Class<?> gnssCallbackClass = null;
-        try {
-            gnssCallbackClass = Class.forName("android.location.GnssStatus$Callback");
-        } catch (Throwable ignored) { }
-        final Class<?> cbClass = gnssCallbackClass;
+    private static boolean live() {
+        return Config.enabled && Config.hasPos();
+    }
 
+    private static Executor executorOf(EmulatedStackFrame frame, int np) {
+        for (int i = 1; i <= np; i++) {
+            try {
+                Object o = frame.accessor().getReference(i);
+                if (o instanceof Executor) return (Executor) o;
+                if (o instanceof Handler) {
+                    final Handler h = (Handler) o;
+                    return h::post;
+                }
+            } catch (Throwable ignored) { }
+        }
+        final Handler main = new Handler(Looper.getMainLooper());
+        return main::post;
+    }
+
+    private static <T> T argOf(EmulatedStackFrame frame, int np, Class<T> type) {
+        for (int i = 1; i <= np; i++) {
+            try {
+                Object o = frame.accessor().getReference(i);
+                if (type.isInstance(o)) return type.cast(o);
+            } catch (Throwable ignored) { }
+        }
+        return null;
+    }
+
+    private static void feedStatus(final GnssStatus.Callback cb, final Executor ex) {
+        GnssFake.feedStatus(cb, LocationHooks::live, new GnssFake.StatusSink() {
+            @Override
+            public void started() {
+                ex.execute(cb::onStarted);
+            }
+
+            @Override
+            public void firstFix(int ttffMs) {
+                ex.execute(() -> cb.onFirstFix(ttffMs));
+            }
+
+            @Override
+            public void status(GnssFake.Snapshot s) {
+                Object st = GnssFake.statusObject(s);
+                if (!(st instanceof GnssStatus)) return;
+                final GnssStatus g = (GnssStatus) st;
+                ex.execute(() -> cb.onSatelliteStatusChanged(g));
+            }
+
+            @Override
+            public void stopped() {
+                ex.execute(cb::onStopped);
+            }
+        });
+    }
+
+    private static boolean feed(int kind, EmulatedStackFrame frame, int np) {
+        final Executor ex = executorOf(frame, np);
+        if (kind == K_FEED_NMEA) {
+            final OnNmeaMessageListener l = argOf(frame, np, OnNmeaMessageListener.class);
+            if (l == null) return false;
+            GnssFake.feedNmea(l, LocationHooks::live, (m, ts) -> ex.execute(() -> l.onNmeaMessage(m, ts)));
+            return true;
+        }
+        if (kind == K_FEED_MEAS) {
+            final GnssMeasurementsEvent.Callback cb = argOf(frame, np, GnssMeasurementsEvent.Callback.class);
+            if (cb == null) return false;
+            GnssFake.feedMeasurements(cb, LocationHooks::live,
+                    ev -> ex.execute(() -> cb.onGnssMeasurementsReceived((GnssMeasurementsEvent) ev)));
+            return true;
+        }
+        if (kind == K_FEED_ANT) {
+            final GnssAntennaInfo.Listener l = argOf(frame, np, GnssAntennaInfo.Listener.class);
+            if (l == null) return false;
+            GnssFake.feedAntenna(l, LocationHooks::live, info -> {
+                final List<GnssAntennaInfo> typed = new ArrayList<>(info.size());
+                for (Object a : info) typed.add((GnssAntennaInfo) a);
+                ex.execute(() -> l.onGnssAntennaInfoReceived(typed));
+            });
+            return true;
+        }
+        return false;
+    }
+
+    private static void hookGnssCallback() {
         for (Method m : LocationManager.class.getDeclaredMethods()) {
             if (!m.getName().equals("registerGnssStatusCallback")) continue;
-            final int nParams = m.getParameterTypes().length;
+            final int nParams = m.getParameterCount();
             final boolean returnsBool = (m.getReturnType() == boolean.class);
             try {
                 Hooks.hook(m, Hooks.EntryPointType.DIRECT, (original, frame) -> {
-                    if (!Config.enabled || !Config.hasPos()) {
+                    if (!live()) {
                         try { Transformers.invokeExactNoChecks(original, frame); }
                         catch (Throwable t) { ZygoteEntry.<RuntimeException>sneaky(t); }
                         return;
                     }
-
                     if (returnsBool) {
                         frame.accessor().setValue(EmulatedStackFrame.RETURN_VALUE_IDX, Boolean.TRUE);
                     }
-
-                    if (cbClass == null) return;
-                    for (int i = 1; i <= nParams; i++) {
-                        try {
-                            Object o = frame.accessor().getReference(i);
-                            if (!cbClass.isInstance(o)) continue;
-                            final Object cb = o;
-                            Handler h = new Handler(Looper.getMainLooper());
-                            long delay = 150L + (long) (Math.random() * 200L);
-                            h.postDelayed(() -> {
-                                try {
-                                    Method onStarted = cbClass.getDeclaredMethod("onStarted");
-                                    onStarted.setAccessible(true);
-                                    onStarted.invoke(cb);
-                                } catch (Throwable ignored) { }
-                            }, delay);
-                            break;
-                        } catch (Throwable ignored) { }
-                    }
+                    try {
+                        GnssStatus.Callback cb = argOf(frame, nParams, GnssStatus.Callback.class);
+                        if (cb != null) feedStatus(cb, executorOf(frame, nParams));
+                    } catch (Throwable ignored) { }
                 }, Hooks.EntryPointType.DIRECT);
             } catch (Throwable ignored) { }
         }

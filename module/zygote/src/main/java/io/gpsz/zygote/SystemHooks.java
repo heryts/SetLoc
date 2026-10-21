@@ -3,6 +3,7 @@ package io.gpsz.zygote;
 import android.location.Location;
 import android.location.LocationManager;
 import android.os.Binder;
+import android.os.IInterface;
 import android.os.SystemClock;
 
 import com.v7878.unsafe.Reflection;
@@ -31,7 +32,8 @@ final class SystemHooks {
         LocationManager.GPS_PROVIDER, LocationManager.FUSED_PROVIDER, LocationManager.NETWORK_PROVIDER
     };
 
-    private static final int K_LAST = 0, K_BLOCK_VOID = 1, K_BLOCK_BOOL = 2, K_ARG_LOCATION = 3, K_ARG_RESULT = 4, K_STATUS_VOID = 5, K_STATUS_BOOL = 6;
+    private static final int K_LAST = 0, K_BLOCK_VOID = 1, K_BLOCK_BOOL = 2, K_ARG_LOCATION = 3, K_ARG_RESULT = 4, K_STATUS = 5;
+    private static final int K_FEED_NMEA = 7, K_FEED_MEAS = 8, K_FEED_ANT = 9, K_UNFEED = 10;
     private static boolean installed = false;
     private static boolean generatorStarted = false;
     private static int lpmHooks = 0, lmsHooks = 0, lmsTries = 0;
@@ -164,17 +166,22 @@ final class SystemHooks {
             String n = m.getName();
             Class<?> ret = m.getReturnType();
             Class<?>[] ps = m.getParameterTypes();
-            int kind = -1, argIdx = -1;
+            int kind = -1, argIdx = -1, lstIdx = -1;
             if (isLms) {
+                for (int i = 0; i < ps.length; i++) {
+                    if (IInterface.class.isAssignableFrom(ps[i])) { lstIdx = i + 1; break; }
+                }
                 if (n.equals("getLastLocation") && ret == Location.class) {
                     kind = K_LAST;
                 } else if (n.equals("injectLocation") && ps.length >= 1 && ps[0] == Location.class) {
                     kind = K_ARG_LOCATION; argIdx = 1;
-                } else if (n.equals("registerGnssStatusCallback") && (ret == void.class || ret == boolean.class)) {
+                } else if (lstIdx > 0 && feedKind(n) >= 0) {
                     for (int i = 0; i < ps.length; i++) {
                         if (ps[i] == String.class) { argIdx = i + 1; break; }
                     }
-                    if (argIdx > 0) kind = ret == void.class ? K_STATUS_VOID : K_STATUS_BOOL;
+                    if (argIdx > 0) kind = feedKind(n);
+                } else if (lstIdx > 0 && isUnfeedTarget(n)) {
+                    kind = K_UNFEED;
                 } else if (isGnssBlockTarget(n)) {
                     if (ret == void.class) kind = K_BLOCK_VOID;
                     else if (ret == boolean.class) kind = K_BLOCK_BOOL;
@@ -186,7 +193,7 @@ final class SystemHooks {
             }
             if (kind < 0) continue;
             try {
-                Hooks.hook(m, Hooks.EntryPointType.DIRECT, transformer(kind, argIdx), Hooks.EntryPointType.DIRECT);
+                Hooks.hook(m, Hooks.EntryPointType.DIRECT, transformer(kind, argIdx, lstIdx, ret == boolean.class), Hooks.EntryPointType.DIRECT);
                 hooked++;
                 ZygoteEntry.i("system hook: " + c.getSimpleName() + "." + n + " (kind " + kind + ")");
             } catch (Throwable ignored) { }
@@ -196,9 +203,22 @@ final class SystemHooks {
 
     private static boolean isGnssBlockTarget(String n) {
         return n.equals("startGnssBatch") || n.equals("addGnssBatchingCallback")
-                || n.equals("addGnssAntennaInfoListener") || n.equals("addGnssMeasurementsListener")
-                || n.equals("addGnssNavigationMessageListener") || n.equals("registerGnssNmeaCallback")
-                || n.equals("addNmeaListener");
+                || n.equals("addGnssNavigationMessageListener");
+    }
+
+    private static int feedKind(String n) {
+        switch (n) {
+            case "registerGnssStatusCallback": return K_STATUS;
+            case "registerGnssNmeaCallback": return K_FEED_NMEA;
+            case "addGnssMeasurementsListener": return K_FEED_MEAS;
+            case "addGnssAntennaInfoListener": return K_FEED_ANT;
+            default: return -1;
+        }
+    }
+
+    private static boolean isUnfeedTarget(String n) {
+        return n.equals("unregisterGnssStatusCallback") || n.equals("unregisterGnssNmeaCallback")
+                || n.equals("removeGnssMeasurementsListener") || n.equals("removeGnssAntennaInfoListener");
     }
 
     private static final Set<String> TRUSTED_GNSS = Set.of(
@@ -240,12 +260,58 @@ final class SystemHooks {
         return l;
     }
 
-    private static HookTransformer transformer(final int kind, final int argIdx) {
+    private static void startFeed(int kind, final Object listener) {
+        if (listener == null) return;
+        final Object key = GnssFake.keyOf(listener);
+        switch (kind) {
+            case K_STATUS:
+                GnssFake.feedStatus(key, SystemHooks::active, new GnssFake.StatusSink() {
+                    @Override
+                    public void started() throws Throwable {
+                        GnssFake.call(listener, "onGnssStarted");
+                    }
+
+                    @Override
+                    public void firstFix(int ttffMs) throws Throwable {
+                        GnssFake.call(listener, "onFirstFix", ttffMs);
+                    }
+
+                    @Override
+                    public void status(GnssFake.Snapshot s) throws Throwable {
+                        GnssFake.deliverStatus(listener, s);
+                    }
+
+                    @Override
+                    public void stopped() throws Throwable {
+                        GnssFake.call(listener, "onGnssStopped");
+                    }
+                });
+                break;
+            case K_FEED_NMEA:
+                GnssFake.feedNmea(key, SystemHooks::active,
+                        (m, ts) -> GnssFake.call(listener, "onNmeaReceived", ts, m));
+                break;
+            case K_FEED_MEAS:
+                GnssFake.feedMeasurements(key, SystemHooks::active,
+                        ev -> GnssFake.call(listener, "onGnssMeasurementsReceived", ev));
+                break;
+            case K_FEED_ANT:
+                GnssFake.feedAntenna(key, SystemHooks::active,
+                        info -> GnssFake.call(listener, "onGnssAntennaInfoReceived", info));
+                break;
+            default:
+                break;
+        }
+    }
+
+    private static HookTransformer transformer(final int kind, final int argIdx, final int lstIdx, final boolean retBool) {
         return (original, frame) -> {
             boolean handled = false;
             Throwable denied = null;
             try {
-                if (kind == K_ARG_RESULT) {
+                if (kind == K_UNFEED) {
+                    GnssFake.stop(GnssFake.keyOf(frame.accessor().getReference(lstIdx)));
+                } else if (kind == K_ARG_RESULT) {
                     Object self = frame.accessor().getReference(0);
                     String name = register(self);
                     if (LocationManager.GPS_PROVIDER.equals(name)) lastGpsReport = SystemClock.elapsedRealtime();
@@ -275,11 +341,14 @@ final class SystemHooks {
                         case K_BLOCK_VOID:
                             handled = true;
                             break;
-                        case K_STATUS_VOID:
-                        case K_STATUS_BOOL: {
+                        case K_STATUS:
+                        case K_FEED_NMEA:
+                        case K_FEED_MEAS:
+                        case K_FEED_ANT: {
                             Object pkg = frame.accessor().getReference(argIdx);
                             if (pkg instanceof String && TRUSTED_GNSS.contains(pkg)) break;
-                            if (kind == K_STATUS_BOOL) frame.accessor().setValue(EmulatedStackFrame.RETURN_VALUE_IDX, Boolean.FALSE);
+                            if (retBool) frame.accessor().setValue(EmulatedStackFrame.RETURN_VALUE_IDX, Boolean.TRUE);
+                            startFeed(kind, frame.accessor().getReference(lstIdx));
                             handled = true;
                             break;
                         }

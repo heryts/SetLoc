@@ -518,7 +518,7 @@ function renderBanners() {
   else if (S.sysMode === 'pendinghb') b.push('<div class="banner danger"><b>System hook (heartbeat) dinyalakan.</b> Perlu reboot.<button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');
   else if (S.sysMode === 'pending') b.push('<div class="banner danger"><b>System-wide dinyalakan.</b> Perlu reboot.<button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');
   else if (S.sysMode === 'offpending') b.push('<div class="banner danger"><b>System hook dimatikan.</b> Perlu reboot.<button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');
-  if (S.daemon === false) b.push('<div class="banner danger">Daemon sinkronisasi (app SetLoc → modul) tidak berjalan, jadi tombol Start/Stop di app belum terbaca modul. Tekan muat ulang; bila tetap gagal, lihat <span class="mono">' + esc(MODDIR) + '/bridge.log</span>.</div>');
+  if (S.daemon === false) b.push('<div class="banner danger">Daemon sinkronisasi (app SetLoc → modul) tidak berjalan, jadi tombol Start/Stop di app belum terbaca modul. Tekan muat ulang; bila tetap gagal, jalankan <span class="mono">sh ' + esc(MODDIR) + '/gpsz.sh doctor</span>.</div>');
   if (S.appOn && S.secure === false) b.push('<div class="banner danger"><b>Izin Stop langsung belum terpasang.</b> Tombol Stop di app masih bergantung pada daemon.<button class="btn-reboot" id="btnGrant">Beri izin</button></div>');
   if (S.missing) b.push('<div class="banner danger">Folder modul tidak ditemukan di ' + esc(MODDIR) + '. Pastikan id modul = <b>' + MODID + '</b> dan sudah reboot setelah flash.</div>');
   $('#banners').innerHTML = b.join('');

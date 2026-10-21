@@ -75,19 +75,17 @@ echo "[daemon: arbitrasi]"
 for i in 1 2 3 4 5 6; do ( setsid sh "$M/bridge.sh" daemon >/dev/null 2>&1 & ); done
 sleep 4
 check "6 daemon bersamaan -> tepat 1 hidup" '[ "$(live_pids | wc -l)" = 1 ]'
-check "yang kalah mencatat arbitrasi" 'grep -q "kalah arbitrasi" "$M/bridge.log"'
 
 echo "[daemon: SIGKILL dan supervisor]"
 W=$(live_pids | head -1); kill -9 "$W"; sleep 0.3
 sh "$M/bridge.sh" ensure super >/dev/null; sleep 2
 check "ensure super menghidupkan lagi" '[ "$(live_pids | wc -l)" = 1 ]'
 check "pid baru berbeda" '[ "$(live_pids | head -1)" != "$W" ]'
-check "log menyebut SIGKILL/OOM" 'grep -q "SIGKILL/OOM" "$M/bridge.log"'
 
 echo "[daemon: TERM]"
 W=$(live_pids | head -1); kill -TERM "$W"; sleep 7
 check "tidak ada daemon hidup" '[ "$(live_pids | wc -l)" = 0 ]'
-check "log: sinyal TERM dan exit rc 143" 'grep -q "sinyal TERM" "$M/bridge.log" && grep -q "rc 143" "$M/bridge.log"'
+check "tidak ada bridge.log" '[ ! -e "$M/bridge.log" ]'
 check "folder kunci bersih" '[ ! -e "$M/.daemon.lock" ]'
 
 echo "[ensure: waktu]"
@@ -143,7 +141,7 @@ check "doctor menampilkan versi modul terpasang" 'echo "$out" | grep -q "modul=9
 check "doctor menampilkan baris hook sistem, termasuk generator" 'echo "$out" | grep -q "onReportLocation (kind 4)" && echo "$out" | grep -q "fix generator disabled"'
 printf '#!/bin/sh\nexit 0\n' > "$T/bin/logcat"
 out=$($G doctor 2>&1)
-check "doctor memuat daemon, supervisor, trk, log" 'echo "$out" | grep -q "daemon=" && echo "$out" | grep -q "supervisor=" && echo "$out" | grep -q "trk=aktif" && echo "$out" | grep -q "bridge.log"'
+check "doctor memuat daemon, supervisor, trk" 'echo "$out" | grep -q "daemon=" && echo "$out" | grep -q "supervisor=" && echo "$out" | grep -q "trk=aktif"'
 cp "$M/bridge.sh" "$M/bridge.real"
 printf '#!/bin/sh\necho "$*" >> "%s/calls"\nexec sh "%s/bridge.real" "$@"\n' "$T" "$M" > "$M/bridge.sh"
 : > "$T/calls"; $G doctor >/dev/null 2>&1; $G super >/dev/null 2>&1; $G super on >/dev/null 2>&1
@@ -384,27 +382,12 @@ echo "dur=$((e - s))"
 EOS
 out=$(sh "$CH/ww_none.sh" "$CH/ww.sh" 2>/dev/null)
 check "wait_wake: tanpa sinyal selesai setelah batas waktu" 'echo "$out" | grep -qE "^dur=[23]$"'
-LG="$T/lg"; rm -rf "$LG"; mkdir -p "$LG"
-sed -n '/^KV=/p;/^enc() {/,/^}/p;/^dec() {/,/^}/p;/^KEY=/p;/^csget()/p;/^csput()/p;/^mirror_stale() {/,/^}/p;/^sync_cfg() {/,/^}/p' "$A/bridge.sh" > "$LG/fn.sh"
-( . "$LG/fn.sh"; MODDIR="$LG"; LASTF="$LG/last"; CFGS="$LG/cfgs"; CFGF="$LG/cfgf"; QUIET=1; RT_T0=500; RT_NN=40
-  sget() { cat "$LG/st_$1" 2>/dev/null; }; sput() { printf %s "$2" > "$LG/st_$1"; }
-  mirror_cfg() { :; }; log() { echo "$*" >> "$LG/log"; }; trk_pump() { return 0; }
-  derive() { OUT=$OUTV; return 0; }
-  OUTV="enabled=1;lat=-7.0;lng=110.0;acc=10;random=0"; sync_cfg; sync_cfg
-  OUTV="enabled=1;lat=-7.0;lng=110.0;acc=10;random=0;spd=0;tk=1;pl=1"; sync_cfg; sync_cfg
-  OUTV="enabled=0;lat=-7.0;lng=110.0;acc=10;random=0"; sync_cfg; sync_cfg
-  OUTV="enabled=1;lat=-7.0;lng=110.0;acc=10;random=0;spd=1;pl=1"; sync_cfg )
-check "log: transisi cfg tercatat sekali per perubahan jenis" '[ "$(cat "$LG/log")" = "cfg: static
-cfg: trk t0=500 n=40
-cfg: off
-cfg: route t0=500 n=40" ]'
-
 echo "[bridge.sh: jendela trk]"
 TL="$T/tl100.txt"; : > "$TL"; i=0
 while [ $i -lt 100 ]; do printf '%11.6f %11.6f %7.3f %6.2f %8.2f\n' "-7.$i" "110.5" 5 90 12 >> "$TL"; i=$((i+1)); done
 sed -n '/^numok() {/,/^}/p;/^sput()/p;/^TRKKEY=/p;/^TRK_W=/p;/^TRK_LEAD=/p;/^TRKF=/p;/^mirror_trk() {/,/^}/p;/^trk_win() {/,/^}/p;/^trk_pump() {/,/^}/p;/^route_due() {/,/^}/p' "$A/bridge.sh" > "$T/trk_fn.sh"
 rm -f "$T/st/$TRKTAG"
-out=$( . "$T/trk_fn.sh"; TRKF="$T/trkmirror"; log() { echo "LOG $*" >> "$T/trklog"; }; RT_TK=500; RT_NN=100; RT_TLW=48; RT_TF="$TL"; RT_HE=0; TRK=1
+out=$( . "$T/trk_fn.sh"; TRKF="$T/trkmirror"; RT_TK=500; RT_NN=100; RT_TLW=48; RT_TF="$TL"; RT_HE=0; TRK=1
   read UP _ < /proc/uptime; PC0=${UP%.*}${UP#*.}; RT_T0=$PC0
   trk_pump; echo "rc=$? ws=$WS we=$WE"
   V=$(cat "$T/st/$TRKTAG"); echo "val=$V"
@@ -415,17 +398,16 @@ out=$( . "$T/trk_fn.sh"; TRKF="$T/trkmirror"; log() { echo "LOG $*" >> "$T/trklo
   HOLD_AT=$((PC0 - 1500)); trk_pump; echo "hold15=$(cat "$T/st/$TRKTAG")"; echo "holdws=$WS/$WE" )
 check "pump awal: jendela 48 tick ditulis (ws=1 we=48)" 'echo "$out" | grep -q "rc=0 ws=1 we=48"'
 check "nilai trk memuat t=,k=500,a=,d= dan 48 baris" 'echo "$out" | grep "^val=" | grep -q "^val=t=[0-9]*;k=500;a=[0-9]*;d=," && [ "$(echo "$out" | grep "^val=" | tr -cd "|" | wc -c)" = 48 ]'
-check "jendela pertama rute baru dicatat di log sekali (bukan tiap jendela)" '[ "$(grep -c "trk: jendela pertama" "$T/trklog")" = 1 ] && grep -q "n=100 mulai tick 1" "$T/trklog"'
 check "pump awal menyalin timeline penuh ke berkas mirror dengan header t=,k=,n=" '[ "$(head -1 "$T/trkmirror" | sed "s/^t=[0-9]*;//")" = "k=500;n=100" ] && tail -n +2 "$T/trkmirror" | cmp -s - "$TL"'
 check "pump kedua langsung: tidak menulis ulang" 'echo "$out" | grep -q "^again=SENT"'
 check "di tengah jendela (tick 10 dari 48): tidak menulis" 'echo "$out" | grep -q "^mid=SENT"'
 check "mendekati akhir jendela (tick 10, we=30): jendela baru mulai di tick 10" 'echo "$out" | grep -q "^near=10/57"'
 check "hold di akhir rute < 10 dtk: tidak menulis" 'echo "$out" | grep -q "^hold5=SENT"'
 check "hold >= 10 dtk: refresh 1 tick (a= baru, satu baris)" 'echo "$out" | grep "^hold15=" | grep -q "k=500;a=" && [ "$(echo "$out" | grep "^hold15=" | tr -cd "|" | wc -c)" = 1 ] && echo "$out" | grep -q "^holdws=100/100"'
-out=$( . "$T/trk_fn.sh"; TRKF="$T/nodir/x/trk"; log() { echo "LOG $*" >> "$T/trklog2"; }; RT_TK=500; RT_NN=100; RT_TLW=48; RT_TF="$TL"; RT_HE=0; TRK=1
+out=$( . "$T/trk_fn.sh"; TRKF="$T/nodir/x/trk"; RT_TK=500; RT_NN=100; RT_TLW=48; RT_TF="$TL"; RT_HE=0; TRK=1
   read UP _ < /proc/uptime; RT_T0=${UP%.*}${UP#*.}; trk_pump; echo "rc=$?"; trk_win 1; trk_win 1; echo "n=$(grep -c 'k=500' "$T/st/$TRKTAG" 2>/dev/null)" )
-check "salin mirror gagal: jendela tetap ditulis dan kegagalan dicatat sekali" 'echo "$out" | grep -q "^rc=0" && [ "$(grep -c "salin timeline" "$T/trklog2")" = 1 ] && [ -s "$T/st/$TRKTAG" ]'
-out=$( . "$T/trk_fn.sh"; TRKF="$T/nodir/x/trk"; log() { :; }; RT_TK=500; RT_NN=100; RT_TLW=48; RT_TF="$TL"; RT_HE=0; TRK=1
+check "salin mirror gagal: jendela tetap ditulis" 'echo "$out" | grep -q "^rc=0" && [ -s "$T/st/$TRKTAG" ]'
+out=$( . "$T/trk_fn.sh"; TRKF="$T/nodir/x/trk"; RT_TK=500; RT_NN=100; RT_TLW=48; RT_TF="$TL"; RT_HE=0; TRK=1
   read UP _ < /proc/uptime; RT_T0=${UP%.*}${UP#*.}; mirror_trk; echo "r1=$?"; mirror_trk; echo "r2=$?"; TRKF="$T/retrymirror"; TMFAT=0; mirror_trk; echo "r3=$?"; [ -s "$TRKF" ] && echo "file=ok"; [ ! -e "$TRKF.tmp" ] && echo "tmp=gone" )
 check "salin mirror gagal: tidak diulang sebelum jeda, diulang sesudahnya, tanpa sisa .tmp" 'echo "$out" | grep -q "^r1=1" && echo "$out" | grep -q "^r2=1" && echo "$out" | grep -q "^r3=0" && echo "$out" | grep -q "^file=ok" && echo "$out" | grep -q "^tmp=gone"'
 out=$( . "$T/trk_fn.sh"; RT_TK=500; RT_NN=100; RT_TLW=48; RT_TF="$T/tidakada"; TRK=1; RT_T0=1; trk_pump; echo "rc=$?" )

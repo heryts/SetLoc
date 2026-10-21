@@ -51,6 +51,10 @@ android {
     }
 }
 
+tasks.withType<JavaCompile>().configureEach {
+    options.compilerArgs.add("-Xlint:deprecation")
+}
+
 val targetPackages = (providers.gradleProperty("gpsz.packages").orNull ?: "")
     .split(",").map { it.trim() }.filter { it.isNotEmpty() }
 

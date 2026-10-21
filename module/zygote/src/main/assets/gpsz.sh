@@ -189,8 +189,6 @@ case "$1" in
     echo "baca mirror oleh system_server (logcat -s GpsZ):"
     logcat -d -s GpsZ:I GpsZ:W 2>/dev/null | grep -i "config file" | tail -4 | sed 's/^/  /'
     echo "--- hook sistem (logcat -s GpsZ)"
-    logcat -d -s GpsZ:I 2>/dev/null | grep -i "system hook" | tail -8 | sed 's/^/  /'
-    echo "--- bridge.log (10 baris terakhir)"
-    tail -n 10 "$MODDIR/bridge.log" 2>/dev/null ;;
+    logcat -d -s GpsZ:I 2>/dev/null | grep -i "system hook" | tail -8 | sed 's/^/  /' ;;
   *)      echo "on|off|toggle|set <lat> <lng> [acc]|random 0|1|net on|off|bt on|off|show|pkg ...|system on|heartbeat|off|status|sync|check <pkg>|super on|off|doctor" ;;
 esac
