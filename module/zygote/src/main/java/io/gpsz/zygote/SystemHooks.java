@@ -389,7 +389,16 @@ final class SystemHooks {
         }
     }
 
+    private static volatile long lastLazyScan = 0;
+
     private static boolean anyEmergency() {
+        if (managers.isEmpty()) {
+            long now = SystemClock.elapsedRealtime();
+            if (now - lastLazyScan > 5000) {
+                lastLazyScan = now;
+                scanForManagers();
+            }
+        }
         for (Object m : managers.values()) if (inEmergency(m)) return true;
         return false;
     }
