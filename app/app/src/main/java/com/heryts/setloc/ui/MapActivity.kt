@@ -1081,7 +1081,6 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
             addFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL)
             WindowCompat.setDecorFitsSystemWindows(this, false)
-            aw.decorView.background?.constantState?.newDrawable()?.mutate()?.let { setBackgroundDrawable(it) }
             setElevation(0f)
             setGravity(Gravity.CENTER)
             attachTouchRouting(this@MapActivity.window, false)
@@ -1090,11 +1089,32 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             lp.y = anchorCy - rootCy
             attributes = lp
         }
+        val fill = sampleColor(aw.decorView, aw.decorView.width - (56 * d).toInt(), (32 * d).toInt())
         dlg.show()
-        dlg.window?.setLayout(
-            aw.decorView.width - (32 * d).toInt(),
-            WindowManager.LayoutParams.WRAP_CONTENT
-        )
+        dlg.window?.let { w ->
+            w.setLayout(
+                aw.decorView.width - (32 * d).toInt(),
+                WindowManager.LayoutParams.WRAP_CONTENT
+            )
+            if (fill != null) {
+                w.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
+                w.decorView.findViewById<View>(androidx.appcompat.R.id.parentPanel)?.background =
+                    android.graphics.drawable.GradientDrawable().apply {
+                        setColor(fill)
+                        cornerRadius = 4 * d
+                    }
+            }
+        }
+    }
+
+    private fun sampleColor(v: View, x: Int, y: Int): Int? = try {
+        val bmp = android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(bmp)
+        c.translate(-x.toFloat(), -y.toFloat())
+        v.draw(c)
+        bmp.getPixel(0, 0).takeIf { android.graphics.Color.alpha(it) == 255 }
+    } catch (_: Exception) {
+        null
     }
 
     private fun loadSavedRoute(r: SavedRoute) {
