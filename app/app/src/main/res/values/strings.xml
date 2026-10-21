@@ -23,6 +23,13 @@
 
     <string name="settings_location">Location</string>
     <string name="settings">Settings</string>
+    <string name="saved_routes">Saved routes</string>
+    <string name="saved_routes_empty">No saved routes yet</string>
+    <string name="save_route">Save route</string>
+    <string name="route_name_hint">Route name</string>
+    <string name="route_name_default">Route %1$s</string>
+    <string name="route_points_info">%1$d points</string>
+    <string name="delete_saved_route">Delete saved route</string>
     <string name="settings_of_accuracy">Accuracy</string>
     <string name="preference_category_general">General</string>
     <string name="enter_valid_input">Enter valid number</string>

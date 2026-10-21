@@ -24,6 +24,13 @@
 
     <string name="settings_location">Lokasi</string>
     <string name="settings">Pengaturan</string>
+    <string name="saved_routes">Rute tersimpan</string>
+    <string name="saved_routes_empty">Belum ada rute tersimpan</string>
+    <string name="save_route">Simpan rute</string>
+    <string name="route_name_hint">Nama rute</string>
+    <string name="route_name_default">Rute %1$s</string>
+    <string name="route_points_info">%1$d titik</string>
+    <string name="delete_saved_route">Hapus rute tersimpan</string>
     <string name="settings_of_accuracy">Akurasi</string>
     <string name="preference_category_general">Umum</string>
     <string name="enter_valid_input">Masukkan angka yang valid</string>

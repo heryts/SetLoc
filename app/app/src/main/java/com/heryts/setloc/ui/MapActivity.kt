@@ -29,6 +29,8 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.heryts.setloc.R
 import com.heryts.setloc.databinding.ActivityMapBinding
+import com.heryts.setloc.favourite.SavedRoute
+import com.heryts.setloc.favourite.SavedRouteStore
 import com.heryts.setloc.route.ElevationClient
 import com.heryts.setloc.route.AutoSpeed
 import com.heryts.setloc.route.RouteClient
@@ -548,7 +550,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         binding.route.setOnClickListener { onRouteButton() }
         binding.routeDelete.setOnClickListener { onDeleteClick() }
         binding.routeDelete.setOnLongClickListener { onDeleteLongClick(); true }
-        binding.addFav.setOnClickListener { addFavouriteFromPin() }
+        binding.addFav.setOnClickListener { if (routeReady) showSaveRouteDialog() else addFavouriteFromPin() }
     }
 
     private fun updateRouteFab() {
@@ -557,7 +559,9 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         val hasRoute = (routeReady || routeLoading) && idle
         binding.route.visibility = if (picked || hasRoute) View.VISIBLE else View.GONE
         binding.routeDelete.visibility = if ((routeWaypoints.isNotEmpty() && idle) || picked) View.VISIBLE else View.GONE
-        binding.addFav.visibility = if (picked) View.VISIBLE else View.GONE
+        val saveMode = routeReady && idle
+        binding.addFav.visibility = if (picked || saveMode) View.VISIBLE else View.GONE
+        binding.addFav.contentDescription = getString(if (saveMode) R.string.save_route else R.string.add_favourite)
     }
 
     private fun systemModeActive(): Boolean = try {
@@ -741,6 +745,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     }
 
     private fun handleMenuItem(id: Int): Boolean = when (id) {
+        R.id.saved_routes -> { showSavedRoutes(); true }
         R.id.settings -> { startActivity(Intent(this, SettingsActivity::class.java)); true }
         R.id.about -> { showAboutDialog(); true }
         else -> false
@@ -891,6 +896,103 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         dlg.makeFloating()
         view.findViewById<TextView>(R.id.pin_info)?.text = pinText(LatLng(place.lat, place.lon))
         dlg.show()
+    }
+
+    private fun showSaveRouteDialog() {
+        if (favDialog?.isShowing == true || !routeReady) return
+        val view = layoutInflater.inflate(R.layout.dialog_add_fav, null)
+        val editText = view.findViewById<EditText>(R.id.search_edittxt)
+        editText.hint = getString(R.string.route_name_hint)
+        editText.setText(
+            getString(R.string.route_name_default, formatDistance(RouteRunner.routeLength(routePoints)))
+        )
+        editText.selectAll()
+        view.findViewById<TextView>(R.id.pin_info)?.text =
+            getString(R.string.route_points_info, routeWaypoints.size)
+
+        val dlg = MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.save_route))
+            .setView(view)
+            .setNegativeButton(getString(R.string.dialog_button_cancel), null)
+            .setPositiveButton(getString(R.string.dialog_button_add), null)
+            .create()
+        favDialog = dlg
+
+        fun submit() {
+            val name = editText.text.toString().trim().ifEmpty {
+                getString(R.string.route_name_default, formatDistance(RouteRunner.routeLength(routePoints)))
+            }
+            val pts = routeWaypoints.map { it.latitude to it.longitude }
+            viewModel.storeRoute(name, PrefManager.routeMode, pts) { ok ->
+                showToast(getString(if (ok) R.string.record_saved else R.string.cant_save))
+            }
+            dlg.dismiss()
+        }
+        dlg.setOnShowListener {
+            dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener { submit() }
+            dlg.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener { dlg.cancel() }
+            editText.requestFocus()
+        }
+        editText.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_DONE) { submit(); true } else false
+        }
+        dlg.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
+        dlg.makeFloating()
+        dlg.show()
+    }
+
+    private fun showSavedRoutes() {
+        val list = SavedRouteStore.all.value
+        if (list.isEmpty()) {
+            showToast(getString(R.string.saved_routes_empty))
+            return
+        }
+        val dlg = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.saved_routes)
+            .setItems(list.map { it.name }.toTypedArray()) { d, i ->
+                d.dismiss()
+                loadSavedRoute(list[i])
+            }
+            .setNegativeButton(getString(R.string.dialog_button_cancel), null)
+            .create()
+        dlg.setOnShowListener {
+            dlg.listView.setOnItemLongClickListener { _, _, i, _ ->
+                confirmDeleteSavedRoute(list[i]) { dlg.dismiss() }
+                true
+            }
+        }
+        dlg.show()
+    }
+
+    private fun confirmDeleteSavedRoute(r: SavedRoute, onDone: () -> Unit) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.delete_saved_route)
+            .setMessage(r.name)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                viewModel.deleteSavedRoute(r)
+                onDone()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun loadSavedRoute(r: SavedRoute) {
+        if (RouteRunner.isRunning) {
+            showToast(getString(R.string.route_stop_first))
+            return
+        }
+        if (!::mMap.isInitialized) return
+        clearRoute()
+        hidePin()
+        PrefManager.routeMode = r.mode
+        r.points.forEach { (la, ln) ->
+            val ll = LatLng(la, ln)
+            val marker = mMap.addMarker(MarkerOptions().position(ll)) ?: return@forEach
+            routeWaypoints.add(ll)
+            routeMarkers.add(marker)
+        }
+        refreshRouteMarkers()
+        fetchRoute(dropLastOnFail = false)
     }
 
     private fun showStartNotification(address: String){
