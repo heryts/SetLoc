@@ -74,12 +74,6 @@ internal class SearchPanel(
         SearchHistoryStore.load()
         favRow.layoutManager = LinearLayoutManager(activity, LinearLayoutManager.HORIZONTAL, false)
         favRow.adapter = favAdapter
-        favRow.addItemDecoration(object : RecyclerView.ItemDecoration() {
-            override fun getItemOffsets(outRect: android.graphics.Rect, view: View, parent: RecyclerView, state: RecyclerView.State) {
-                val last = parent.getChildAdapterPosition(view) == (parent.adapter?.itemCount ?: 0) - 1
-                outRect.right = if (last) 0 else (24 * parent.resources.displayMetrics.density).toInt()
-            }
-        })
         list.layoutManager = LinearLayoutManager(activity)
         list.adapter = listAdapter
         icon.setOnClickListener { if (open) close() else open() }
