@@ -7,12 +7,9 @@ import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
 import android.view.Gravity
-import android.view.Menu
-import android.view.MenuItem
 import android.view.View
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
-import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
@@ -20,7 +17,6 @@ import androidx.activity.viewModels
 import android.view.ViewGroup
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.PopupMenu
-import androidx.appcompat.widget.AppCompatAutoCompleteTextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
@@ -31,8 +27,6 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
 import com.heryts.setloc.R
 import com.heryts.setloc.databinding.ActivityMapBinding
 import com.heryts.setloc.route.ElevationClient
@@ -68,7 +62,6 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     private val notificationsChannel by lazy { NotificationsChannel() }
     private var mMarker: Marker? = null
     private var mLatLng: LatLng? = null
-    private var pinListener: ((LatLng) -> Unit)? = null
 
     private var floatingDialog: AlertDialog? = null
     private var dialogMoved = false
@@ -245,7 +238,6 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             it.position = latLng
             it.isVisible = true
             mMap.animateCamera(CameraUpdateFactory.newLatLng(latLng))
-            pinListener?.invoke(latLng)
             onPinChanged()
         }
         pinPicked = true
@@ -260,6 +252,12 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         if (routeWaypoints.size >= RouteClient.MAX_POINTS) {
             showToast(getString(R.string.route_max_points, RouteClient.MAX_POINTS))
             return
+        }
+        val pin = mLatLng
+        if (routeWaypoints.isEmpty() && mMarker?.isVisible == true && pin != null &&
+            RouteClient.MAX_POINTS >= 2 && metersBetween(pin, latLng) >= 5f
+        ) {
+            addRouteStop(pin, quiet = true)
         }
         addRouteStop(latLng, quiet = false)
     }
@@ -636,7 +634,6 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             isVisible = true
             showInfoWindow()
         }
-        pinListener?.invoke(latLng)
         onPinChanged()
     }
 
@@ -718,7 +715,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         dialogMoved = false
         setCanceledOnTouchOutside(false)
         setOnDismissListener {
-            if (floatingDialog === this) { floatingDialog = null; pinListener = null }
+            if (floatingDialog === this) floatingDialog = null
         }
         window?.apply {
             clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
@@ -810,21 +807,6 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     private fun pinText(p: LatLng) = getString(
         R.string.pin_label, String.format(Locale.US, "%.6f, %.6f", p.latitude, p.longitude)
     )
-
-    private fun bindPinInfo(tv: TextView?) {
-        if (tv == null) return
-        val update = { p: LatLng? ->
-            tv.text = if (p != null && mMarker?.isVisible == true) pinText(p) else getString(R.string.pin_none)
-        }
-        update(mLatLng)
-        pinListener = { p -> update(p) }
-    }
-
-    private fun hideKeyboard(v: View) {
-        v.clearFocus()
-        (getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager)
-            ?.hideSoftInputFromWindow(v.windowToken, 0)
-    }
 
     override fun onDestroy() {
         floatingDialog?.dismissSafe()

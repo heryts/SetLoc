@@ -12,13 +12,15 @@ import com.v7878.unsafe.invoke.Transformers;
 import com.v7878.vmtools.HookTransformer;
 import com.v7878.vmtools.Hooks;
 
+import java.lang.ref.Reference;
+import java.lang.ref.ReferenceQueue;
+import java.lang.ref.WeakReference;
 import java.lang.reflect.Method;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.concurrent.Executor;
-import java.util.WeakHashMap;
 
 final class LocationHooks {
     private static final int K_LAT = 0, K_LNG = 1, K_ACC = 2, K_MOCK = 3, K_LAST_KNOWN = 4;
@@ -31,6 +33,7 @@ final class LocationHooks {
     private static final Object NULL_RESULT = new Object();
     private static final int K_SPD = 5, K_BRG = 6, K_ALT = 7, K_HAS_SPD = 8, K_HAS_BRG = 9, K_HAS_ALT = 10;
     private static boolean crashed = false;
+    private static final ThreadLocal<Boolean> PARSING = new ThreadLocal<>();
 
     static void install() {
         hook(Location.class, "getLatitude", K_LAT);
@@ -136,10 +139,14 @@ final class LocationHooks {
     private static HookTransformer transformer(final int kind) {
         return (original, frame) -> {
             if (kind == K_CREATE) {
+                Boolean prev = PARSING.get();
+                PARSING.set(Boolean.TRUE);
                 try {
                     Transformers.invokeExactNoChecks(original, frame);
                 } catch (Throwable t) {
                     ZygoteEntry.<RuntimeException>sneaky(t);
+                } finally {
+                    if (prev == null) PARSING.remove(); else PARSING.set(prev);
                 }
                 try {
                     if (Config.enabled && Config.hasPos()) {
@@ -147,6 +154,14 @@ final class LocationHooks {
                         if (isFix(r)) snapOf((Location) r);
                     }
                 } catch (Throwable ignored) { }
+                return;
+            }
+            if (PARSING.get() != null) {
+                try {
+                    Transformers.invokeExactNoChecks(original, frame);
+                } catch (Throwable t) {
+                    ZygoteEntry.<RuntimeException>sneaky(t);
+                }
                 return;
             }
             boolean handled = false;
@@ -228,7 +243,47 @@ final class LocationHooks {
         }
     }
 
-    private static final Map<Location, Snap> PER_OBJ = Collections.synchronizedMap(new WeakHashMap<Location, Snap>());
+    private static final class IdKey extends WeakReference<Location> {
+        final int hash;
+
+        IdKey(Location l, ReferenceQueue<Location> q) {
+            super(l, q);
+            hash = System.identityHashCode(l);
+        }
+
+        @Override public int hashCode() {
+            return hash;
+        }
+
+        @Override public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof IdKey)) return false;
+            Location a = get();
+            return a != null && a == ((IdKey) o).get();
+        }
+    }
+
+    private static final class IdMap {
+        private final HashMap<IdKey, Snap> map = new HashMap<>();
+        private final ReferenceQueue<Location> queue = new ReferenceQueue<>();
+
+        synchronized Snap get(Location l) {
+            purge();
+            return map.get(new IdKey(l, null));
+        }
+
+        synchronized void put(Location l, Snap s) {
+            purge();
+            map.put(new IdKey(l, queue), s);
+        }
+
+        private void purge() {
+            Reference<? extends Location> r;
+            while ((r = queue.poll()) != null) map.remove(r);
+        }
+    }
+
+    private static final IdMap PER_OBJ = new IdMap();
 
     private static Snap snapOf(Location l) {
         long ns = l.getElapsedRealtimeNanos();

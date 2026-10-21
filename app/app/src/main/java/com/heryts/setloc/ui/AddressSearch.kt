@@ -1,60 +1,16 @@
 package com.heryts.setloc.ui
 
-import android.content.Context
-import com.heryts.setloc.R
 import com.heryts.setloc.utils.Http
 import kotlinx.coroutines.CancellationException
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.util.Locale
 
 private val COORDS = Regex("[-+]?\\d{1,3}([.]\\d+)?, *[-+]?\\d{1,3}([.]\\d+)?")
-
-private const val GEO_CACHE_SIZE = 16
-
-private val geoCache = object : LinkedHashMap<String, SearchProgress.Complete>(GEO_CACHE_SIZE, 0.75f, true) {
-    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, SearchProgress.Complete>?) =
-        size > GEO_CACHE_SIZE
-}
-
-internal fun searchAddress(context: Context, address: String): Flow<SearchProgress> = flow {
-    emit(SearchProgress.Progress)
-    emit(resolveAddress(context, address.trim()))
-}.flowOn(Dispatchers.IO)
-
-private suspend fun resolveAddress(context: Context, input: String): SearchProgress {
-    val notFound = SearchProgress.Fail(context.getString(R.string.address_not_found))
-
-    if (COORDS.matches(input)) {
-        return parseCoords(input)?.let { SearchProgress.Complete(it.first, it.second) } ?: notFound
-    }
-
-    val locale = Locale.getDefault()
-    val key = "${locale.toLanguageTag()}|${input.lowercase(locale)}"
-    synchronized(geoCache) { geoCache[key] }?.let { return it }
-
-    return try {
-        val first = searchPlaces(context, input).firstOrNull()
-        if (first != null) {
-            SearchProgress.Complete(first.lat, first.lon).also {
-                synchronized(geoCache) { geoCache[key] = it }
-            }
-        } else notFound
-    } catch (_: IOException) {
-        SearchProgress.Fail(context.getString(R.string.no_internet))
-    } catch (e: kotlinx.coroutines.CancellationException) {
-        throw e
-    } catch (_: Exception) {
-        notFound
-    }
-}
 
 data class PlaceCandidate(val label: String, val lat: Double, val lon: Double)
 
@@ -111,7 +67,7 @@ private suspend fun nominatimSearch(text: String): List<PlaceCandidate> {
     return out
 }
 
-internal suspend fun searchPlaces(context: Context, input: String): List<PlaceCandidate> =
+internal suspend fun searchPlaces(input: String): List<PlaceCandidate> =
     withContext(Dispatchers.IO) {
         val text = input.trim()
         if (COORDS.matches(text)) {
@@ -129,9 +85,3 @@ internal suspend fun searchPlaces(context: Context, input: String): List<PlaceCa
         val result = primary.ifEmpty { nominatimSearch(text) }
         result.distinctBy { it.label }
     }
-
-sealed class SearchProgress {
-    object Progress : SearchProgress()
-    data class Complete(val lat: Double, val lon: Double) : SearchProgress()
-    data class Fail(val error: String?) : SearchProgress()
-}

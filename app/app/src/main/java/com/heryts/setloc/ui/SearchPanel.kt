@@ -22,7 +22,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.IOException
-import java.util.Locale
 
 internal class SearchPanel(
     private val activity: AppCompatActivity,
@@ -173,7 +172,7 @@ internal class SearchPanel(
             if (!isCoords(t)) delay(400)
             showProgress(true)
             try {
-                remote = searchPlaces(activity, t)
+                remote = searchPlaces(t)
                 remoteFor = t
                 remoteDone = true
             } catch (e: CancellationException) {
@@ -249,7 +248,7 @@ internal class SearchPanel(
         job = activity.lifecycleScope.launch {
             showProgress(true)
             val found = try {
-                searchPlaces(activity, t).firstOrNull()
+                searchPlaces(t).firstOrNull()
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {

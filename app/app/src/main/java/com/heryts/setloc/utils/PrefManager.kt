@@ -95,10 +95,10 @@ object PrefManager {
         get() = pref.getBoolean(START, false)
 
     val getLat: Double
-        get() = precise(LATITUDE_D, pref.getFloat(LATITUDE, 40.7128F).toDouble())
+        get() = precise(LATITUDE_D, pref.getFloat(LATITUDE, -7.7829F).toDouble())
 
     val getLng: Double
-        get() = precise(LONGITUDE_D, pref.getFloat(LONGITUDE, -74.0060F).toDouble())
+        get() = precise(LONGITUDE_D, pref.getFloat(LONGITUDE, 110.3671F).toDouble())
 
     private fun precise(key: String, coarse: Double): Double {
         val d = pref.getString(key, null)?.toDoubleOrNull() ?: return coarse
@@ -261,6 +261,7 @@ object PrefManager {
             .putBoolean(ROUTE_ACTIVE, routeActive)
             .putBoolean(ROUTE_PLAY, routePlay)
         if (altitude != null) e.putFloat(ALTITUDE, altitude)
+        if (!routePlay) e.remove(ROUTE_T0).remove(ROUTE_N).remove(ROUTE_TLW)
         save(e, start, la, ln)
     }
 

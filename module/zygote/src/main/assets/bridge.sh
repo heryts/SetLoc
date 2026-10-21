@@ -184,6 +184,7 @@ trk_win() {
   D=$(dd if="$RT_TF" bs=$RT_TLW skip=$((S - 1)) count=$C 2>/dev/null | tr -s ' \n' ',|')
   [ -n "$D" ] || return 1
   sput $TRKKEY "t=$((RT_T0 * 10 + (S - 1) * RT_TK));k=$RT_TK;a=$((PC * 10));d=$D" || return 1
+  [ "$WKEY" != "$RT_T0:$RT_NN:$RT_TF" ] && log "trk: jendela pertama t0=$RT_T0 n=$RT_NN mulai tick $S"
   WKEY="$RT_T0:$RT_NN:$RT_TF"; WS=$S; WE=$((S + C - 1)); HOLD_AT=$PC
   return 0
 }
@@ -223,8 +224,8 @@ derive() {
   numok "$LD" && numok "$LG" && { LAT=$LD; LNG=$LG; }
   RND=$(fval boolean random_position); [ -z "$RND" ] && RND=true
   ACC=$(fstr accuracy_settings)
-  [ -z "$LAT" ] && LAT=40.7128
-  [ -z "$LNG" ] && LNG=-74.0060
+  [ -z "$LAT" ] && LAT=-7.7829
+  [ -z "$LNG" ] && LNG=110.3671
   numok "$LAT" && numok "$LNG" || return 1
   case "$ACC" in ''|*[!0-9.]*) ACC=10 ;; esac
   E=0; [ "$START" = true ] && E=1
@@ -295,10 +296,17 @@ sync_cfg() {
   case "$OUT" in
     *";tk=1;pl=1") trk_pump || { TRK=0; OF=$FAST; FAST=1; derive; FAST=$OF; NEW=$OUT; } ;;
   esac
+  case "$NEW" in
+    enabled=0*) CLS=off ;;
+    *";tk=1;pl=1") CLS="trk t0=$RT_T0 n=$RT_NN" ;;
+    *";pl=1") CLS="route t0=$RT_T0 n=$RT_NN" ;;
+    *) CLS=static ;;
+  esac
+  [ "$CLS" != "$LASTCLS" ] && { LASTCLS=$CLS; log "cfg: $CLS"; }
   PREV=; { read -r PREV < "$LASTF"; } 2>/dev/null
   if [ "$1" != force ] && [ "$NEW" = "$PREV" ]; then
     CUR=$(csget $KEY)
-    [ -n "$CUR" ] && { mirror_stale "$CUR" && mirror_cfg "$CUR"; return 0; }
+    [ "$CUR" = "$NEW" ] && { mirror_stale "$CUR" && mirror_cfg "$CUR"; return 0; }
   fi
   csput $KEY "$NEW" || { log "settings put GAGAL"; return 1; }
   echo "$NEW" > "$LASTF"
@@ -311,12 +319,29 @@ pref_set() {
   if grep -q "<$1 name=\"$2\"" "$PREF"; then
     sed "s|<$1 name=\"$2\" value=\"[^\"]*\"|<$1 name=\"$2\" value=\"$3\"|" "$PREF" > "$TMP"
   else
-    sed "s|</map>|    <$1 name=\"$2\" value=\"$3\" /></map>|" "$PREF" > "$TMP"
+    sed "s|</map>|    <$1 name=\"$2\" value=\"$3\" />\\
+</map>|" "$PREF" > "$TMP"
   fi
   if [ -s "$TMP" ] && grep -q "name=\"$2\" value=\"$3\"" "$TMP"; then
     cat "$TMP" > "$PREF" || log "pref: gagal menulis $2"
   else
     log "pref: gagal menyusun $2"
+  fi
+  rm -f "$TMP"
+}
+
+pref_str() {
+  TMP="$MODDIR/.pref.tmp"
+  if grep -q "<string name=\"$1\">" "$PREF"; then
+    sed "s|<string name=\"$1\">[^<]*</string>|<string name=\"$1\">$2</string>|" "$PREF" > "$TMP"
+  else
+    sed "s|</map>|    <string name=\"$1\">$2</string>\\
+</map>|" "$PREF" > "$TMP"
+  fi
+  if [ -s "$TMP" ] && grep -q "<string name=\"$1\">$2</string>" "$TMP" && grep -q '</map>' "$TMP"; then
+    cat "$TMP" > "$PREF" || log "pref: gagal menulis $1"
+  else
+    log "pref: gagal menyusun $1"
   fi
   rm -f "$TMP"
 }
@@ -349,11 +374,24 @@ set_app_start() {
 
 set_app_pos() {
   numok "$1" && numok "$2" && inrange "$1" 90 && inrange "$2" 180 || { log "setpos: koordinat tidak valid"; return 1; }
+  if [ -n "$3" ]; then
+    case "$3" in *[!0-9.]*|*.*.*|.|'') log "setpos: akurasi tidak valid"; return 1 ;; esac
+  fi
   app_pref setpos || return 1
   am force-stop "$APP" >/dev/null 2>&1
   pref_del latitude_d; pref_del longitude_d
   pref_set float latitude "$1"; pref_set float longitude "$2"
   pref_set float speed_ms 0; pref_set float bearing -1
+  [ -n "$3" ] && pref_str accuracy_settings "$3"
+  remember
+}
+
+set_app_random() {
+  case "$1" in 0) V=false ;; 1) V=true ;; *) log "setrandom: nilai tidak valid"; return 1 ;; esac
+  app_pref setrandom || return 1
+  [ "$(pval boolean random_position)" = "$V" ] && return 0
+  am force-stop "$APP" >/dev/null 2>&1
+  pref_set boolean random_position "$V"
   remember
 }
 
@@ -432,10 +470,18 @@ start_daemon() {
 
 sig() { [ -n "$PREFC" ] && echo "$PREFC $(stat -c '%i %y %s' "$PREFC" 2>/dev/null)"; }
 
+sigdue() {
+  [ "$SIGNOW" = 1 ] && { SIGNOW=0; return 0; }
+  [ $((N % SIGEVERY)) -eq 0 ] && return 0
+  [ "$INO" = 1 ] && [ "$TRK" = 1 ] && return 0
+  return 1
+}
+
 changed() {
-  [ "$PREFC" != "$SYNCED" ] && return 0
-  [ "$PREFC" -nt "$STAMP" ] && return 0
-  [ $((N % SIGEVERY)) -eq 0 ] && [ "$(sig)" != "$LAST" ] && return 0
+  WHY=
+  [ "$PREFC" != "$SYNCED" ] && { WHY=path; return 0; }
+  [ "$PREFC" -nt "$STAMP" ] && { WHY=nt; return 0; }
+  sigdue && [ "$(sig)" != "$LAST" ] && { WHY=sig; return 0; }
   return 1
 }
 
@@ -456,14 +502,22 @@ ino_up() {
   else WPID=; WDIR=; log "inotifyd tidak jalan, pakai polling"; fi
 }
 
+wait_wake() {
+  _w=$1
+  while [ "$_w" -gt 0 ] && [ "$WOKE" != 1 ]; do
+    sleep 1 & SPID=$!
+    wait $SPID 2>/dev/null
+    kill $SPID 2>/dev/null
+    _w=$((_w - 1))
+  done
+  WOKE=0
+}
+
 nap() {
   if [ "$PLAYING" = 1 ] && [ "$RT_OK" = 1 ] && [ "$TRK" = 1 ]; then
     if [ "$INO" = 1 ]; then
       [ "$WOKE" = 1 ] && { WOKE=0; return; }
-      sleep ${TRK_NAP:-5} & SPID=$!
-      wait $SPID 2>/dev/null
-      kill $SPID 2>/dev/null
-      WOKE=0
+      wait_wake ${TRK_NAP:-5}
     else
       sleep 1
     fi
@@ -480,10 +534,7 @@ nap() {
   fi
   if [ "$INO" = 1 ] && [ "$PLAYING" != 1 ]; then
     [ "$WOKE" = 1 ] && { WOKE=0; return; }
-    sleep 5 & SPID=$!
-    wait $SPID 2>/dev/null
-    kill $SPID 2>/dev/null
-    WOKE=0
+    wait_wake 5
     return
   fi
   sleep $DELAY
@@ -495,7 +546,8 @@ case "$1" in
   mirror)  C=$(csget $KEY); [ -n "$C" ] && mirror_cfg "$C"; exit 0 ;;
   force)   sync_cfg force; exit $? ;;
   setstart) set_app_start "$2"; exit $? ;;
-  setpos)  set_app_pos "$2" "$3"; exit $? ;;
+  setpos)  set_app_pos "$2" "$3" "$4"; exit $? ;;
+  setrandom) set_app_random "$2"; exit $? ;;
   ensure)
     daemon_running || { [ -z "$(ls "$LOCKD" 2>/dev/null)" ] && sleep 2; daemon_running; } \
       && { echo "daemon=running"; rm -f "$MODDIR/.super_fail"; exit 0; }
@@ -531,7 +583,7 @@ case "$1" in
     if [ -z "$(sget "$SYSKEY")" ] || [ "$(sget "$SYSKEY")" = null ]; then csput "$SYSKEY" 2; fi
     exit 0 ;;
   daemon) ;;
-  *) echo "usage: bridge.sh ensure [super]|sync|mirror|force|setstart 0|1|setpos <lat> <lng>|status|install|sysdefault"; exit 1 ;;
+  *) echo "usage: bridge.sh ensure [super]|sync|mirror|force|setstart 0|1|setpos <lat> <lng> [acc]|setrandom 0|1|status|install|sysdefault"; exit 1 ;;
 esac
 
 yield_lock() { lock_fast || { log "daemon: kalah arbitrasi dari pid $WIN, keluar"; exit 0; }; }
@@ -548,7 +600,7 @@ on_sig() { log "daemon menerima sinyal $1 (pid $$)"; exit $2; }
 trap 'on_sig TERM 143' TERM
 trap 'on_sig HUP 129' HUP
 trap 'on_sig INT 130' INT
-trap 'WOKE=1' USR1
+trap 'WOKE=1; SIGNOW=1' USR1
 trap 'on_exit $?' EXIT
 log "daemon start (pid $$)"
 until [ "$(getprop sys.boot_completed)" = 1 ]; do
@@ -587,6 +639,7 @@ while true; do
   fi
   [ "$INO" = 1 ] && [ "${PREFC%/*}" != "$WDIR" ] && ino_up
   if changed; then
+    log "pref berubah via=$WHY play=$PLAYING trk=$TRK"
     : > "$STAMP"
     SYNCED=$PREFC
     S=$(sig)

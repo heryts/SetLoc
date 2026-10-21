@@ -4,10 +4,7 @@
 
     <string name="record_saved">Simpan</string>
 
-    <string name="address">Amerika Serikat</string>
     <string name="add_favourite">Tambah favorit</string>
-    <string name="Search">cari</string>
-    <string name="favourites">Favorit</string>
     <string name="address_not_found">Alamat tidak ditemukan</string>
 
     <string name="about">Tentang</string>
@@ -21,14 +18,9 @@
     <string name="add_fav_dialog_title">Tambah favorit</string>
     <string name="dialog_button_add">Tambah</string>
     <string name="dialog_button_cancel">Batal</string>
-    <string name="dialog_button_close">Tutup</string>
     <string name="fav_name_hint">Nama favorit</string>
-    <string name="fav_name_search_hint">Nama favorit, atau cari alamat / koordinat</string>
-    <string name="fav_search_empty">Ketik alamat atau koordinat untuk dicari</string>
-    <string name="fav_pick_location">Pilih lokasi</string>
     <string name="location_unset">Lokasi dibatalkan</string>
     <string name="no_internet">Tidak ada internet</string>
-    <string name="search_hint">"cari mis. jakarta atau 37.7749,-122.4194"</string>
 
     <string name="settings_location">Lokasi</string>
     <string name="settings">Pengaturan</string>
@@ -86,7 +78,6 @@
     <string name="settings_traffic_aware_summary">Rute mengikuti lalu lintas saat ini</string>
     <string name="map_not_ready">Peta belum siap</string>
     <string name="location_not_selected">Lokasi belum dipilih</string>
-    <string name="search_dialog_title">Cari</string>
     <string name="dark_theme">Tema gelap</string>
     <string name="theme_always_off">Selalu mati</string>
     <string name="theme_always_on">Selalu nyala</string>
@@ -98,8 +89,6 @@
     <string name="map_hybrid">Hibrida</string>
     <string name="settings_random_position">Posisi acak</string>
     <string name="settings_random_position_summary">Posisi lokasi diacak di sekitar lokasi yang diatur</string>
-    <string name="search_button">Cari</string>
-    <string name="searching">Mencari…</string>
     <string name="route_err_min_points">Minimal dua titik</string>
     <string name="route_err_no_key">API key Google Maps tidak ditemukan</string>
     <string name="route_err_not_found">Rute tidak ditemukan</string>
@@ -108,7 +97,6 @@
     <string name="route_err_http">Rute gagal (HTTP %1$d)</string>
     <string name="route_err_api">Rute gagal (%1$d): %2$s</string>
     <string name="pin_label">Pin: %s</string>
-    <string name="pin_none">Pin belum dipilih</string>
     <string name="search_here">Cari di sini</string>
     <string name="more_options">Opsi lainnya</string>
     <string name="search_recent">Terbaru</string>

@@ -197,7 +197,7 @@ object RouteRunner {
         return out
     }
 
-    private fun writeTimeline(ticks: List<Tick>, w: java.io.Writer): Long {
+    internal fun writeTimeline(ticks: List<Tick>, w: java.io.Writer): Long {
         val sb = StringBuilder(TIMELINE_LINE_WIDTH + 8)
         val fmt = java.util.Formatter(sb, java.util.Locale.US)
         var chars = 0L

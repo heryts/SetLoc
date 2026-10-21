@@ -6,7 +6,6 @@ import com.heryts.setloc.favourite.FavouriteStore
 import com.heryts.setloc.utils.PrefManager
 import com.heryts.setloc.utils.ext.onIO
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 
 class MainViewModel : ViewModel() {
@@ -14,8 +13,6 @@ class MainViewModel : ViewModel() {
     val getLng get() = PrefManager.getLng
     val isStarted get() = PrefManager.isStarted
     val mapType get() = PrefManager.mapType
-
-    val allFavList: StateFlow<List<Favourite>> = FavouriteStore.all
 
     init {
         onIO { FavouriteStore.load() }

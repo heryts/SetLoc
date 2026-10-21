@@ -3,10 +3,7 @@
 
     <string name="record_saved">Save</string>
 
-    <string name="address">United States</string>
     <string name="add_favourite">Add favourite</string>
-    <string name="Search">search</string>
-    <string name="favourites">Favourites</string>
     <string name="address_not_found">Address not found</string>
 
     <string name="about">About</string>
@@ -20,14 +17,9 @@
     <string name="add_fav_dialog_title">Add favourite</string>
     <string name="dialog_button_add">Add</string>
     <string name="dialog_button_cancel">Cancel</string>
-    <string name="dialog_button_close">Close</string>
     <string name="fav_name_hint">Favourite name</string>
-    <string name="fav_name_search_hint">Favourite name, or search address / coordinates</string>
-    <string name="fav_search_empty">Type an address or coordinates to search</string>
-    <string name="fav_pick_location">Choose location</string>
     <string name="location_unset">Location unset</string>
     <string name="no_internet">No internet</string>
-    <string name="search_hint">"search eg. new york or 37.7749,-122.4194"</string>
 
     <string name="settings_location">Location</string>
     <string name="settings">Settings</string>
@@ -85,7 +77,6 @@
     <string name="settings_traffic_aware_summary">Route follows current traffic</string>
     <string name="map_not_ready">Map not ready</string>
     <string name="location_not_selected">Location not selected</string>
-    <string name="search_dialog_title">Search</string>
     <string name="dark_theme">Dark theme</string>
     <string name="theme_always_off">Always off</string>
     <string name="theme_always_on">Always on</string>
@@ -97,8 +88,6 @@
     <string name="map_hybrid">Hybrid</string>
     <string name="settings_random_position">Random position</string>
     <string name="settings_random_position_summary">Location position will be random around set location</string>
-    <string name="search_button">Search</string>
-    <string name="searching">Searching…</string>
     <string name="route_err_min_points">At least two points are required</string>
     <string name="route_err_no_key">Google Maps API key not found</string>
     <string name="route_err_not_found">Route not found</string>
@@ -107,7 +96,6 @@
     <string name="route_err_http">Route failed (HTTP %1$d)</string>
     <string name="route_err_api">Route failed (%1$d): %2$s</string>
     <string name="pin_label">Pin: %s</string>
-    <string name="pin_none">No pin selected</string>
     <string name="search_here">Search here</string>
     <string name="more_options">More options</string>
     <string name="search_recent">Recent</string>

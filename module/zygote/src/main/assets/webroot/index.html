@@ -501,7 +501,7 @@ function rowHtml(a) {
 function render() {
   const list = visible();
   const total = S.apps.filter(a => hooked(a.pkg)).length;
-  $('#cnt').textContent = S.all ? `${S.apps.length - S.files.size} app di-hook (mode semua)` : `${total} app di-hook`;
+  $('#cnt').textContent = S.all ? `${total} app di-hook (mode semua)` : `${total} app di-hook`;
   $('#modeTag').textContent = S.all ? 'Mode: semua app' : '';
   $('#chipSys').classList.toggle('active', S.showSys);
   document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === S.tab));
@@ -541,7 +541,7 @@ function trackPos(trk, nowMs) {
   const m = {};
   trk.split(';').forEach(kv => { const i = kv.indexOf('='); if (i > 0) m[kv.slice(0, i)] = kv.slice(i + 1); });
   const t0 = Number(m.t), tk = Number(m.k);
-  if (!(tk > 0) || !m.d) return null;
+  if (!(tk > 0) || !m.d || !Number.isFinite(t0) || !Number.isFinite(nowMs)) return null;
   const rows = m.d.split('|').map(r => r.replace(/^,+/, '')).filter(Boolean).map(r => r.split(',').map(Number));
   if (!rows.length || rows.some(r => r.length < 5 || r.some(Number.isNaN))) return null;
   const last = rows.length - 1, pos = Math.max(0, (nowMs - t0) / tk);
@@ -596,9 +596,10 @@ async function load() {
     renderApp();
 
     const sysSet = new Set(sys);
-    const names = Array.from(new Set([...user, ...sys, ...st.files])).filter(p => p !== 'android');
-    const info = await B.info(names);
     const installed = new Set([...user, ...sys]);
+    const known = installed.size > 0;
+    const names = Array.from(new Set([...user, ...sys, ...(known ? [] : st.files)])).filter(p => p !== 'android');
+    const info = await B.info(names);
     S.apps = names.map(pkg => ({
       pkg,
       label: (info[pkg] && info[pkg].appLabel) || guessLabel(pkg),

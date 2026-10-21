@@ -59,6 +59,22 @@ public class BeatTest {
     Config.parse("enabled=1;lat=200;lng=999;acc=NaN;spd=Infinity;alt=NaN;altv=-5;rr=NaN");
     eq("input tidak valid: lat/lng di luar rentang diabaikan",Config.pos.lat==-7.7&&Config.pos.lng==110.4,true);
     eq("input tidak valid: acc NaN diabaikan",Config.accNow(null)==10f,true);
+    { String ck=Config.KEY+","+Config.KEY_SYS+","+Config.KEY_BEAT+","+Config.KEY_TRK+","+Config.KEY_NET+","+Config.KEY_BT+",";
+      eq("kunci Config sama dengan bridge.sh",ck,System.getenv("BRIDGE_KEYS"));
+      eq("kunci Config sama dengan gpsz.sh",ck,System.getenv("GPSZ_KEYS")); }
+    { String base=";acc=10;random=0";
+      Config.parse("enabled=1;lat=-7.7;lng=110.4"+base);
+      Config.parse("enabled=1;lat=90.5;lng=180.5"+base);
+      eq("batas: lat 90,5 dan lng 180,5 ditolak",Config.pos.lat==-7.7&&Config.pos.lng==110.4,true);
+      Config.parse("enabled=1;lat=90;lng=180"+base);
+      eq("batas: lat 90 dan lng 180 diterima",Config.pos.lat==90.0&&Config.pos.lng==180.0,true);
+      Config.parse("enabled=1;lat=-90;lng=-180"+base);
+      eq("batas: lat -90 dan lng -180 diterima",Config.pos.lat==-90.0&&Config.pos.lng==-180.0,true);
+      Config.parse("enabled=1;lat=-7.7;lng=110.4;brg=-5"+base);
+      eq("bearing negatif -> tidak ada bearing",Float.isNaN(Config.brg),true);
+      Config.parse("enabled=1;lat=-7.7;lng=110.4;brg=370"+base);
+      eq("bearing 370 -> 10",Config.brg,10f);
+      Config.parse("enabled=1;lat=-7.7;lng=110.4"+base); }
     eq("input tidak valid: spd Infinity -> 0",Config.spd,0f);
     eq("input tidak valid: alt NaN -> 0",Config.alt,0.0);
     eq("input tidak valid: altv negatif -> 0",Config.altVar,0f);

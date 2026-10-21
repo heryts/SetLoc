@@ -189,6 +189,8 @@ check "berkas basi ditimpa mirror" '! grep -q "^cfg:basi$" "$MR/sys/gpsz_config"
 sed -n '/^numok() {/,/^}/p;/^inrange() {/,/^}/p' "$A/bridge.sh" > "$T/vf.sh"
 check "bridge inrange: batas dan di luar batas" '( . "$T/vf.sh"; inrange 90 90 && inrange 90.0 90 && inrange -180 180 && inrange 0 90 && inrange .5 90 && ! inrange 90.01 90 && ! inrange 181 180 && ! inrange 1e5 90 && ! inrange -- 90 && ! inrange "" 90 && ! inrange 99999999999999999999 90 )'
 check "bridge numok: harus ada digit" '( . "$T/vf.sh"; numok -7.5 && numok 1e-3 && numok 0 && ! numok e && ! numok + && ! numok -- && ! numok +- && ! numok "" && ! numok abc )'
+sed -n '/^isnum() /p;/^inrange() {/,/^}/p' "$A/gpsz.sh" > "$T/gz.sh"
+check "gpsz inrange: batas, di luar batas, dan angka raksasa tanpa pesan error" '( . "$T/gz.sh"; inrange 90 90 && inrange 90.0 90 && inrange -180 180 && inrange 0 90 && inrange .5 90 && ! inrange 90.01 90 && ! inrange 181 180 && ! inrange 99999999999999999999 90 ) && [ -z "$( . "$T/gz.sh"; inrange 99999999999999999999 90 2>&1 )" ]'
 
 echo "[default koordinat]"
 PM="$A/../../../../../app/app/src/main/java/com/heryts/setloc/utils/PrefManager.kt"
@@ -224,6 +226,21 @@ else
   bad "tes make-keystore dilewati: openssl/java tidak ada"
 fi
 
+if command -v openssl >/dev/null 2>&1 && command -v java >/dev/null 2>&1 && [ -d "$KD" ]; then
+  cat > "$KD/t2.sh" <<'EOS'
+KD=$1
+for PW in '  lead space' ' lead' 'trail ' ' both ' "$(printf '\ttab')"; do
+  rm -f "$KD/o2.p12" "$KD/app/keystore.properties"
+  printf '%s\n' "$PW" | sh "$KD/make-keystore.sh" "$KD/k.pem" "$KD/c.pem" "$KD/o2.p12" >/dev/null 2>&1 || exit 1
+  P="$PW" openssl pkcs12 -in "$KD/o2.p12" -passin env:P -nokeys >/dev/null 2>&1 || exit 2
+  [ "$(java "$KD/Prop.java" "$KD/app/keystore.properties" storePassword)" = "$PW" ] || exit 3
+  [ "$(java "$KD/Prop.java" "$KD/app/keystore.properties" keyPassword)" = "$PW" ] || exit 4
+done
+EOS
+  check "make-keystore: spasi/tab di awal atau akhir password utuh (p12 dan Properties)" 'sh "$KD/t2.sh" "$KD"'
+  check "make-keystore: password kosong ditolak" '! printf "\n" | sh "$KD/make-keystore.sh" "$KD/k.pem" "$KD/c.pem" "$KD/o3.p12" >/dev/null 2>&1 && [ ! -e "$KD/o3.p12" ]'
+fi
+
 echo "[bridge.sh: pref_set]"
 sed -n '/^pref_set() {/,/^}/p' "$A/bridge.sh" > "$T/pref_set.sh"
 printf '%s\n' "<map>" '    <boolean name="start" value="false" />' "</map>" > "$T/p.xml"
@@ -231,6 +248,33 @@ printf '%s\n' "<map>" '    <boolean name="start" value="false" />' "</map>" > "$
   pref_set boolean start true; pref_set float latitude -7.5 )
 check "pref_set mengubah nilai yang ada" 'grep -q "name=\"start\" value=\"true\"" "$T/p.xml"'
 check "pref_set menambah kunci yang belum ada" 'grep -q "name=\"latitude\" value=\"-7.5\"" "$T/p.xml"'
+
+echo "[bridge.sh: pref_str, setrandom, setpos dengan akurasi]"
+sed -n '/^pref_set() {/,/^}/p;/^pref_str() {/,/^}/p' "$A/bridge.sh" > "$T/pref_all.sh"
+printf '%s\n' "<map>" '    <boolean name="start" value="false" />' "</map>" > "$T/p2.xml"
+( PREF="$T/p2.xml"; MODDIR="$T"; log() { :; }; . "$T/pref_all.sh"
+  pref_str accuracy_settings 25; pref_str accuracy_settings 30 )
+check "pref_str menambah elemen string di barisnya sendiri" '[ "$(grep -c "<string name=\"accuracy_settings\">" "$T/p2.xml")" = 1 ] && grep -qx "</map>" "$T/p2.xml"'
+check "pref_str panggilan kedua mengganti nilai, </map> tetap utuh" 'grep -q ">30</string>" "$T/p2.xml" && ! grep -q ">25</string>" "$T/p2.xml" && [ "$(grep -c "</map>" "$T/p2.xml")" = 1 ]'
+( PREF="$T/p2.xml"; MODDIR="$T"; log() { :; }; . "$T/pref_all.sh"; pref_set float latitude 1; pref_str accuracy_settings 7; pref_set float longitude 2 )
+check "campuran pref_set dan pref_str menghasilkan berkas valid" 'grep -q "name=\"latitude\" value=\"1\"" "$T/p2.xml" && grep -q ">7</string>" "$T/p2.xml" && grep -q "name=\"longitude\" value=\"2\"" "$T/p2.xml" && [ "$(grep -c "</map>" "$T/p2.xml")" = 1 ] && [ "$(tail -1 "$T/p2.xml")" = "</map>" ]'
+PB="$T/pr"; rm -rf "$PB"; mkdir -p "$PB/mod" "$PB/data/shared_prefs"
+cp "$A/bridge.sh" "$A/gpsz.sh" "$PB/mod/"
+sed -i "s|^CFGS=.*|CFGS=$PB/sys|;s|^CFGF=.*|CFGF=$PB/adb|;s|/data/data/\$APP/shared_prefs|$PB/data/shared_prefs|" "$PB/mod/bridge.sh"
+PF="$PB/data/shared_prefs/com.heryts.setloc_prefs.xml"
+printf '%s\n' "<map>" '    <boolean name="start" value="true" />' '    <boolean name="random_position" value="true" />' '    <float name="latitude" value="-7.5" />' '    <float name="longitude" value="110.4" />' '    <string name="accuracy_settings">10</string>' "</map>" > "$PF"
+PG="sh $PB/mod/gpsz.sh"
+$PG random 0 >/dev/null 2>&1; $PG show >/dev/null 2>&1; $PG show >/dev/null 2>&1
+check "random 0 bertahan setelah panggilan gpsz.sh berikutnya" '$PG show | grep -q "random=0" && grep -q "name=\"random_position\" value=\"false\"" "$PF"'
+$PG random 1 >/dev/null 2>&1; $PG show >/dev/null 2>&1
+check "random 1 bertahan juga" '$PG show | grep -q "random=1"'
+$PG set -7.1 110.2 25 >/dev/null 2>&1; $PG show >/dev/null 2>&1
+check "set dengan akurasi: acc=25 bertahan setelah sync" '$PG show | grep -q "acc=25" && grep -q ">25</string>" "$PF" && [ "$(grep -c "</map>" "$PF")" = 1 ]'
+$PG set -7.2 110.3 >/dev/null 2>&1; $PG show >/dev/null 2>&1
+check "set tanpa akurasi tidak mengubah akurasi sebelumnya" '$PG show | grep -q "acc=25" && grep -q "name=\"latitude\" value=\"-7.2\"" "$PF"'
+check "set menolak akurasi negatif/bukan angka" '! $PG set 1 1 -5 >/dev/null 2>&1 && ! $PG set 1 1 abc >/dev/null 2>&1'
+check "bridge setpos menolak akurasi tidak valid tanpa merusak pref" '! sh "$PB/mod/bridge.sh" setpos 1 1 1e2 >/dev/null 2>&1; grep -q ">25</string>" "$PF" && [ "$(grep -c "</map>" "$PF")" = 1 ]'
+check "bridge setrandom menolak nilai selain 0/1" '! sh "$PB/mod/bridge.sh" setrandom 2 >/dev/null 2>&1'
 
 echo "[bridge.sh: derive, timeline lebar tetap, presisi koordinat]"
 P="$T/pb"; rm -rf "$P"; mkdir -p "$P/shared_prefs" "$P/files"
@@ -278,16 +322,89 @@ check "derive: mode trk -> cfg tetap di titik awal, spd=0, tanpa brg, tk=1;pl=1"
 mkpref $((UPC - 100000)) 48
 out=$(derive_at)
 check "derive: lewat akhir + hold -> enabled=0, tanpa pl" 'echo "$out" | grep -q "^enabled=0" && ! echo "$out" | grep -q "pl=1"'
+mkpref $((UPC)) 48
+sed -i '/route_n"/d;/route_t0"/d' "$P/shared_prefs/com.heryts.setloc_prefs.xml"
+out=$(derive_at)
+check "derive: route_play=true tanpa parameter rute (basi/dihapus) -> statis, tidak memutar timeline lama" '! echo "$out" | grep -q "pl=1" && echo "$out" | grep -q "^enabled=1"'
 sed -i '/route_play/d' "$P/shared_prefs/com.heryts.setloc_prefs.xml"
 out=$(derive_at)
 check "derive: titik statis memakai string presisi penuh, bukan float" 'echo "$out" | grep -q "lat=-7.1234567;lng=110.7654321"'
+
+echo "[bridge.sh: sync_cfg memulihkan cfg yang diubah pihak lain]"
+SK="$T/sk"; rm -rf "$SK"; mkdir -p "$SK"
+sed -n '/^KV=/p;/^enc() {/,/^}/p;/^dec() {/,/^}/p;/^KEY=/p;/^sget()/p;/^sput()/p;/^csget()/p;/^csput()/p;/^mirror_stale() {/,/^}/p;/^sync_cfg() {/,/^}/p' "$A/bridge.sh" > "$SK/fn.sh"
+out=$( . "$SK/fn.sh"; MODDIR="$SK"; LASTF="$SK/last"; CFGS="$SK/cfgs"; CFGF="$SK/cfgf"; QUIET=1
+  derive() { OUT="enabled=1;lat=-7.0;lng=110.0;acc=10;random=0"; return 0; }
+  mirror_cfg() { :; }; log() { :; }
+  rm -f "$T/st/$KEY"; sync_cfg; echo "a=$(csget $KEY)"
+  csput $KEY "enabled=0;lat=1;lng=1;acc=10;random=0"; sync_cfg; echo "b=$(csget $KEY)" )
+check "sync_cfg menulis cfg awal" 'echo "$out" | grep -q "^a=enabled=1;lat=-7.0;lng=110.0"'
+check "sync_cfg menimpa cfg yang diubah pihak lain walau hasil turunan tidak berubah" 'echo "$out" | grep -q "^b=enabled=1;lat=-7.0;lng=110.0"'
+
+echo "[bridge.sh: changed, wait_wake, log transisi cfg]"
+CH="$T/ch"; rm -rf "$CH"; mkdir -p "$CH"
+sed -n '/^sig() /p;/^sigdue() {/,/^}/p;/^changed() {/,/^}/p' "$A/bridge.sh" > "$CH/fn.sh"
+chk() { ( . "$CH/fn.sh"; PREFC="$CH/p.xml"; STAMP="$CH/stamp"; SYNCED="$PREFC"; N=1; SIGEVERY=5; INO=$1; TRK=$2
+  echo a > "$PREFC"; LAST=$(sig); echo bb > "$PREFC"; touch -d @4102444800 "$STAMP"; changed ); }
+check "changed: TRK + inotify memeriksa tanda tangan pref tiap siklus" 'chk 1 1'
+check "changed: tanpa TRK tetap hanya tiap SIGEVERY siklus" '! chk 1 0'
+check "changed: tanpa inotify tetap hanya tiap SIGEVERY siklus" '! chk 0 1'
+check "changed: sinyal USR1 (SIGNOW) memaksa pemeriksaan tanda tangan walau bukan giliran SIGEVERY" '( SIGNOW=1; chk 0 0 )'
+sed -n '/^wait_wake() {/,/^}/p' "$A/bridge.sh" > "$CH/ww.sh"
+cat > "$CH/ww_run.sh" <<'EOS'
+. "$1"
+WOKE=0
+trap 'WOKE=1' USR1
+( sleep 0.3; kill -USR1 $$ ) &
+s=$(date +%s)
+wait_wake 4
+e=$(date +%s)
+wait
+echo "dur=$((e - s)) woke=$WOKE"
+EOS
+out=$(sh "$CH/ww_run.sh" "$CH/ww.sh" 2>/dev/null)
+check "wait_wake: sinyal USR1 membangunkan segera dan flag direset" 'echo "$out" | grep -qE "^dur=[01] woke=0$"'
+cat > "$CH/ww_pre.sh" <<'EOS'
+. "$1"
+WOKE=1
+s=$(date +%s)
+wait_wake 4
+e=$(date +%s)
+echo "dur=$((e - s)) woke=$WOKE"
+EOS
+out=$(sh "$CH/ww_pre.sh" "$CH/ww.sh" 2>/dev/null)
+check "wait_wake: flag yang sudah menyala tidak menunggu sama sekali" 'echo "$out" | grep -qE "^dur=0 woke=0$"'
+cat > "$CH/ww_none.sh" <<'EOS'
+. "$1"
+WOKE=0
+s=$(date +%s)
+wait_wake 2
+e=$(date +%s)
+echo "dur=$((e - s))"
+EOS
+out=$(sh "$CH/ww_none.sh" "$CH/ww.sh" 2>/dev/null)
+check "wait_wake: tanpa sinyal selesai setelah batas waktu" 'echo "$out" | grep -qE "^dur=[23]$"'
+LG="$T/lg"; rm -rf "$LG"; mkdir -p "$LG"
+sed -n '/^KV=/p;/^enc() {/,/^}/p;/^dec() {/,/^}/p;/^KEY=/p;/^csget()/p;/^csput()/p;/^mirror_stale() {/,/^}/p;/^sync_cfg() {/,/^}/p' "$A/bridge.sh" > "$LG/fn.sh"
+( . "$LG/fn.sh"; MODDIR="$LG"; LASTF="$LG/last"; CFGS="$LG/cfgs"; CFGF="$LG/cfgf"; QUIET=1; RT_T0=500; RT_NN=40
+  sget() { cat "$LG/st_$1" 2>/dev/null; }; sput() { printf %s "$2" > "$LG/st_$1"; }
+  mirror_cfg() { :; }; log() { echo "$*" >> "$LG/log"; }; trk_pump() { return 0; }
+  derive() { OUT=$OUTV; return 0; }
+  OUTV="enabled=1;lat=-7.0;lng=110.0;acc=10;random=0"; sync_cfg; sync_cfg
+  OUTV="enabled=1;lat=-7.0;lng=110.0;acc=10;random=0;spd=0;tk=1;pl=1"; sync_cfg; sync_cfg
+  OUTV="enabled=0;lat=-7.0;lng=110.0;acc=10;random=0"; sync_cfg; sync_cfg
+  OUTV="enabled=1;lat=-7.0;lng=110.0;acc=10;random=0;spd=1;pl=1"; sync_cfg )
+check "log: transisi cfg tercatat sekali per perubahan jenis" '[ "$(cat "$LG/log")" = "cfg: static
+cfg: trk t0=500 n=40
+cfg: off
+cfg: route t0=500 n=40" ]'
 
 echo "[bridge.sh: jendela trk]"
 TL="$T/tl100.txt"; : > "$TL"; i=0
 while [ $i -lt 100 ]; do printf '%11.6f %11.6f %7.3f %6.2f %8.2f\n' "-7.$i" "110.5" 5 90 12 >> "$TL"; i=$((i+1)); done
 sed -n '/^numok() {/,/^}/p;/^sput()/p;/^TRKKEY=/p;/^TRK_W=/p;/^TRK_LEAD=/p;/^trk_win() {/,/^}/p;/^trk_pump() {/,/^}/p;/^route_due() {/,/^}/p' "$A/bridge.sh" > "$T/trk_fn.sh"
 rm -f "$T/st/$TRKTAG"
-out=$( . "$T/trk_fn.sh"; RT_TK=500; RT_NN=100; RT_TLW=48; RT_TF="$TL"; RT_HE=0; TRK=1
+out=$( . "$T/trk_fn.sh"; log() { echo "LOG $*" >> "$T/trklog"; }; RT_TK=500; RT_NN=100; RT_TLW=48; RT_TF="$TL"; RT_HE=0; TRK=1
   read UP _ < /proc/uptime; PC0=${UP%.*}${UP#*.}; RT_T0=$PC0
   trk_pump; echo "rc=$? ws=$WS we=$WE"
   V=$(cat "$T/st/$TRKTAG"); echo "val=$V"
@@ -298,6 +415,7 @@ out=$( . "$T/trk_fn.sh"; RT_TK=500; RT_NN=100; RT_TLW=48; RT_TF="$TL"; RT_HE=0; 
   HOLD_AT=$((PC0 - 1500)); trk_pump; echo "hold15=$(cat "$T/st/$TRKTAG")"; echo "holdws=$WS/$WE" )
 check "pump awal: jendela 48 tick ditulis (ws=1 we=48)" 'echo "$out" | grep -q "rc=0 ws=1 we=48"'
 check "nilai trk memuat t=,k=500,a=,d= dan 48 baris" 'echo "$out" | grep "^val=" | grep -q "^val=t=[0-9]*;k=500;a=[0-9]*;d=," && [ "$(echo "$out" | grep "^val=" | tr -cd "|" | wc -c)" = 48 ]'
+check "jendela pertama rute baru dicatat di log sekali (bukan tiap jendela)" '[ "$(grep -c "trk: jendela pertama" "$T/trklog")" = 1 ] && grep -q "n=100 mulai tick 1" "$T/trklog"'
 check "pump kedua langsung: tidak menulis ulang" 'echo "$out" | grep -q "^again=SENT"'
 check "di tengah jendela (tick 10 dari 48): tidak menulis" 'echo "$out" | grep -q "^mid=SENT"'
 check "mendekati akhir jendela (tick 10, we=30): jendela baru mulai di tick 10" 'echo "$out" | grep -q "^near=10/57"'
@@ -440,13 +558,58 @@ if command -v node >/dev/null 2>&1; then
   cat >> "$T/tp.js" <<'EOJ'
 const r = trackPos('t=1000;k=500;a=1000;d=,-7.0,110.0,0,0,0|,-7.2,110.4,0,0,0|', 1250);
 const e = trackPos('t=1000;k=500;a=1000;d=,-7.0,110.0,0,0,0|', 5000);
-console.log(r[0].toFixed(3) + ' ' + r[1].toFixed(3) + ' ' + e[0].toFixed(3) + ' ' + (trackPos('t=1;k=500;d=,1,2|', 5) === null));
+console.log(r[0].toFixed(3) + ' ' + r[1].toFixed(3) + ' ' + e[0].toFixed(3) + ' ' + (trackPos('t=1;k=500;d=,1,2|', 5) === null) + ' ' + (trackPos('k=500;d=,1,2,0,0,0|', 5) === null));
 EOJ
-  check "trackPos: interpolasi tengah tick dan tahan titik terakhir, data rusak -> null" '[ "$(node "$T/tp.js")" = "-7.100 110.200 -7.000 true" ]'
+  check "trackPos: interpolasi tengah tick dan tahan titik terakhir, data rusak -> null" '[ "$(node "$T/tp.js")" = "-7.100 110.200 -7.000 true true" ]'
+  for kn in cfg:KEY sys:SYSKEY net:NETKEY bt:BTKEY trk:TRKKEY; do
+    jk=${kn%%:*}; bk=${kn##*:}
+    check "kunci WebUI SK.$jk sama dengan $bk di bridge.sh" '[ "$(sed -n "s/^$bk=//p" "$A/bridge.sh")" = "$(sed -n "s/^const SK = .*[{ ,]$jk: '"'"'\([0-9a-f]*\)'"'"'.*/\1/p" "$WJ")" ]'
+  done
   check "readCfg: perintah shell membaca cfg, trk, dan uptime hanya saat tk=1" 'grep -q "SK.trk} 2>/dev/null; read U" "$WJ"'
 else
   bad "tes webui dilewati: node tidak ada"
 fi
+
+echo "[gpsz.sh: random dan acc bertahan setelah sync]"
+CL="$T/cl"; rm -rf "$CL"; mkdir -p "$CL/mod" "$CL/bin" "$CL/st" "$CL/sys" "$CL/adb"
+cp "$A/bridge.sh" "$A/gpsz.sh" "$CL/mod/"
+sed -i "s#/data/system/gpsz_config#$CL/sys/gpsz_config#g;s#/data/adb/gpsz_config#$CL/adb/gpsz_config#g" "$CL/mod/bridge.sh" "$CL/mod/gpsz.sh"
+for c in getprop:'echo 1' cmd:'[ "$1" = settings ] && shift && exec settings "$@"; exit 0' pm:'exit 0' am:'exit 0' dumpsys:'exit 0' logcat:'exit 0'; do
+  printf '#!/bin/sh\n%s\n' "${c#*:}" > "$CL/bin/${c%%:*}"
+done
+cat > "$CL/bin/settings" <<EOS
+#!/bin/sh
+D="$CL/st"
+case "\$1" in
+  get) cat "\$D/\$3" 2>/dev/null || echo null ;;
+  put) printf '%s' "\$4" > "\$D/\$3" ;;
+esac
+EOS
+chmod +x "$CL/bin/"*
+cat > "$CL/prefs.xml" <<'EOP'
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <boolean name="start" value="true" />
+    <float name="latitude" value="-7.5" />
+    <float name="longitude" value="110.5" />
+    <string name="latitude_d">-7.5</string>
+    <string name="longitude_d">110.5</string>
+    <boolean name="random_position" value="true" />
+    <string name="accuracy_settings">10</string>
+</map>
+EOP
+cl() { ( PATH="$CL/bin:$PATH"; PREFC="$CL/prefs.xml"; export PATH PREFC; cd "$CL/mod" && sh gpsz.sh "$@" ); }
+cl show >/dev/null 2>&1
+check "gpsz.sh show: nilai awal dari pref" 'cl show | grep -q " random=1 " && cl show | grep -q " acc=10 "'
+cl random 0 >/dev/null 2>&1
+check "gpsz.sh random 0 bertahan setelah panggilan gpsz.sh berikutnya" 'cl show | grep -q " random=0 "'
+check "gpsz.sh random 0 menulis ke pref app" 'grep -q "name=\"random_position\" value=\"false\"" "$CL/prefs.xml"'
+cl set -6.2 106.8 25 >/dev/null 2>&1
+check "gpsz.sh set dengan acc bertahan setelah panggilan gpsz.sh berikutnya" 'cl show | grep -q " lat=-6.2 lng=106.8 acc=25 "'
+check "gpsz.sh set menulis acc ke pref app tanpa menggandakan elemen" '[ "$(grep -c "name=\"accuracy_settings\"" "$CL/prefs.xml")" = 1 ] && grep -q "<string name=\"accuracy_settings\">25</string>" "$CL/prefs.xml"'
+cl set -6.3 106.9 >/dev/null 2>&1
+check "gpsz.sh set tanpa acc mempertahankan acc sebelumnya" 'cl show | grep -q " lat=-6.3 lng=106.9 acc=25 "'
+check "pref app tetap utuh setelah beberapa kali set: satu </map>, satu elemen akurasi, elemen akurasi di barisnya sendiri" '[ "$(grep -c "</map>" "$CL/prefs.xml")" = 1 ] && [ "$(grep -c "name=\"accuracy_settings\"" "$CL/prefs.xml")" = 1 ] && ! grep -q "name=\"accuracy_settings\".*</map>" "$CL/prefs.xml"'
 
 echo
 echo "lulus: $PASS  gagal: $FAIL"
