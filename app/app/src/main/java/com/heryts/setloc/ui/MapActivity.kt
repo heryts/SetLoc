@@ -82,6 +82,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     private var routePoints: List<LatLng> = emptyList()
     private var routeDurationS: Double? = null
     private var routeLoading = false
+    private var openOptionsWhenReady = false
     private var currentRouteKey: String? = null
     private var routeJob: Job? = null
     private class CachedRoute(val result: RouteClient.Result, val at: Long, var elev: FloatArray? = null)
@@ -281,11 +282,23 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         return out[0]
     }
 
-    private fun addRouteFromPin() {
+    private fun onRouteButton() {
         if (RouteRunner.isRunning) {
             showToast(getString(R.string.route_stop_first))
             return
         }
+        if (routeReady) {
+            showRouteOptions()
+            return
+        }
+        if (routeLoading) {
+            openOptionsWhenReady = true
+            return
+        }
+        addRouteFromPin()
+    }
+
+    private fun addRouteFromPin() {
         val pos = mLatLng
         if (!::mMap.isInitialized || mMarker?.isVisible != true || pos == null) {
             showToast(getString(R.string.location_not_selected))
@@ -311,6 +324,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             addRouteStop(from, quiet = true)
             routeFromGps = true
         }
+        openOptionsWhenReady = true
         addRouteStop(pos, quiet = false)
     }
 
@@ -361,6 +375,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     }
 
     private fun cancelRouteJobs() {
+        openOptionsWhenReady = false
         routeJob?.cancel()
         routeJob = null
         elevationJob?.cancel()
@@ -389,6 +404,24 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         routeFromGps = false
         clearRouteLine()
         updateRouteFab()
+    }
+
+    private fun hidePin() {
+        mMarker?.isVisible = false
+        pinLabel = null
+        pinPicked = false
+        updateRouteFab()
+    }
+
+    private fun onDeleteClick() {
+        if (RouteRunner.isRunning) return
+        if (routeWaypoints.isNotEmpty()) removeLastWaypoint() else hidePin()
+    }
+
+    private fun onDeleteLongClick() {
+        if (RouteRunner.isRunning) return
+        clearRoute()
+        hidePin()
     }
 
     private fun removeLastWaypoint() {
@@ -436,6 +469,10 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         updateRouteFab()
         if (elev != null && PrefManager.altitudeFromServer) RouteRunner.elevations = elev
         else fetchElevations(result.points)
+        if (openOptionsWhenReady) {
+            openOptionsWhenReady = false
+            showRouteOptions()
+        }
     }
 
     private fun fetchRoute(dropLastOnFail: Boolean) {
@@ -477,6 +514,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
 
     private fun routeFetchFailed(dropLast: Boolean) {
         routeLoading = false
+        openOptionsWhenReady = false
         if (dropLast && routeWaypoints.size > 1) {
             dropLastWaypoint()
             refreshRouteMarkers()
@@ -507,19 +545,18 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     }
 
     private fun setRouteButton() {
-        binding.route.setOnClickListener { if (routeReady) showRouteOptions() }
-        binding.routeDelete.setOnClickListener { removeLastWaypoint() }
-        binding.routeDelete.setOnLongClickListener { clearRoute(); true }
-        binding.addRoute.setOnClickListener { addRouteFromPin() }
+        binding.route.setOnClickListener { onRouteButton() }
+        binding.routeDelete.setOnClickListener { onDeleteClick() }
+        binding.routeDelete.setOnLongClickListener { onDeleteLongClick(); true }
         binding.addFav.setOnClickListener { addFavouriteFromPin() }
     }
 
     private fun updateRouteFab() {
         val idle = !RouteRunner.isRunning && binding.start.visibility == View.VISIBLE
-        binding.route.visibility = if (routeReady && idle) View.VISIBLE else View.GONE
-        binding.routeDelete.visibility = if (routeWaypoints.isNotEmpty() && idle) View.VISIBLE else View.GONE
         val picked = (pinLabel != null || pinPicked) && idle && mMarker?.isVisible == true
-        binding.addRoute.visibility = if (picked) View.VISIBLE else View.GONE
+        val hasRoute = (routeReady || routeLoading) && idle
+        binding.route.visibility = if (picked || hasRoute) View.VISIBLE else View.GONE
+        binding.routeDelete.visibility = if ((routeWaypoints.isNotEmpty() && idle) || picked) View.VISIBLE else View.GONE
         binding.addFav.visibility = if (picked) View.VISIBLE else View.GONE
     }
 
@@ -653,8 +690,8 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             (binding.searchBar.layoutParams as ViewGroup.MarginLayoutParams).topMargin = sb.top + (12 * d).toInt()
             binding.searchBar.requestLayout()
             listOf(
-                binding.addRoute to 104, binding.addFav to 156, binding.route to 208,
-                binding.routeDelete to 260, binding.start to 32, binding.stop to 32
+                binding.route to 104, binding.addFav to 156,
+                binding.routeDelete to 208, binding.start to 32, binding.stop to 32
             )
                 .forEach { (v, base) ->
                     (v.layoutParams as ViewGroup.MarginLayoutParams).bottomMargin = (base * d).toInt() + sb.bottom

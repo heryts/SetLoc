@@ -175,18 +175,6 @@
     </com.google.android.material.card.MaterialCardView>
 
     <com.google.android.material.floatingactionbutton.FloatingActionButton
-        android:id="@+id/add_route"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|start"
-        android:layout_marginStart="24dp"
-        android:layout_marginBottom="104dp"
-        android:contentDescription="@string/route_action"
-        android:src="@drawable/ic_route"
-        android:visibility="gone"
-        app:fabSize="mini" />
-
-    <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/add_fav"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
@@ -204,9 +192,9 @@
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|start"
         android:layout_marginStart="24dp"
-        android:layout_marginBottom="208dp"
-        android:contentDescription="@string/route_options"
-        android:src="@drawable/ic_check"
+        android:layout_marginBottom="104dp"
+        android:contentDescription="@string/route_action"
+        android:src="@drawable/ic_route"
         android:visibility="gone"
         app:fabSize="mini" />
 
@@ -216,7 +204,7 @@
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|start"
         android:layout_marginStart="24dp"
-        android:layout_marginBottom="260dp"
+        android:layout_marginBottom="208dp"
         android:contentDescription="@string/route_clear"
         android:src="@drawable/ic_delete"
         android:visibility="gone"
