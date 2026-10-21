@@ -1056,25 +1056,30 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             dlg.show()
             return
         }
+        val d = resources.displayMetrics.density
+        val loc = IntArray(2)
+        aw.decorView.getLocationOnScreen(loc)
+        val root = window.decorView
+        val rootLoc = IntArray(2)
+        root.getLocationOnScreen(rootLoc)
+        val anchorCx = loc[0] + aw.decorView.width / 2
+        val anchorCy = loc[1] + aw.decorView.height / 2
+        val rootCx = rootLoc[0] + root.width / 2
+        val rootCy = rootLoc[1] + root.height / 2
         dlg.window?.apply {
             clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
             WindowCompat.setDecorFitsSystemWindows(this, false)
-            setGravity(Gravity.TOP or Gravity.START)
-            decorView.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
-                val loc = IntArray(2)
-                aw.decorView.getLocationOnScreen(loc)
-                val lp = attributes
-                val x = loc[0]
-                val y = loc[1] + (aw.decorView.height - v.height) / 2
-                if (lp.x != x || lp.y != y) {
-                    lp.x = x
-                    lp.y = y
-                    attributes = lp
-                }
-            }
+            setGravity(Gravity.CENTER)
+            val lp = attributes
+            lp.x = anchorCx - rootCx
+            lp.y = anchorCy - rootCy
+            attributes = lp
         }
         dlg.show()
-        dlg.window?.setLayout(aw.decorView.width, WindowManager.LayoutParams.WRAP_CONTENT)
+        dlg.window?.setLayout(
+            aw.decorView.width - (32 * d).toInt(),
+            WindowManager.LayoutParams.WRAP_CONTENT
+        )
     }
 
     private fun loadSavedRoute(r: SavedRoute) {
