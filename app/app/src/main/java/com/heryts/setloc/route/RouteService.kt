@@ -33,6 +33,7 @@ class RouteService : Service() {
     private var lastPercent = -1
     private var keepAliveView: View? = null
     private var overlayJob: Job? = null
+    private var renewJob: Job? = null
     private var stateJob: Job? = null
     private var channelReady = false
 
@@ -64,6 +65,13 @@ class RouteService : Service() {
 
         startForeground(NOTIF_ID, buildNotification(0))
         acquireWakeLock()
+        renewJob?.cancel()
+        renewJob = scope.launch {
+            while (true) {
+                delay(WAKE_RENEW_MS)
+                acquireWakeLock()
+            }
+        }
         addKeepAliveOverlay()
         ensureKeepAliveOverlay()
 
@@ -137,12 +145,11 @@ class RouteService : Service() {
     }
 
     private fun acquireWakeLock() {
-        if (wakeLock?.isHeld == true) return
-        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "setloc:route").apply {
-            setReferenceCounted(false)
-            acquire(12 * 60 * 60 * 1000L)
-        }
+        val wl = wakeLock ?: (getSystemService(Context.POWER_SERVICE) as PowerManager)
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "setloc:route")
+            .apply { setReferenceCounted(false) }
+            .also { wakeLock = it }
+        wl.acquire(WAKE_TIMEOUT_MS)
     }
 
     private fun buildNotification(percent: Int): Notification {
@@ -177,5 +184,7 @@ class RouteService : Service() {
         const val ACTION_POKE = "com.heryts.setloc.route.POKE"
         private const val CHANNEL_ID = "set.route"
         private const val NOTIF_ID = 124
+        private const val WAKE_TIMEOUT_MS = 60L * 60L * 1000L
+        private const val WAKE_RENEW_MS = 30L * 60L * 1000L
     }
 }

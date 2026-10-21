@@ -883,6 +883,7 @@ async function saveCoords() {
       const res = await geocode(q);
       if (!res.length) return coordSheet(raw, 'Tempat "' + q + '" tidak ditemukan.');
       p = [res[0].lat, res[0].lng];
+      if (!parseCoords(p[0] + ', ' + p[1])) return coordSheet(raw, 'Hasil pencarian tidak valid. Coba nama lain.');
     } catch (e) { return coordSheet(raw, 'Gagal mencari tempat (cek koneksi internet).'); }
   }
   btn.disabled = true; btn.textContent = '…';

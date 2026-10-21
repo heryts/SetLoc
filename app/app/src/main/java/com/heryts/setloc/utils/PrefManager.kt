@@ -197,6 +197,14 @@ object PrefManager {
         return pref.getInt(ROUTE_BC, -1) == bootCount() && SystemClock.elapsedRealtime() < end
     }
 
+    fun routeEndedOff(): Boolean {
+        if (!routePlay) return false
+        val hold = pref.getLong(ROUTE_HOLD_END, 0L)
+        if (hold <= 0L) return false
+        val end = pref.getLong(ROUTE_T0, 0L) * 10 + (pref.getInt(ROUTE_N, 1) - 1) * pref.getLong(ROUTE_TICK, 0L) + hold
+        return pref.getInt(ROUTE_BC, -1) == bootCount() && SystemClock.elapsedRealtime() >= end
+    }
+
     fun beginPlayback(t0Centis: Long, tickMs: Long, n: Int, holdEndMs: Long, lineWidth: Int) {
         pref.edit {
             putLong(ROUTE_T0, t0Centis)

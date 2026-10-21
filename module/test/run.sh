@@ -422,6 +422,12 @@ check "di tengah jendela (tick 10 dari 48): tidak menulis" 'echo "$out" | grep -
 check "mendekati akhir jendela (tick 10, we=30): jendela baru mulai di tick 10" 'echo "$out" | grep -q "^near=10/57"'
 check "hold di akhir rute < 10 dtk: tidak menulis" 'echo "$out" | grep -q "^hold5=SENT"'
 check "hold >= 10 dtk: refresh 1 tick (a= baru, satu baris)" 'echo "$out" | grep "^hold15=" | grep -q "k=500;a=" && [ "$(echo "$out" | grep "^hold15=" | tr -cd "|" | wc -c)" = 1 ] && echo "$out" | grep -q "^holdws=100/100"'
+out=$( . "$T/trk_fn.sh"; TRKF="$T/nodir/x/trk"; log() { echo "LOG $*" >> "$T/trklog2"; }; RT_TK=500; RT_NN=100; RT_TLW=48; RT_TF="$TL"; RT_HE=0; TRK=1
+  read UP _ < /proc/uptime; RT_T0=${UP%.*}${UP#*.}; trk_pump; echo "rc=$?"; trk_win 1; trk_win 1; echo "n=$(grep -c 'k=500' "$T/st/$TRKTAG" 2>/dev/null)" )
+check "salin mirror gagal: jendela tetap ditulis dan kegagalan dicatat sekali" 'echo "$out" | grep -q "^rc=0" && [ "$(grep -c "salin timeline" "$T/trklog2")" = 1 ] && [ -s "$T/st/$TRKTAG" ]'
+out=$( . "$T/trk_fn.sh"; TRKF="$T/nodir/x/trk"; log() { :; }; RT_TK=500; RT_NN=100; RT_TLW=48; RT_TF="$TL"; RT_HE=0; TRK=1
+  read UP _ < /proc/uptime; RT_T0=${UP%.*}${UP#*.}; mirror_trk; echo "r1=$?"; mirror_trk; echo "r2=$?"; TRKF="$T/retrymirror"; TMFAT=0; mirror_trk; echo "r3=$?"; [ -s "$TRKF" ] && echo "file=ok"; [ ! -e "$TRKF.tmp" ] && echo "tmp=gone" )
+check "salin mirror gagal: tidak diulang sebelum jeda, diulang sesudahnya, tanpa sisa .tmp" 'echo "$out" | grep -q "^r1=1" && echo "$out" | grep -q "^r2=1" && echo "$out" | grep -q "^r3=0" && echo "$out" | grep -q "^file=ok" && echo "$out" | grep -q "^tmp=gone"'
 out=$( . "$T/trk_fn.sh"; RT_TK=500; RT_NN=100; RT_TLW=48; RT_TF="$T/tidakada"; TRK=1; RT_T0=1; trk_pump; echo "rc=$?" )
 check "timeline hilang: trk_pump gagal (rc=1) agar daemon kembali ke mode lama" 'echo "$out" | grep -q "rc=1"'
 check "route_due mode trk: ganti tick tidak memicu sinkron" '( . "$T/trk_fn.sh"; RT_TK=500; RT_NN=100; RT_HE=0; TRK=1; RIDX=1; RT_T0=$(( $(cut -d" " -f1 /proc/uptime | tr -d .) - 450 )); ! route_due )'

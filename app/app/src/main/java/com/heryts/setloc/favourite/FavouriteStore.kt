@@ -11,6 +11,8 @@ object FavouriteStore {
     private const val FILE = "setloc_fav"
     private const val KEY = "list"
     private const val KEY_BAD = "list_bad"
+    private const val KEY_NEXT = "next_id"
+    private const val KEEP_BAD = 3
 
     private val lock = Any()
     private val state = MutableStateFlow<List<Favourite>>(emptyList())
@@ -26,9 +28,9 @@ object FavouriteStore {
             if (loaded) return
             val raw = sp.getString(KEY, null)
             val parsed = if (raw != null) parse(raw) else emptyList()
-            if (parsed == null) sp.edit().putString(KEY_BAD, raw).remove(KEY).commit()
+            if (parsed == null) stashBad(raw)
             val list = parsed ?: emptyList()
-            nextId = (list.maxOfOrNull { it.id } ?: 0L) + 1
+            nextId = maxOf((list.maxOfOrNull { it.id } ?: 0L) + 1, sp.getLong(KEY_NEXT, 1L))
             state.value = list
             loaded = true
         }
@@ -37,7 +39,7 @@ object FavouriteStore {
     fun add(address: String, lat: Double, lng: Double): Boolean = synchronized(lock) {
         load()
         val list = listOf(Favourite(nextId, address, lat, lng)) + state.value
-        val ok = save(list)
+        val ok = save(list, nextId + 1)
         if (ok) {
             nextId++
             state.value = list
@@ -49,11 +51,24 @@ object FavouriteStore {
         synchronized(lock) {
             load()
             val list = state.value.filterNot { it.id == favourite.id }
-            if (save(list)) state.value = list
+            if (save(list, nextId)) state.value = list
         }
     }
 
-    private fun save(list: List<Favourite>): Boolean {
+    private fun stashBad(raw: String?) {
+        val prefs = sp
+        val legacy = prefs.getString(KEY_BAD, null)
+        val legacyKey = "${KEY_BAD}_0"
+        val keys = prefs.all.keys.filter { it.startsWith("${KEY_BAD}_") }.toMutableSet()
+        if (legacy != null) keys.add(legacyKey)
+        val drop = keys.sorted().dropLast(KEEP_BAD - 1).toSet()
+        val e = prefs.edit()
+        if (legacy != null && legacyKey !in drop) e.putString(legacyKey, legacy)
+        drop.forEach { e.remove(it) }
+        e.putString("${KEY_BAD}_${System.currentTimeMillis()}", raw).remove(KEY_BAD).remove(KEY).commit()
+    }
+
+    private fun save(list: List<Favourite>, next: Long): Boolean {
         val arr = JSONArray()
         for (f in list) {
             arr.put(
@@ -64,10 +79,10 @@ object FavouriteStore {
                     .put("ln", f.lng ?: JSONObject.NULL)
             )
         }
-        return sp.edit().putString(KEY, arr.toString()).commit()
+        return sp.edit().putString(KEY, arr.toString()).putLong(KEY_NEXT, next).commit()
     }
 
-    private fun parse(raw: String): List<Favourite>? = try {
+    internal fun parse(raw: String): List<Favourite>? = try {
         val arr = JSONArray(raw)
         (0 until arr.length()).mapNotNull {
             try {

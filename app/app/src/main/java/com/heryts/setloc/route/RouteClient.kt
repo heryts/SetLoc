@@ -74,7 +74,7 @@ object RouteClient {
         }
     }
 
-    private fun parse(text: String): Result {
+    internal fun parse(text: String): Result {
         val route = JSONObject(text).optJSONArray("routes")?.optJSONObject(0)
             ?: throw RouteException(R.string.route_err_not_found)
         val encoded = route.optJSONObject("polyline")?.optString("encodedPolyline").orEmpty()
@@ -113,7 +113,7 @@ object RouteClient {
             context.packageManager
                 .getApplicationInfo(context.packageName, PackageManager.GET_META_DATA)
                 .metaData?.getString("com.google.android.geo.API_KEY")
-                ?.takeIf { it.isNotBlank() }
+                ?.takeIf { it.isNotBlank() && it != "DEFAULT_API_KEY" }
         } catch (_: Exception) {
             null
         }

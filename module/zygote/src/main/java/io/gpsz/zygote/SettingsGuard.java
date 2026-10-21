@@ -13,21 +13,22 @@ import com.v7878.unsafe.invoke.EmulatedStackFrame;
 import com.v7878.unsafe.invoke.Transformers;
 import com.v7878.vmtools.HookTransformer;
 import com.v7878.vmtools.Hooks;
-import com.v7878.zygisk.ZygoteLoader;
-
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 final class SettingsGuard {
-    private static java.util.Set<String> KEYS = java.util.Collections.emptySet();
-    private static final String OWN_PACKAGE = "com.heryts.setloc";
+    private static Set<String> KEYS = Collections.emptySet();
     private static final int K_STR = 0, K_QUERY = 1, K_CALL = 2, K_MAP = 3, K_EXEC = 4, K_OBS = 5;
     private static final int RET = EmulatedStackFrame.RETURN_VALUE_IDX;
     private static final String[] QUERY_STRING_ARGS = {
@@ -42,10 +43,8 @@ final class SettingsGuard {
     };
 
     static void install() {
-        try {
-            if (OWN_PACKAGE.equals(ZygoteLoader.getPackageName())) return;
-        } catch (Throwable ignored) { }
-        KEYS = new java.util.HashSet<>(java.util.Arrays.asList(
+        if (ZygoteEntry.isSelf()) return;
+        KEYS = new HashSet<>(Arrays.asList(
                 Config.KEY, Config.KEY_SYS, Config.KEY_BEAT, Config.KEY_TRK,
                 Config.KEY_NET, Config.KEY_BT, Config.KEY_LIVE));
         hookCache();

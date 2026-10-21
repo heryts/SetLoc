@@ -60,7 +60,8 @@ keepalive() {
     cmd appops set $APP RUN_ANY_IN_BACKGROUND allow
     cmd appops set $APP RUN_IN_BACKGROUND allow
     cmd appops set $APP SYSTEM_ALERT_WINDOW allow
-    cmd activity set-standby-bucket $APP active ) >/dev/null 2>&1 &
+    cmd activity set-standby-bucket $APP active
+    am set-inactive $APP false ) >/dev/null 2>&1 &
 }
 
 poke_check() {
@@ -179,13 +180,28 @@ route_due() {
 }
 
 mirror_trk() {
-  [ "$TMKEY" = "$RT_T0:$RT_NN:$RT_TF" ] && return 0
-  { printf 't=%s;k=%s;n=%s\n' "$((RT_T0 * 10))" "$RT_TK" "$RT_NN"; cat "$RT_TF"; } > "$TRKF.tmp" 2>/dev/null || { rm -f "$TRKF.tmp"; return 1; }
-  chmod 600 "$TRKF.tmp"
-  chown 1000:1000 "$TRKF.tmp" 2>/dev/null
-  chcon u:object_r:system_data_file:s0 "$TRKF.tmp" 2>/dev/null
-  mv -f "$TRKF.tmp" "$TRKF" || return 1
-  TMKEY="$RT_T0:$RT_NN:$RT_TF"
+  MK="$RT_T0:$RT_NN:$RT_TF"
+  [ "$TMKEY" = "$MK" ] && return 0
+  read UP _ < /proc/uptime
+  MNOW=${UP%.*}${UP#*.}
+  [ "$TMFK" = "$MK" ] && [ $((MNOW - ${TMFAT:-0})) -lt 3000 ] && return 1
+  MT="$TRKF.tmp"
+  MERR=
+  { printf 't=%s;k=%s;n=%s\n' "$((RT_T0 * 10))" "$RT_TK" "$RT_NN"; cat "$RT_TF"; } > "$MT" 2>/dev/null || MERR=salin
+  if [ -z "$MERR" ]; then
+    chmod 600 "$MT"
+    chown 1000:1000 "$MT" 2>/dev/null
+    chcon u:object_r:system_data_file:s0 "$MT" 2>/dev/null
+    mv -f "$MT" "$TRKF" 2>/dev/null || MERR=pindah
+  fi
+  if [ -n "$MERR" ]; then
+    rm -f "$MT"
+    [ "$TMFK" = "$MK" ] || log "trk: $MERR timeline ke $TRKF gagal"
+    TMFK=$MK; TMFAT=$MNOW
+    return 1
+  fi
+  TMKEY=$MK; TMFK=
+  return 0
 }
 
 trk_win() {
@@ -315,7 +331,7 @@ sync_cfg() {
     *) CLS=static ;;
   esac
   [ "$CLS" != "$LASTCLS" ] && { LASTCLS=$CLS; log "cfg: $CLS"; }
-  case "$CLS" in trk*) ;; *) [ -e "$TRKF" ] && rm -f "$TRKF"; TMKEY= ;; esac
+  case "$CLS" in trk*) ;; *) { [ -e "$TRKF" ] || [ -e "$TRKF.tmp" ]; } && rm -f "$TRKF" "$TRKF.tmp"; TMKEY=; TMFK= ;; esac
   PREV=; { read -r PREV < "$LASTF"; } 2>/dev/null
   if [ "$1" != force ] && [ "$NEW" = "$PREV" ]; then
     CUR=$(csget $KEY)
@@ -602,6 +618,7 @@ esac
 yield_lock() { lock_fast || { log "daemon: kalah arbitrasi dari pid $WIN, keluar"; exit 0; }; }
 
 acquire_lock || exit 0
+{ echo -1000 > /proc/$$/oom_score_adj; } 2>/dev/null
 on_exit() {
   RC=$1
   ino_stop
@@ -689,5 +706,11 @@ while true; do
       DELAY=0.3
       [ "$WASON" != 1 ] && { WASON=1; keepalive; } ;;
     *) DELAY=1; WASON=0 ;;
+  esac
+  case "$NEW" in
+    *enabled=1*)
+      read UP _ < /proc/uptime
+      KN=${UP%.*}${UP#*.}
+      [ $((KN - ${KAAT:-0})) -ge 30000 ] && { KAAT=$KN; keepalive; } ;;
   esac
 done

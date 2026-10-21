@@ -4,7 +4,6 @@ import android.location.Location;
 import android.location.LocationManager;
 import android.os.Binder;
 import android.os.SystemClock;
-import android.util.Log;
 
 import com.v7878.unsafe.Reflection;
 import com.v7878.unsafe.invoke.EmulatedStackFrame;
@@ -25,7 +24,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
 final class SystemHooks {
-    private static final String TAG = ZygoteEntry.TAG;
     private static final String LMS = "com.android.server.location.LocationManagerService";
     private static final String LPM = "com.android.server.location.provider.LocationProviderManager";
 
@@ -61,14 +59,12 @@ final class SystemHooks {
             if (lmsHooks == 0 && lmsTries < 12) { lmsTries++; lmsHooks = hookClass(cl, LMS, true); }
             if (!generatorStarted && (first || (lpmOnReport != null && resultWrap != null))) {
                 generatorStarted = lpmOnReport != null && resultWrap != null;
-                startGenerator();
+                if (generatorStarted) startGenerator();
             }
-        } catch (Throwable t) {
-            Log.e(TAG, "system hooks failed", t);
-        }
+        } catch (Throwable ignored) { }
         boolean live = isLive();
         if (first || lpm0 != lpmHooks || lms0 != lmsHooks) {
-            Log.i(TAG, "system hooks: lpm=" + lpmHooks + " lms=" + lmsHooks + " live=" + live);
+            ZygoteEntry.i("system hooks: lpm=" + lpmHooks + " lms=" + lmsHooks + " live=" + live);
         }
         return live;
     }
@@ -126,9 +122,7 @@ final class SystemHooks {
                 ClassLoader cl = (ClassLoader) m.invoke(null);
                 if (cl != null) return cl;
             }
-        } catch (Throwable t) {
-            Log.w(TAG, "system hooks: ZygoteInit loader unavailable: " + t);
-        }
+        } catch (Throwable ignored) { }
         ClassLoader cl = ClassLoader.getSystemClassLoader();
         return cl != null ? cl : SystemHooks.class.getClassLoader();
     }
@@ -145,12 +139,7 @@ final class SystemHooks {
                 resultWrap = findMethod(resultClass, "wrap", Location[].class);
                 wrapTakesList = false;
             }
-            if ((resultSize == null || resultGet == null) && resultMap == null) {
-                Log.w(TAG, "system hooks: LocationResult.get/size/map tidak terjangkau");
-            }
-        } catch (Throwable t) {
-            Log.w(TAG, "system hooks: android.location.LocationResult unavailable: " + t);
-        }
+        } catch (Throwable ignored) { }
         try {
             lpmClass = Class.forName(LPM, false, cl);
             lpmGetName = findMethod(lpmClass, "getName");
@@ -158,9 +147,7 @@ final class SystemHooks {
             lpmEmergency = findField(lpmClass, "mEmergencyHelper");
             lmsClass = Class.forName(LMS, false, cl);
             enabledForUser = findMethod(lmsClass, "isProviderEnabledForUser", String.class, int.class);
-        } catch (Throwable t) {
-            Log.w(TAG, "system hooks: LocationProviderManager lookup failed: " + t);
-        }
+        } catch (Throwable ignored) { }
     }
 
     private static int hookClass(ClassLoader cl, String name, boolean isLms) {
@@ -168,7 +155,6 @@ final class SystemHooks {
         try {
             c = Class.forName(name, false, cl);
         } catch (Throwable t) {
-            Log.w(TAG, "system hooks: class not found " + name + ": " + t);
             return 0;
         }
         int hooked = 0;
@@ -202,10 +188,8 @@ final class SystemHooks {
             try {
                 Hooks.hook(m, Hooks.EntryPointType.DIRECT, transformer(kind, argIdx), Hooks.EntryPointType.DIRECT);
                 hooked++;
-                Log.i(TAG, "system hook: " + c.getSimpleName() + "." + n + " (kind " + kind + ")");
-            } catch (Throwable t) {
-                Log.e(TAG, "system hook failed: " + c.getSimpleName() + "." + n, t);
-            }
+                ZygoteEntry.i("system hook: " + c.getSimpleName() + "." + n + " (kind " + kind + ")");
+            } catch (Throwable ignored) { }
         }
         return hooked;
     }
@@ -235,12 +219,13 @@ final class SystemHooks {
             if (result == null || resultClass == null || !resultClass.isInstance(result)
                     || resultSize == null || resultGet == null) return;
             int n = (Integer) resultSize.invoke(result);
-            if (n <= 0) return;
-            Object o = resultGet.invoke(result, n - 1);
-            if (o instanceof Location) {
-                Location c = new Location((Location) o);
-                String pv = c.getProvider();
-                if (pv != null) realByProvider.put(pv, c);
+            for (int i = 0; i < n; i++) {
+                Object o = resultGet.invoke(result, i);
+                if (o instanceof Location) {
+                    Location c = new Location((Location) o);
+                    String pv = c.getProvider();
+                    if (pv != null) realByProvider.put(pv, c);
+                }
             }
         } catch (Throwable ignored) { }
     }
@@ -309,9 +294,7 @@ final class SystemHooks {
                         }
                     }
                 }
-            } catch (Throwable t) {
-                ZygoteEntry.warnOnce("system fake", t);
-            }
+            } catch (Throwable ignored) { }
             if (denied != null) ZygoteEntry.<RuntimeException>sneaky(denied);
             if (!handled) {
                 try {
@@ -347,7 +330,8 @@ final class SystemHooks {
         try {
             String name = (String) lpmGetName.invoke(manager);
             if (name != null) {
-                managers.put(name, manager);
+                Object old = managers.put(name, manager);
+                if (old != null && old != manager) managerNames.remove(old);
                 managerNames.put(manager, name);
             }
             return name;
@@ -371,10 +355,14 @@ final class SystemHooks {
             if (helper == null) return false;
             EmergencyCall c = emergencyCall;
             if (c == null || c.type != helper.getClass()) {
-                c = new EmergencyCall(helper.getClass(), findMethod(helper.getClass(), "isInEmergency", long.class));
+                Method m = findMethod(helper.getClass(), "isInEmergency", long.class);
+                if (m == null) m = findMethod(helper.getClass(), "isInEmergency");
+                c = new EmergencyCall(helper.getClass(), m);
                 emergencyCall = c;
             }
-            return c.method != null && (Boolean) c.method.invoke(helper, 0L);
+            if (c.method == null) return false;
+            if (c.method.getParameterCount() == 0) return (Boolean) c.method.invoke(helper);
+            return (Boolean) c.method.invoke(helper, 0L);
         } catch (Throwable t) {
             return false;
         }
@@ -405,7 +393,7 @@ final class SystemHooks {
 
     private static void startGenerator() {
         if (lpmOnReport == null || resultWrap == null) {
-            Log.w(TAG, "system hooks: fix generator disabled (onReportLocation=" + (lpmOnReport != null)
+            ZygoteEntry.i("system hooks: fix generator disabled (onReportLocation=" + (lpmOnReport != null)
                     + " wrap=" + (resultWrap != null) + ")");
             return;
         }
@@ -415,8 +403,7 @@ final class SystemHooks {
             long period = 990 + RND.nextInt(21);
             for (;;) {
                 try {
-                    Thread.sleep(wait);
-                    wait = period;
+                    if (wait > 0) Thread.sleep(wait);
                     final boolean full = active();
                     if (!full && !beat()) {
                         synchronized (Config.WAKE) {
@@ -433,7 +420,8 @@ final class SystemHooks {
                         lastScan = now;
                         scanForManagers();
                     }
-                    if (anyEmergency()) continue;
+                    if (anyEmergency()) { wait = period; continue; }
+                    boolean anySent = false;
                     for (String name : PROVIDERS) {
                         Object mgr = managers.get(name);
                         if (mgr == null) continue;
@@ -441,16 +429,18 @@ final class SystemHooks {
                             Location fix = full ? Fix.fresh(name) : realBeat(name);
                             if (fix == null) continue;
                             Object res = wrap(fix);
-                            if (res != null) lpmOnReport.invoke(mgr, res);
-                        } catch (Throwable t) {
-                            ZygoteEntry.warnOnce("fake fix " + name, t);
-                        }
+                            if (res != null) {
+                                lpmOnReport.invoke(mgr, res);
+                                anySent = true;
+                            }
+                        } catch (Throwable ignored) { }
                     }
-                    lastGpsReport = now;
+                    if (anySent) lastGpsReport = now;
+                    wait = period;
                 } catch (InterruptedException e) {
                     return;
-                } catch (Throwable t) {
-                    ZygoteEntry.warnOnce("generator tick", t);
+                } catch (Throwable ignored) {
+                    wait = period;
                 }
             }
         }, "gpsz-fixgen");
@@ -487,9 +477,7 @@ final class SystemHooks {
                     for (Object o : copy) register(o);
                 } catch (Throwable ignored) { }
             }
-        } catch (Throwable t) {
-            Log.w(TAG, "provider scan failed: " + t);
-        }
+        } catch (Throwable ignored) { }
     }
 
     private static void apply(Location l) {

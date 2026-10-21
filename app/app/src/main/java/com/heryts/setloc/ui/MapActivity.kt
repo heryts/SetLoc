@@ -108,10 +108,14 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         const val ROUTE_DEBOUNCE_MS = 700L
         const val ROUTE_CACHE_TRAFFIC_MS = 5 * 60_000L
         const val ROUTE_CACHE_MS = 30 * 60_000L
+        const val LOCATION_MAX_AGE_NS = 10L * 60L * 1_000_000_000L
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (!RouteRunner.isRunning && PrefManager.isStarted && PrefManager.routeEndedOff()) {
+            PrefManager.updateNow(false, PrefManager.getLat, PrefManager.getLng)
+        }
         if (!RouteRunner.isRunning && !PrefManager.routeLive()) {
             if (PrefManager.routeActive) PrefManager.routeActive = false
             if (PrefManager.routePlay) PrefManager.routePlay = false
@@ -179,6 +183,10 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             showToast(getString(R.string.location_set))
         }
         binding.myLocation.setOnClickListener {
+            if (!checkSinglePermission(Manifest.permission.ACCESS_FINE_LOCATION)) {
+                requestLocationPermission()
+                return@setOnClickListener
+            }
             val loc = realLocation()
             if (loc == null || !::mMap.isInitialized) {
                 showToast(getString(R.string.gps_unavailable))
@@ -342,7 +350,8 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         }
         val from = if (fresh) realLocation() else routeWaypoints.last()
         if (from == null) {
-            showToast(getString(R.string.gps_unavailable))
+            if (!checkSinglePermission(Manifest.permission.ACCESS_FINE_LOCATION)) requestLocationPermission()
+            else showToast(getString(R.string.gps_unavailable))
             return
         }
         if (metersBetween(from, pos) < 5f) {
@@ -358,17 +367,27 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         addRouteStop(pos, quiet = false)
     }
 
+    private fun requestLocationPermission() {
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+            99
+        )
+    }
+
     @SuppressLint("MissingPermission")
     private fun realLocation(): LatLng? {
         if (!checkSinglePermission(Manifest.permission.ACCESS_FINE_LOCATION)) return null
         val lm = getSystemService(LOCATION_SERVICE) as android.location.LocationManager
+        val nowNs = android.os.SystemClock.elapsedRealtimeNanos()
         val best = listOf(
             android.location.LocationManager.GPS_PROVIDER,
             android.location.LocationManager.NETWORK_PROVIDER,
             android.location.LocationManager.PASSIVE_PROVIDER,
             "fused"
         ).mapNotNull { try { lm.getLastKnownLocation(it) } catch (_: Exception) { null } }
-            .maxByOrNull { it.time }
+            .filter { nowNs - it.elapsedRealtimeNanos <= LOCATION_MAX_AGE_NS }
+            .maxByOrNull { it.elapsedRealtimeNanos }
         return best?.let { LatLng(it.latitude, it.longitude) }
     }
 
@@ -609,6 +628,12 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
 
     private fun startRoute() {
         if (!routeReady) return
+        val speed = PrefManager.routeSpeed.takeIf { it > 0f }
+            ?: AutoSpeed.kmh(PrefManager.routeMode, RouteRunner.routeLength(routePoints), routeDurationS)
+        if (RouteRunner.tooLong(routePoints, speed)) {
+            showToast(getString(R.string.route_too_long))
+            return
+        }
         val first = routePoints.first()
         mLatLng = first
         mMarker?.apply {
@@ -618,8 +643,6 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         if (!checkSinglePermission(Manifest.permission.POST_NOTIFICATIONS)) {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
         }
-        val speed = PrefManager.routeSpeed.takeIf { it > 0f }
-            ?: AutoSpeed.kmh(PrefManager.routeMode, RouteRunner.routeLength(routePoints), routeDurationS)
         RouteRunner.start(
             routePoints, speed,
             PrefManager.routeWaitStart, PrefManager.routeWaitEnd, PrefManager.routeSpeedVarFor(speed)
@@ -719,7 +742,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             binding.searchBar.requestLayout()
             listOf(
                 binding.route to 104, binding.addFav to 156,
-                binding.routeDelete to 208, binding.start to 32, binding.stop to 32
+                binding.routeDelete to 208, binding.start to 32, binding.stop to 32, binding.myLocation to 40
             )
                 .forEach { (v, base) ->
                     (v.layoutParams as ViewGroup.MarginLayoutParams).bottomMargin = (base * d).toInt() + sb.bottom
@@ -880,6 +903,8 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     )
 
     override fun onDestroy() {
+        favDialog?.dismissSafe()
+        favDialog = null
         confirmDialog?.dismissSafe()
         confirmDialog = null
         floatingDialog?.dismissSafe()
@@ -973,6 +998,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     }
 
     private fun showSavedRoutes() {
+        SavedRouteStore.load()
         val items = SavedRouteStore.all.value.toMutableList()
         if (items.isEmpty()) {
             showToast(getString(R.string.saved_routes_empty))

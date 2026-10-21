@@ -9,25 +9,23 @@ import com.v7878.r8.annotations.DoNotShrink;
 import com.v7878.r8.annotations.DoNotShrinkType;
 import com.v7878.zygisk.ZygoteLoader;
 
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-
 @DoNotObfuscateType
 @DoNotShrinkType
 public final class ZygoteEntry {
     static final String TAG = "GpsZ";
-    static volatile boolean verbose = false;
+    static final String OWN_PACKAGE = "com.heryts.setloc";
+    private static volatile boolean systemProcess;
 
     static void i(String m) {
-        if (verbose) Log.i(TAG, m);
+        if (systemProcess) Log.i(TAG, m);
     }
 
-    static void w(String m) {
-        if (verbose) Log.w(TAG, m);
-    }
-
-    static void e(String m, Throwable t) {
-        if (verbose) Log.e(TAG, m, t);
+    static boolean isSelf() {
+        try {
+            return OWN_PACKAGE.equals(ZygoteLoader.getPackageName());
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     @DoNotObfuscate
@@ -38,25 +36,15 @@ public final class ZygoteEntry {
     @DoNotShrink
     public static void main() {
         try {
-            String pkg = ZygoteLoader.getPackageName();
-            if ("android".equals(pkg)) {
-                verbose = true;
-                i("injected into " + pkg + " (sdk " + Build.VERSION.SDK_INT + ")");
+            if ("android".equals(ZygoteLoader.getPackageName())) {
+                systemProcess = true;
+                i("injected into android (sdk " + Build.VERSION.SDK_INT + ")");
                 Config.startPolling(SystemHooks::install);
                 return;
             }
             LocationHooks.install();
             Config.startPolling(null);
-        } catch (Throwable t) {
-            e("init failed", t);
-        }
-    }
-
-    private static final Set<String> SEEN = ConcurrentHashMap.newKeySet();
-
-    static void warnOnce(String where, Throwable t) {
-        String msg = where + ": " + t;
-        if (verbose && SEEN.size() < 64 && SEEN.add(msg)) Log.w(TAG, msg);
+        } catch (Throwable ignored) { }
     }
 
     @SuppressWarnings("unchecked")

@@ -58,6 +58,7 @@
     <string name="route_save">Simpan</string>
     <string name="route_invalid_speed">Masukkan kecepatan antara 1 dan 300 km/jam</string>
     <string name="route_max_points">Maksimal %1$d titik per rute</string>
+    <string name="route_too_long">Rute terlalu panjang untuk kecepatan ini. Naikkan kecepatan atau pendekkan rute</string>
     <string name="route_clear_hint">Tekan lama tombol tempat sampah untuk menghapus rute dan pin</string>
     <string name="route_altitude">Ketinggian (m)</string>
     <string name="route_altitude_var">m</string>

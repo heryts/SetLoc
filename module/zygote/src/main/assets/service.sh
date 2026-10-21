@@ -2,6 +2,7 @@
 MODDIR=${0%/*}
 sh "$MODDIR/bridge.sh" ensure >/dev/null 2>&1 &
 (
+  { read -r _p _ < /proc/self/stat; echo -1000 > "/proc/$_p/oom_score_adj"; } 2>/dev/null
   while true; do
     sleep 10
     [ -f "$MODDIR/disable_super" ] && continue

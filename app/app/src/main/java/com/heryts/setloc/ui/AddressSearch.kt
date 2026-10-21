@@ -26,8 +26,9 @@ private suspend fun fetchJson(url: String): String {
 
 private fun fmtCoords(lat: Double, lon: Double) = String.format(Locale.US, "%.5f, %.5f", lat, lon)
 
-private fun parseCoords(text: String): Pair<Double, Double>? {
+internal fun parseCoords(text: String): Pair<Double, Double>? {
     val parts = text.split(",")
+    if (parts.size != 2) return null
     val la = parts[0].trim().toDoubleOrNull()
     val lo = parts[1].trim().toDoubleOrNull()
     return if (la != null && lo != null && la in -90.0..90.0 && lo in -180.0..180.0) la to lo else null

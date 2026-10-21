@@ -3,8 +3,9 @@ set -e
 for c in rsync unzip dos2unix; do command -v $c >/dev/null || { echo "GAGAL: butuh $c"; exit 1; }; done
 ZIP=${1:?pakai: sh update.sh <zip-source-baru>}
 REPO=${REPO:-$HOME/proj/SetLoc}
-T=/tmp/setloc_new
-rm -rf $T && mkdir $T && unzip -q "$ZIP" -d $T
+T=$(mktemp -d)
+trap 'rm -rf "$T"' EXIT
+unzip -q "$ZIP" -d "$T"
 Z=$(find $T -maxdepth 2 -type d -name setloc-zygisk-all | head -1)
 [ -d "$Z/app" ] && [ -d "$Z/module" ] || { echo "GAGAL: bukan source SetLoc"; exit 1; }
 

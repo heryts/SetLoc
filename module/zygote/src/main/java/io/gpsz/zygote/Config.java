@@ -142,9 +142,9 @@ final class Config {
     private static long lastElapsed, lastUptime;
     private static volatile long resumeAt;
     private static String trkSeen;
-    private static boolean cfgEn;
+    private static volatile boolean cfgEn;
     private static volatile int trkStale = 0;
-    private static long trkMissAt = 0;
+    private static volatile long trkMissAt = 0;
     private static volatile long tickAt = 0;
     private static String beatSeen = null;
     private static long beatChangedAt = 0;
@@ -179,6 +179,8 @@ final class Config {
             if (Math.abs(c) < 1e-6) c = 1e-6;
             la += jitN / 111320.0;
             lo += jitE / (111320.0 * c);
+            la = Math.max(-90.0, Math.min(90.0, la));
+            if (lo > 180.0) lo -= 360.0; else if (lo < -180.0) lo += 360.0;
         } else {
             jitAt = 0;
         }
@@ -293,9 +295,7 @@ final class Config {
             }
             String cur = dec(Settings.Global.getString(cr, KEY_LIVE));
             if (on ? !want.equals(cur) : cur != null && !cur.isEmpty()) Settings.Global.putString(cr, KEY_LIVE, enc(want));
-        } catch (Throwable t) {
-            ZygoteEntry.w("live failed: " + t);
-        }
+        } catch (Throwable ignored) { }
     }
 
     static Track parseTrack(String s) {
@@ -422,7 +422,7 @@ final class Config {
         return new Track(f.t0, w.wrote, f.tk, f.n, f.la, f.lo, f.al, f.sp, f.br);
     }
 
-    private static int trackStale(long now) {
+    private static synchronized int trackStale(long now) {
         noteResume(now);
         Track t = track;
         long late;
@@ -471,6 +471,12 @@ final class Config {
         alt = t.al[i] + (t.al[j] - t.al[i]) * f;
         spd = st >= 1 ? 0f : Math.max(0f, (float) (t.sp[i] + (t.sp[j] - t.sp[i]) * f));
         brg = lerpAngle(t.br[i], t.br[j], f);
+    }
+
+    private static boolean tkOn(String s) {
+        if (s == null) return false;
+        for (String kv : s.split(";")) if (kv.trim().equals("tk=1")) return true;
+        return false;
     }
 
     private static double inRange(double v, double limit, double fallback) {
@@ -580,7 +586,7 @@ final class Config {
                 settingsEmpty = sc == null;
                 String cs = orFile(sc, fileCfg, useFile);
                 long rt = SystemClock.elapsedRealtime();
-                if (cs != null && cs.contains(";tk=1")) {
+                if (tkOn(cs)) {
                     String ts = Settings.Global.getString(cr, KEY_TRK);
                     boolean fresh = !Objects.equals(ts, trkSeen);
                     if (fresh) { trkSeen = ts; winTrack = parseTrack(ts); }
@@ -618,8 +624,7 @@ final class Config {
                         live(app, onReady.getAsBoolean());
                     }
                 }
-            } catch (Throwable t) {
-                ZygoteEntry.warnOnce("config refresh", t);
+            } catch (Throwable ignored) {
             } finally {
                 READING.remove();
             }
@@ -628,18 +633,50 @@ final class Config {
 
     private static void tryLoadFromFile() {
         for (String path : FILE_PATHS) {
-            try (FileInputStream in = new FileInputStream(path)) {
-                byte[] buf = new byte[FILE_MAX];
-                int n = in.read(buf);
-                if (n > 0) {
-                    parseFileContent(new String(buf, 0, n, StandardCharsets.UTF_8));
-                    ZygoteEntry.i("config file loaded: " + path);
-                    return;
+            try {
+                String[] f = readFileFields(new java.io.File(path));
+                if (f == null) continue;
+                synchronized (REFRESH_LOCK) {
+                    READING.set(Boolean.TRUE);
+                    try {
+                        setFileFields(f);
+                        parse(fileCfg);
+                        applyFlags(fileSys, fileNet, fileBt);
+                    } finally {
+                        READING.remove();
+                    }
                 }
-            } catch (Throwable t) {
-                ZygoteEntry.w("config file " + path + " unreadable (DAC/SELinux?): " + t);
+                ZygoteEntry.i("config file loaded: " + path);
+                return;
+            } catch (Throwable ignored) { }
+        }
+    }
+
+    private static String[] readFileFields(java.io.File f) throws java.io.IOException {
+        byte[] buf = new byte[FILE_MAX];
+        int n = 0, r;
+        try (FileInputStream in = new FileInputStream(f)) {
+            while (n < buf.length && (r = in.read(buf, n, buf.length - n)) > 0) n += r;
+        }
+        if (n <= 0) return null;
+        String c = null, sy = null, ne = null, b = null;
+        for (String line : new String(buf, 0, n, StandardCharsets.UTF_8).split("\n")) {
+            int i = line.indexOf(':');
+            if (i < 0) continue;
+            String k = line.substring(0, i).trim(), v = line.substring(i + 1).trim();
+            if (v.isEmpty() || v.equals("null")) continue;
+            switch (k) {
+                case "cfg": c = v; break;
+                case "sys": sy = v; break;
+                case "net": ne = v; break;
+                case "bt": b = v; break;
             }
         }
+        return c == null ? null : new String[]{c, sy, ne, b};
+    }
+
+    private static void setFileFields(String[] f) {
+        fileCfg = f[0]; fileSys = f[1]; fileNet = f[2]; fileBt = f[3];
     }
 
     private static String fileSeen;
@@ -650,61 +687,26 @@ final class Config {
     private static void reloadFileFields(long now) {
         if (now - fileCheckAt < (settingsEmpty ? FALLBACK_POLL_MS : FILE_CHECK_MS)) return;
         fileCheckAt = now;
+        boolean failed = false;
         for (String path : FILE_PATHS) {
             try {
                 java.io.File f = new java.io.File(path);
                 String sig = path + ":" + f.lastModified() + ":" + f.length();
                 if (f.length() <= 0) continue;
                 if (sig.equals(fileSeen)) return;
-                byte[] buf = new byte[FILE_MAX];
-                int n;
-                try (FileInputStream in = new FileInputStream(f)) { n = in.read(buf); }
-                if (n <= 0) continue;
-                String body = new String(buf, 0, n, StandardCharsets.UTF_8);
-                String c = null, sy = null, ne = null, b = null;
-                for (String line : body.split("\n")) {
-                    int i = line.indexOf(':');
-                    if (i < 0) continue;
-                    String k = line.substring(0, i).trim(), v = line.substring(i + 1).trim();
-                    if (v.isEmpty() || v.equals("null")) continue;
-                    switch (k) {
-                        case "cfg": c = v; break;
-                        case "sys": sy = v; break;
-                        case "net": ne = v; break;
-                        case "bt": b = v; break;
-                    }
-                }
-                if (c == null) continue;
-                fileCfg = c; fileSys = sy; fileNet = ne; fileBt = b;
+                String[] fields = readFileFields(f);
+                if (fields == null) continue;
+                setFileFields(fields);
                 fileSeen = sig;
                 ZygoteEntry.i("config file reloaded: " + path);
                 return;
-            } catch (Throwable ignored) { }
-        }
-    }
-
-    private static void parseFileContent(String s) {
-        synchronized (REFRESH_LOCK) {
-            READING.set(Boolean.TRUE);
-            try {
-                for (String line : s.split("\n")) {
-                    int c = line.indexOf(':');
-                    if (c < 0) continue;
-                    String k = line.substring(0, c).trim();
-                    String v = line.substring(c + 1).trim();
-                    if (v.isEmpty() || v.equals("null")) continue;
-                    switch (k) {
-                        case "cfg": fileCfg = v; break;
-                        case "sys": fileSys = v; break;
-                        case "net": fileNet = v; break;
-                        case "bt": fileBt = v; break;
-                    }
-                }
-                if (fileCfg != null) parse(fileCfg);
-                applyFlags(fileSys, fileNet, fileBt);
-            } finally {
-                READING.remove();
+            } catch (Throwable t) {
+                failed = true;
             }
+        }
+        if (!failed) {
+            fileCfg = null; fileSys = null; fileNet = null; fileBt = null;
+            fileSeen = null;
         }
     }
 
@@ -738,7 +740,6 @@ final class Config {
             cr.registerContentObserver(Settings.Global.getUriFor(KEY_BT), false, observer);
             return true;
         } catch (Throwable t) {
-            ZygoteEntry.w("observer failed, polling fast: " + t);
             return false;
         }
     }
@@ -751,7 +752,7 @@ final class Config {
                 found = currentApplication();
                 if (found == null) try { Thread.sleep(50); } catch (InterruptedException ignored) { }
             }
-            if (found == null) { ZygoteEntry.w("no Application"); return; }
+            if (found == null) return;
             final Application app = found;
             final ContentResolver cr = app.getContentResolver();
             final Runnable refresh = () -> refresh(cr, app, onReady);

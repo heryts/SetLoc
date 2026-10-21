@@ -5,6 +5,8 @@ KEY="${1:?isi path release-key.pem}"
 CERT="${2:?isi path release-cert.pem}"
 OUT="${3:-$(pwd)/app/release.p12}"
 ALIAS=setloc
+trap 'rc=$?; stty echo 2>/dev/null || :; exit $rc' EXIT
+trap 'exit 130' INT TERM
 printf "Password keystore (baru): "; stty -echo 2>/dev/null || true; IFS= read -r PASS; stty echo 2>/dev/null || true; echo
 [ -n "$PASS" ] || { echo "password tidak boleh kosong" >&2; exit 1; }
 KS_PASS="$PASS" openssl pkcs12 -export -inkey "$KEY" -in "$CERT" -name "$ALIAS" -out "$OUT" -passout env:KS_PASS

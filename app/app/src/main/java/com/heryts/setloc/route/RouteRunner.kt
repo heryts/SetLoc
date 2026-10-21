@@ -71,6 +71,7 @@ object RouteRunner {
     private const val TICK_MS = 500L
     private const val PREF_EVERY = 10
     const val TIMELINE_LINE_WIDTH = 48
+    const val MAX_TICKS = 250_000
     private const val SPEED_VARIATION = 0.08
     private const val SPEED_PULL = 0.1
     private const val SPEED_STEP = 0.22
@@ -93,7 +94,7 @@ object RouteRunner {
     fun start(
         points: List<LatLng>, speedKmh: Float, waitAtStartMin: Float, waitAtEndMin: Float, speedVarKmh: Float
     ) {
-        if (points.size < 2) return
+        if (points.size < 2 || tooLong(points, speedKmh)) return
         synchronized(lock) {
             job?.cancel()
             val g = ++gen
@@ -352,6 +353,11 @@ object RouteRunner {
         var x = a + d * f
         if (x > 180.0) x -= 360.0 else if (x < -180.0) x += 360.0
         return x
+    }
+
+    fun tooLong(points: List<LatLng>, speedKmh: Float): Boolean {
+        val v = max(0.5f, speedKmh) / 3.6
+        return routeLength(points) / v / (TICK_MS / 1000.0) * 1.3 > MAX_TICKS
     }
 
     fun routeLength(points: List<LatLng>): Double {
