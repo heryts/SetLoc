@@ -25,6 +25,7 @@
     <string name="settings_location">Lokasi</string>
     <string name="settings">Pengaturan</string>
     <string name="saved_routes">Rute tersimpan</string>
+    <string name="saved_routes_close">Tutup</string>
     <string name="saved_routes_empty">Belum ada rute tersimpan</string>
     <string name="save_route">Simpan rute</string>
     <string name="route_name_hint">Nama rute</string>

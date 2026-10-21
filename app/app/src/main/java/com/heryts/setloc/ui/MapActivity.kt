@@ -9,6 +9,10 @@ import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
+import android.graphics.Typeface
+import android.widget.BaseAdapter
+import android.widget.FrameLayout
+import android.widget.ListView
 import android.view.inputmethod.EditorInfo
 import android.widget.EditText
 import android.widget.TextView
@@ -85,6 +89,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     private var routeDurationS: Double? = null
     private var routeLoading = false
     private var openOptionsWhenReady = false
+    private var dockedPad = 0
     private var currentRouteKey: String? = null
     private var routeJob: Job? = null
     private class CachedRoute(val result: RouteClient.Result, val at: Long, var elev: FloatArray? = null)
@@ -462,12 +467,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
                 .zIndex(1f)
         )
         routeLoading = false
-        try {
-            val bounds = LatLngBounds.Builder()
-            result.points.forEach { bounds.include(it) }
-            mMap.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds.build(), 140))
-        } catch (_: Exception) {
-        }
+        fitRoute(result.points)
         updateRouteFab()
         if (elev != null && PrefManager.altitudeFromServer) RouteRunner.elevations = elev
         else fetchElevations(result.points)
@@ -710,7 +710,8 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     private fun applyMapPadding() {
         if (!::mMap.isInitialized) return
         val d = resources.displayMetrics.density
-        mMap.setPadding(0, insetTop + (76 * d).toInt(), 0, insetBottom + (64 * d).toInt())
+        val bottom = if (dockedPad > 0) dockedPad else (64 * d).toInt()
+        mMap.setPadding(0, insetTop + (76 * d).toInt(), 0, insetBottom + bottom)
     }
 
     private fun setupSearchBar() {
@@ -942,26 +943,119 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     }
 
     private fun showSavedRoutes() {
-        val list = SavedRouteStore.all.value
-        if (list.isEmpty()) {
+        val items = SavedRouteStore.all.value.toMutableList()
+        if (items.isEmpty()) {
             showToast(getString(R.string.saved_routes_empty))
             return
         }
-        val dlg = MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.saved_routes)
-            .setItems(list.map { it.name }.toTypedArray()) { d, i ->
-                d.dismiss()
-                loadSavedRoute(list[i])
+        val d = resources.displayMetrics.density
+        val list = ListView(this).apply {
+            divider = null
+            isVerticalScrollBarEnabled = true
+        }
+        val box = FrameLayout(this)
+        box.addView(list, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0))
+        fun fitListHeight() {
+            val lp = list.layoutParams
+            lp.height = (minOf(items.size, 4) * 52 * d).toInt()
+            list.layoutParams = lp
+        }
+        fitListHeight()
+        var selectedId = -1L
+        val dlgRef = arrayOfNulls<AlertDialog>(1)
+        val adapter = object : BaseAdapter() {
+            override fun getCount() = items.size
+            override fun getItem(position: Int) = items[position]
+            override fun getItemId(position: Int) = items[position].id
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val v = convertView ?: layoutInflater.inflate(R.layout.item_saved_route, parent, false)
+                val r = items[position]
+                val name = v.findViewById<TextView>(R.id.saved_route_name)
+                name.text = r.name
+                name.setTypeface(null, if (r.id == selectedId) Typeface.BOLD else Typeface.NORMAL)
+                v.findViewById<View>(R.id.saved_route_delete).setOnClickListener { removeItem(r) }
+                return v
             }
-            .setNegativeButton(getString(R.string.dialog_button_cancel), null)
-            .create()
-        dlg.setOnShowListener {
-            dlg.listView.setOnItemLongClickListener { _, _, i, _ ->
-                confirmDeleteSavedRoute(list[i]) { dlg.dismiss() }
-                true
+
+            fun removeItem(r: SavedRoute) {
+                confirmDeleteSavedRoute(r) {
+                    items.remove(r)
+                    notifyDataSetChanged()
+                    fitListHeight()
+                    if (items.isEmpty()) dlgRef[0]?.dismissSafe()
+                }
             }
         }
+        list.adapter = adapter
+        list.setOnItemClickListener { _, _, i, _ ->
+            selectedId = items[i].id
+            adapter.notifyDataSetChanged()
+            loadSavedRoute(items[i])
+        }
+        list.setOnItemLongClickListener { _, _, i, _ ->
+            adapter.removeItem(items[i])
+            true
+        }
+        val dlg = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.saved_routes)
+            .setView(box)
+            .setNegativeButton(getString(R.string.saved_routes_close), null)
+            .create()
+        dlgRef[0] = dlg
+        dlg.dockBottom()
         dlg.show()
+        dlg.window?.setLayout(
+            resources.displayMetrics.widthPixels - (88 * d).toInt(),
+            WindowManager.LayoutParams.WRAP_CONTENT
+        )
+    }
+
+    private fun AlertDialog.dockBottom(): AlertDialog {
+        floatingDialog?.let { if (it !== this) it.dismissSafe() }
+        floatingDialog = this
+        dialogMoved = false
+        setCanceledOnTouchOutside(false)
+        setOnDismissListener {
+            if (floatingDialog === this) floatingDialog = null
+            dockedPad = 0
+            applyMapPadding()
+        }
+        window?.apply {
+            val d = resources.displayMetrics.density
+            clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            addFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL)
+            setGravity(Gravity.BOTTOM or Gravity.END)
+            val lp = attributes
+            lp.x = (8 * d).toInt()
+            lp.y = (8 * d).toInt()
+            attributes = lp
+            attachTouchRouting(this@MapActivity.window, true) {
+                dialogMoved = true
+                if (dockedPad != 0) {
+                    dockedPad = 0
+                    applyMapPadding()
+                }
+            }
+            decorView.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+                if (dialogMoved || v.height == 0) return@addOnLayoutChangeListener
+                val pad = v.height + (16 * d).toInt()
+                if (pad != dockedPad) {
+                    dockedPad = pad
+                    applyMapPadding()
+                    if (routePoints.size >= 2) fitRoute(routePoints)
+                }
+            }
+        }
+        return this
+    }
+
+    private fun fitRoute(points: List<LatLng>) {
+        try {
+            val bounds = LatLngBounds.Builder()
+            points.forEach { bounds.include(it) }
+            mMap.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds.build(), 140))
+        } catch (_: Exception) {
+        }
     }
 
     private fun confirmDeleteSavedRoute(r: SavedRoute, onDone: () -> Unit) {
