@@ -102,6 +102,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     private var clearHintShown = false
     private var wasRouteRunning = false
     private val routeReady get() = routePoints.size >= 2 && !routeLoading
+    private val singleStop get() = routeWaypoints.size == 1 && routePoints.size < 2 && !routeLoading
 
     private companion object {
         const val ROUTE_DEBOUNCE_MS = 700L
@@ -279,6 +280,11 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             addRouteStop(pin, quiet = true)
         }
         addRouteStop(latLng, quiet = false)
+        if (routeWaypoints.size == 1) {
+            mLatLng = latLng
+            pinLabel = null
+            pinPicked = false
+        }
     }
 
     private fun addRouteStop(latLng: LatLng, quiet: Boolean) {
@@ -316,9 +322,15 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         addRouteFromPin()
     }
 
+    private fun selectedPoint(): LatLng? = when {
+        singleStop -> routeWaypoints.first()
+        mMarker?.isVisible == true -> mLatLng
+        else -> null
+    }
+
     private fun addRouteFromPin() {
-        val pos = mLatLng
-        if (!::mMap.isInitialized || mMarker?.isVisible != true || pos == null) {
+        val pos = selectedPoint()
+        if (!::mMap.isInitialized || pos == null) {
             showToast(getString(R.string.location_not_selected))
             return
         }
@@ -361,8 +373,8 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     }
 
     private fun addFavouriteFromPin() {
-        val pos = mLatLng
-        if (mMarker?.isVisible != true || pos == null) {
+        val pos = selectedPoint()
+        if (pos == null) {
             showToast(getString(R.string.location_not_selected))
             return
         }
@@ -567,7 +579,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
 
     private fun updateRouteFab() {
         val idle = !RouteRunner.isRunning && binding.start.visibility == View.VISIBLE
-        val picked = (pinLabel != null || pinPicked) && idle && mMarker?.isVisible == true
+        val picked = ((pinLabel != null || pinPicked) && mMarker?.isVisible == true || singleStop) && idle
         val hasRoute = (routeReady || routeLoading) && idle
         binding.route.visibility = if (picked || hasRoute) View.VISIBLE else View.GONE
         binding.routeDelete.visibility = if ((routeWaypoints.isNotEmpty() && idle) || picked) View.VISIBLE else View.GONE
