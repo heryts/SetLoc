@@ -114,4 +114,5 @@
     <string name="route_action">Route</string>
     <string name="route_point_exists">This point is already the last stop of the route</string>
     <string name="gps_unavailable">Real GPS location not available yet</string>
+    <string name="my_location">My location</string>
 </resources>

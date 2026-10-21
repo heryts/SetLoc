@@ -231,4 +231,15 @@
         android:src="@drawable/ic_stop"
         android:visibility="gone" />
 
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/my_location"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start"
+        android:layout_marginStart="88dp"
+        android:layout_marginBottom="40dp"
+        android:contentDescription="@string/my_location"
+        android:src="@drawable/ic_my_location"
+        app:fabSize="mini" />
+
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

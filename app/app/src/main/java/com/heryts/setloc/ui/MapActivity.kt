@@ -177,6 +177,14 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             lifecycleScope.launch { showStartNotification(here.address(this@MapActivity)) }
             showToast(getString(R.string.location_set))
         }
+        binding.myLocation.setOnClickListener {
+            val loc = realLocation()
+            if (loc == null || !::mMap.isInitialized) {
+                showToast(getString(R.string.gps_unavailable))
+                return@setOnClickListener
+            }
+            mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(loc, maxOf(mMap.cameraPosition.zoom, 15f)))
+        }
         binding.stop.setOnClickListener {
             RouteRunner.stop()
             (mLatLng ?: LatLng(viewModel.getLat, viewModel.getLng))
@@ -202,6 +210,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             )
             mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(mLatLng!!, zoom))
             uiSettings.isZoomControlsEnabled = true
+            uiSettings.isMyLocationButtonEnabled = false
             if (checkSinglePermission(Manifest.permission.ACCESS_FINE_LOCATION)) {
                 mMap.isMyLocationEnabled = true
             }else {

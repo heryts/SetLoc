@@ -115,4 +115,5 @@
     <string name="route_action">Rute</string>
     <string name="route_point_exists">Titik ini sudah menjadi titik terakhir rute</string>
     <string name="gps_unavailable">Lokasi GPS asli belum tersedia</string>
+    <string name="my_location">Lokasi saya</string>
 </resources>
