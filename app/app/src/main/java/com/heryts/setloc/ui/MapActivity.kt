@@ -1041,7 +1041,8 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     }
 
     private fun confirmDeleteSavedRoute(r: SavedRoute, onDone: () -> Unit) {
-        MaterialAlertDialogBuilder(this)
+        val anchor = floatingDialog
+        val dlg = MaterialAlertDialogBuilder(this)
             .setTitle(R.string.delete_saved_route)
             .setMessage(r.name)
             .setPositiveButton(android.R.string.ok) { _, _ ->
@@ -1049,7 +1050,31 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
                 onDone()
             }
             .setNegativeButton(android.R.string.cancel, null)
-            .show()
+            .create()
+        val aw = anchor?.takeIf { it.isShowing }?.window
+        if (aw == null) {
+            dlg.show()
+            return
+        }
+        dlg.window?.apply {
+            clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            WindowCompat.setDecorFitsSystemWindows(this, false)
+            setGravity(Gravity.TOP or Gravity.START)
+            decorView.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+                val loc = IntArray(2)
+                aw.decorView.getLocationOnScreen(loc)
+                val lp = attributes
+                val x = loc[0]
+                val y = loc[1] + (aw.decorView.height - v.height) / 2
+                if (lp.x != x || lp.y != y) {
+                    lp.x = x
+                    lp.y = y
+                    attributes = lp
+                }
+            }
+        }
+        dlg.show()
+        dlg.window?.setLayout(aw.decorView.width, WindowManager.LayoutParams.WRAP_CONTENT)
     }
 
     private fun loadSavedRoute(r: SavedRoute) {
