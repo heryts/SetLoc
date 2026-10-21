@@ -221,14 +221,14 @@ final class SystemHooks {
             "android", "com.google.android.gms", "com.google.android.gsf", "com.android.location.fused");
 
     private static boolean active() {
-        return Config.enabled && Config.system && !Config.sysHeartbeat && !Double.isNaN(Config.lat) && !Double.isNaN(Config.lng);
+        return Config.enabled && Config.system && !Config.sysHeartbeat && Config.hasPos();
     }
 
     private static boolean beat() {
         return Config.enabled && Config.system && Config.sysHeartbeat;
     }
 
-    private static volatile Location lastReal;
+    private static final Map<String, Location> realByProvider = new ConcurrentHashMap<>();
 
     private static void captureReal(Object result) {
         try {
@@ -237,12 +237,16 @@ final class SystemHooks {
             int n = (Integer) resultSize.invoke(result);
             if (n <= 0) return;
             Object o = resultGet.invoke(result, n - 1);
-            if (o instanceof Location) lastReal = new Location((Location) o);
+            if (o instanceof Location) {
+                Location c = new Location((Location) o);
+                String pv = c.getProvider();
+                if (pv != null) realByProvider.put(pv, c);
+            }
         } catch (Throwable ignored) { }
     }
 
     private static Location realBeat(String provider) {
-        Location src = lastReal;
+        Location src = realByProvider.get(provider);
         if (src == null) return null;
         Location l = new Location(src);
         l.setProvider(provider);

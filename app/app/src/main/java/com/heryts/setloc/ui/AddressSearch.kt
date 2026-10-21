@@ -91,7 +91,10 @@ private suspend fun photonSearch(text: String): List<PlaceCandidate> {
             props?.optString("state").orEmpty(),
             props?.optString("country").orEmpty()
         ).filter { it.isNotBlank() && it != name }.distinct()
-        out += PlaceCandidate((listOf(name) + sub).joinToString(", "), coords.optDouble(1), coords.optDouble(0))
+        val la = coords.optDouble(1)
+        val lo = coords.optDouble(0)
+        if (la.isNaN() || lo.isNaN() || la !in -90.0..90.0 || lo !in -180.0..180.0) continue
+        out += PlaceCandidate((listOf(name) + sub).joinToString(", "), la, lo)
     }
     return out
 }

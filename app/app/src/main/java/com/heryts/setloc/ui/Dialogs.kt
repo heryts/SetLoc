@@ -102,8 +102,8 @@ internal fun Window.attachTouchRouting(target: Window, movable: Boolean, onDrag:
 
 private fun MotionEvent.isInside(v: View): Boolean {
     val loc = IntArray(2)
-    v.getLocationOnScreen(loc)
-    return rawX >= loc[0] && rawX <= loc[0] + v.width && rawY >= loc[1] && rawY <= loc[1] + v.height
+    v.getLocationInWindow(loc)
+    return x >= loc[0] && x <= loc[0] + v.width && y >= loc[1] && y <= loc[1] + v.height
 }
 
 private fun Window.moveBy(dx: Int, dy: Int) {

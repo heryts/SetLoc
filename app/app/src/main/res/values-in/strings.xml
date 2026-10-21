@@ -109,4 +109,14 @@
     <string name="route_err_api">Rute gagal (%1$d): %2$s</string>
     <string name="pin_label">Pin: %s</string>
     <string name="pin_none">Pin belum dipilih</string>
+    <string name="search_here">Cari di sini</string>
+    <string name="more_options">Opsi lainnya</string>
+    <string name="search_recent">Terbaru</string>
+    <string name="search_results">Hasil</string>
+    <string name="search_clear_history">Hapus semua</string>
+    <string name="back">Kembali</string>
+    <string name="clear_text">Hapus teks</string>
+    <string name="route_action">Rute</string>
+    <string name="route_point_exists">Titik ini sudah menjadi titik terakhir rute</string>
+    <string name="gps_unavailable">Lokasi GPS asli belum tersedia</string>
 </resources>

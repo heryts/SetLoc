@@ -108,4 +108,14 @@
     <string name="route_err_api">Route failed (%1$d): %2$s</string>
     <string name="pin_label">Pin: %s</string>
     <string name="pin_none">No pin selected</string>
+    <string name="search_here">Search here</string>
+    <string name="more_options">More options</string>
+    <string name="search_recent">Recent</string>
+    <string name="search_results">Results</string>
+    <string name="search_clear_history">Clear</string>
+    <string name="back">Back</string>
+    <string name="clear_text">Clear text</string>
+    <string name="route_action">Route</string>
+    <string name="route_point_exists">This point is already the last stop of the route</string>
+    <string name="gps_unavailable">Real GPS location not available yet</string>
 </resources>

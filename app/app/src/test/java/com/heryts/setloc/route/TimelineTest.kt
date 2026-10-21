@@ -58,7 +58,53 @@ class TimelineTest {
     }
 
     @Test
+    fun `kecepatan sangat rendah tidak melampaui kecepatan yang diminta`() {
+        val t = RouteRunner.buildTimeline(listOf(origin, offset(origin, 30.0, 0.0)), 0.5f, 0f)
+        assertTrue(t.maxOf { it.spd } <= 0.5f / 3.6f + 1e-4f)
+        assertEquals(0f, t.last().spd, 0f)
+    }
+
+    @Test
     fun `titik awal dan akhir sama menghasilkan dua tick`() {
         assertEquals(2, RouteRunner.buildTimeline(listOf(origin, origin), 5f, -1f).size)
+    }
+
+    @Test
+    fun `pengereman tidak melebihi batas pada banyak rute`() {
+        val a = offset(origin, 400.0, 0.0)
+        val b = offset(a, 300.0, 100.0)
+        val c = offset(b, 150.0, 200.0)
+        val pts = listOf(origin, a, b, c)
+        repeat(200) {
+            val t = RouteRunner.buildTimeline(pts, 110f, -1f)
+            for (i in 1 until t.size) assertTrue(abs(t[i].spd - t[i - 1].spd) / 0.5f <= 2.6f)
+        }
+    }
+
+    @Test
+    fun `polyline padat lurus dengan derau kuantisasi tetap mendekati kecepatan target`() {
+        val pts = ArrayList<LatLng>()
+        pts.add(origin)
+        for (i in 1..1500) {
+            val q = offset(origin, 3.0 * i, 35.0)
+            pts.add(LatLng(Math.round(q.latitude * 1e5) / 1e5, Math.round(q.longitude * 1e5) / 1e5))
+        }
+        val t = RouteRunner.buildTimeline(pts, 50f, 0f)
+        val mid = t.subList(t.size / 4, 3 * t.size / 4)
+        val mean = mid.sumOf { it.spd.toDouble() } / mid.size
+        assertTrue(mean >= 0.97 * 50.0 / 3.6)
+    }
+
+    @Test
+    fun `tikungan siku pada polyline padat tetap memperlambat`() {
+        val pts = ArrayList<LatLng>()
+        var p = origin
+        pts.add(p)
+        repeat(100) { p = offset(p, 3.0, 0.0); pts.add(p) }
+        val corner = p
+        repeat(100) { p = offset(p, 3.0, 90.0); pts.add(p) }
+        val t = RouteRunner.buildTimeline(pts, 50f, 0f)
+        val atCorner = t.minByOrNull { RouteRunner.meters(LatLng(it.lat, it.lng), corner) }!!
+        assertTrue(atCorner.spd < 11f)
     }
 }

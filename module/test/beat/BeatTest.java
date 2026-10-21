@@ -57,7 +57,7 @@ public class BeatTest {
     eq("accNow: akurasi 0 -> 1",Config.accNow(null),1f);
     Config.parse("enabled=1;lat=-7.7;lng=110.4;acc=10;random=0;rr=8;spd=3");
     Config.parse("enabled=1;lat=200;lng=999;acc=NaN;spd=Infinity;alt=NaN;altv=-5;rr=NaN");
-    eq("input tidak valid: lat/lng di luar rentang diabaikan",Config.lat==-7.7&&Config.lng==110.4,true);
+    eq("input tidak valid: lat/lng di luar rentang diabaikan",Config.pos.lat==-7.7&&Config.pos.lng==110.4,true);
     eq("input tidak valid: acc NaN diabaikan",Config.accNow(null)==10f,true);
     eq("input tidak valid: spd Infinity -> 0",Config.spd,0f);
     eq("input tidak valid: alt NaN -> 0",Config.alt,0.0);
@@ -92,9 +92,22 @@ public class BeatTest {
     eq("refresh: perubahan cfg langsung",Config.enabled,false);
     sput("cfg",PL); Config.refresh(null,null,null); for(int i=0;i<12;i++){ SystemClock.fake+=1000; Config.refresh(null,null,null); }
     eq("refresh: beat basi 12 dtk -> freeze",Config.spd,0f);
+    for(int i=0;i<60;i++){ SystemClock.fake+=1000; Config.refresh(null,null,null); }
+    eq("refresh: beat basi 72 dtk -> spoof off",Config.enabled,false);
+    sput("beat","resume1"); SystemClock.fake+=1000; Config.refresh(null,null,null);
+    eq("refresh: beat kembali -> enabled langsung di refresh yang sama",Config.enabled,true); eq("refresh: beat kembali -> spd langsung pulih",Config.spd,33.0f);
     SystemClock.fake=2_000_000; double[] pv=Config.networkOffset(-7.7); long lc=SystemClock.fake, mn=Long.MAX_VALUE, mx=0, sm=0; int cn=0;
     for(long tt=2_000_000;tt<2_000_000+900_000L;tt+=50){ SystemClock.fake=tt; double[] o=Config.networkOffset(-7.7); if(o[0]!=pv[0]||o[1]!=pv[1]){ long d=tt-lc; mn=Math.min(mn,d); mx=Math.max(mx,d); sm+=d; cn++; lc=tt; pv=o; } }
     eq("networkOffset: interval ganti acak 20-40 dtk",cn>=10&&mn>=20000&&mx<=40100&&sm/cn>=24000,true);
+    { final String CA="enabled=1;lat=-7.0;lng=110.0;acc=10;random=0", CB="enabled=1;lat=40.0;lng=-74.0;acc=10;random=0";
+      final java.util.concurrent.atomic.AtomicBoolean stop=new java.util.concurrent.atomic.AtomicBoolean(false);
+      Thread w=new Thread(()->{ boolean f=false; while(!stop.get()){ Config.parse(f?CA:CB); f=!f; } });
+      w.start(); try{ Thread.sleep(30); }catch(InterruptedException e){}
+      long end=System.nanoTime()+1_500_000_000L, clk=9_000_000; int torn=0, reads=0;
+      while(System.nanoTime()<end){ clk+=100; SystemClock.fake=clk; Config.Pt p=Config.snapshot(); reads++;
+        boolean pa=p.lat==-7.0&&p.lng==110.0, pb=p.lat==40.0&&p.lng==-74.0; if(!pa&&!pb) torn++; }
+      stop.set(true); try{ w.join(); }catch(InterruptedException e){}
+      eq("snapshot: lat/lng selalu satu pasangan utuh ("+reads+" baca)",torn,0); }
     System.out.println(fails==0?"ALL PASS":"FAILURES "+fails); System.exit(fails);
   }
 }

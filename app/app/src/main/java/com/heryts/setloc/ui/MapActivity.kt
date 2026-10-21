@@ -15,8 +15,11 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.TextView
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.viewModels
+import android.view.ViewGroup
 import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.widget.PopupMenu
 import androidx.appcompat.widget.AppCompatAutoCompleteTextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
@@ -31,7 +34,6 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.heryts.setloc.R
-import com.heryts.setloc.adapter.FavListAdapter
 import com.heryts.setloc.databinding.ActivityMapBinding
 import com.heryts.setloc.route.ElevationClient
 import com.heryts.setloc.route.AutoSpeed
@@ -64,13 +66,20 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     private lateinit var mMap: GoogleMap
     private val viewModel by viewModels<MainViewModel>()
     private val notificationsChannel by lazy { NotificationsChannel() }
-    private var favListAdapter: FavListAdapter = FavListAdapter()
     private var mMarker: Marker? = null
     private var mLatLng: LatLng? = null
     private var pinListener: ((LatLng) -> Unit)? = null
 
     private var floatingDialog: AlertDialog? = null
     private var dialogMoved = false
+    private var insetTop = 0
+    private var insetBottom = 0
+    private var insetIme = 0
+    private var pinLabel: String? = null
+    private var pinPicked = false
+    private var routeFromGps = false
+    private var favDialog: AlertDialog? = null
+    private lateinit var searchPanel: SearchPanel
     private var adjustPending = false
     private var pinAdjustWanted = false
 
@@ -105,16 +114,12 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         }
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(binding.root)
-        setSupportActionBar(binding.toolbar)
+        setupSystemBars()
+        setupSearchBar()
         initializeMap()
         setFloatActionButton()
         setRouteButton()
         observeRoute()
-        lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.allFavList.collect { favListAdapter.submitList(it) }
-            }
-        }
     }
 
     @SuppressLint("MissingPermission")
@@ -128,6 +133,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     private fun setRunningUi(running: Boolean) {
         binding.start.visibility = if (running) View.GONE else View.VISIBLE
         binding.stop.visibility = if (running) View.VISIBLE else View.GONE
+        updateRouteFab()
     }
 
     private fun initializeMap() {
@@ -203,7 +209,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
                     99
                 )
             }
-            setPadding(0, 0, 0, (64 * resources.displayMetrics.density).toInt())
+            applyMapPadding()
             setOnCameraIdleListener {
                 if (pinAdjustWanted) {
                     pinAdjustWanted = false
@@ -222,6 +228,16 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     }
 
     override fun onMapClick(latLng: LatLng) {
+        if (searchPanel.isShowing) {
+            searchPanel.close()
+            return
+        }
+        if (!RouteRunner.isRunning && binding.start.visibility == View.VISIBLE && (routeReady || routeLoading)) {
+            onMapLongClick(latLng)
+            return
+        }
+        pinLabel = null
+        updateRouteFab()
         if (RouteRunner.isRunning) return
         if (routeWaypoints.isNotEmpty()) clearRoute()
         mLatLng = latLng
@@ -232,6 +248,8 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             pinListener?.invoke(latLng)
             onPinChanged()
         }
+        pinPicked = true
+        updateRouteFab()
     }
 
     override fun onMapLongClick(latLng: LatLng) {
@@ -243,16 +261,92 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             showToast(getString(R.string.route_max_points, RouteClient.MAX_POINTS))
             return
         }
+        addRouteStop(latLng, quiet = false)
+    }
+
+    private fun addRouteStop(latLng: LatLng, quiet: Boolean) {
         val marker = mMap.addMarker(MarkerOptions().position(latLng)) ?: return
         routeWaypoints.add(latLng)
         routeMarkers.add(marker)
         refreshRouteMarkers()
         if (routeWaypoints.size == 1) {
-            showToast(getString(R.string.route_pick_start))
+            if (!quiet) showToast(getString(R.string.route_pick_start))
             updateRouteFab()
         } else {
             fetchRoute(dropLastOnFail = true)
         }
+    }
+
+    private fun metersBetween(a: LatLng, b: LatLng): Float {
+        val out = FloatArray(1)
+        android.location.Location.distanceBetween(a.latitude, a.longitude, b.latitude, b.longitude, out)
+        return out[0]
+    }
+
+    private fun addRouteFromPin() {
+        if (RouteRunner.isRunning) {
+            showToast(getString(R.string.route_stop_first))
+            return
+        }
+        val pos = mLatLng
+        if (!::mMap.isInitialized || mMarker?.isVisible != true || pos == null) {
+            showToast(getString(R.string.location_not_selected))
+            return
+        }
+        val fresh = routeWaypoints.size < 2
+        val needed = if (fresh) 2 else 1
+        if ((if (fresh) 0 else routeWaypoints.size) + needed > RouteClient.MAX_POINTS) {
+            showToast(getString(R.string.route_max_points, RouteClient.MAX_POINTS))
+            return
+        }
+        val from = if (fresh) realLocation() else routeWaypoints.last()
+        if (from == null) {
+            showToast(getString(R.string.gps_unavailable))
+            return
+        }
+        if (metersBetween(from, pos) < 5f) {
+            showToast(getString(R.string.route_point_exists))
+            return
+        }
+        if (fresh) {
+            if (routeWaypoints.isNotEmpty()) clearRoute()
+            addRouteStop(from, quiet = true)
+            routeFromGps = true
+        }
+        addRouteStop(pos, quiet = false)
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun realLocation(): LatLng? {
+        if (!checkSinglePermission(Manifest.permission.ACCESS_FINE_LOCATION)) return null
+        val lm = getSystemService(LOCATION_SERVICE) as android.location.LocationManager
+        val best = listOf(
+            android.location.LocationManager.GPS_PROVIDER,
+            android.location.LocationManager.NETWORK_PROVIDER,
+            android.location.LocationManager.PASSIVE_PROVIDER,
+            "fused"
+        ).mapNotNull { try { lm.getLastKnownLocation(it) } catch (_: Exception) { null } }
+            .maxByOrNull { it.time }
+        return best?.let { LatLng(it.latitude, it.longitude) }
+    }
+
+    private fun addFavouriteFromPin() {
+        val pos = mLatLng
+        if (mMarker?.isVisible != true || pos == null) {
+            showToast(getString(R.string.location_not_selected))
+            return
+        }
+        val label = pinLabel ?: "%.5f, %.5f".format(Locale.US, pos.latitude, pos.longitude)
+        showFavouriteNameDialog(PlaceCandidate(label, pos.latitude, pos.longitude), moveMap = false)
+    }
+
+    private fun confirmDeleteFavourite(f: com.heryts.setloc.favourite.Favourite) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.delete_favourite_item)
+            .setMessage(f.address)
+            .setPositiveButton(android.R.string.ok) { _, _ -> viewModel.deleteFavourite(f) }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private fun refreshRouteMarkers() {
@@ -294,12 +388,17 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         routeMarkers.forEach { it.remove() }
         routeMarkers.clear()
         routeWaypoints.clear()
+        routeFromGps = false
         clearRouteLine()
         updateRouteFab()
     }
 
     private fun removeLastWaypoint() {
         if (routeWaypoints.isEmpty() || RouteRunner.isRunning) return
+        if (routeFromGps && routeWaypoints.size <= 2) {
+            clearRoute()
+            return
+        }
         cancelRouteJobs()
         dropLastWaypoint()
         clearRouteLine()
@@ -413,12 +512,17 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         binding.route.setOnClickListener { if (routeReady) showRouteOptions() }
         binding.routeDelete.setOnClickListener { removeLastWaypoint() }
         binding.routeDelete.setOnLongClickListener { clearRoute(); true }
+        binding.addRoute.setOnClickListener { addRouteFromPin() }
+        binding.addFav.setOnClickListener { addFavouriteFromPin() }
     }
 
     private fun updateRouteFab() {
         val idle = !RouteRunner.isRunning && binding.start.visibility == View.VISIBLE
         binding.route.visibility = if (routeReady && idle) View.VISIBLE else View.GONE
         binding.routeDelete.visibility = if (routeWaypoints.isNotEmpty() && idle) View.VISIBLE else View.GONE
+        val picked = (pinLabel != null || pinPicked) && idle && mMarker?.isVisible == true
+        binding.addRoute.visibility = if (picked) View.VISIBLE else View.GONE
+        binding.addFav.visibility = if (picked) View.VISIBLE else View.GONE
     }
 
     private fun systemModeActive(): Boolean = try {
@@ -536,23 +640,76 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         onPinChanged()
     }
 
-    override fun onCreateOptionsMenu(menu: Menu?): Boolean {
-        menuInflater.inflate(R.menu.main_menu,menu)
-        return true
+    private fun setupSystemBars() {
+        window.statusBarColor = android.graphics.Color.TRANSPARENT
+        WindowCompat.getInsetsController(window, binding.root).apply {
+            isAppearanceLightStatusBars = true
+            isAppearanceLightNavigationBars = true
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, insets ->
+            val sb = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val d = resources.displayMetrics.density
+            insetTop = sb.top
+            insetBottom = sb.bottom
+            insetIme = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+            if (::searchPanel.isInitialized) searchPanel.setIme(insetIme)
+            (binding.searchBar.layoutParams as ViewGroup.MarginLayoutParams).topMargin = sb.top + (12 * d).toInt()
+            binding.searchBar.requestLayout()
+            listOf(
+                binding.addRoute to 104, binding.addFav to 156, binding.route to 208,
+                binding.routeDelete to 260, binding.start to 32, binding.stop to 32
+            )
+                .forEach { (v, base) ->
+                    (v.layoutParams as ViewGroup.MarginLayoutParams).bottomMargin = (base * d).toInt() + sb.bottom
+                    v.requestLayout()
+                }
+            applyMapPadding()
+            insets
+        }
+        ViewCompat.requestApplyInsets(binding.root)
     }
 
-    override fun onMenuOpened(featureId: Int, menu: Menu): Boolean {
-        floatingDialog?.dismissSafe()
-        return super.onMenuOpened(featureId, menu)
+    private fun applyMapPadding() {
+        if (!::mMap.isInitialized) return
+        val d = resources.displayMetrics.density
+        mMap.setPadding(0, insetTop + (76 * d).toInt(), 0, insetBottom + (64 * d).toInt())
     }
 
-    override fun onOptionsItemSelected(item: MenuItem): Boolean = when (item.itemId) {
-        R.id.search -> { searchDialog(); true }
-        R.id.add_fav -> { addFavouriteDialog(); true }
-        R.id.get_favourite -> { openFavouriteListDialog(); true }
+    private fun setupSearchBar() {
+        searchPanel = SearchPanel(
+            this, binding.searchBar,
+            onPick = {
+                pinLabel = if (it.label.firstOrNull()?.isLetter() == true) it.label.substringBefore(", ") else it.label
+                moveMapToNewLocation(LatLng(it.lat, it.lon))
+                pinPicked = true
+                updateRouteFab()
+            },
+            onFavouriteLongClick = { confirmDeleteFavourite(it) }
+        )
+        searchPanel.setIme(insetIme)
+        val backCb = object : OnBackPressedCallback(false) {
+            override fun handleOnBackPressed() { searchPanel.close() }
+        }
+        onBackPressedDispatcher.addCallback(this, backCb)
+        searchPanel.onVisibilityChanged = { shown ->
+            backCb.isEnabled = shown
+            if (shown) floatingDialog?.dismissSafe()
+        }
+        binding.menuBtn.setOnClickListener {
+            floatingDialog?.dismissSafe()
+            searchPanel.close()
+            PopupMenu(this, binding.menuBtn, Gravity.END).apply {
+                menuInflater.inflate(R.menu.main_menu, menu)
+                setOnMenuItemClickListener { handleMenuItem(it.itemId) }
+                show()
+            }
+        }
+    }
+
+    private fun handleMenuItem(id: Int): Boolean = when (id) {
         R.id.settings -> { startActivity(Intent(this, SettingsActivity::class.java)); true }
         R.id.about -> { showAboutDialog(); true }
-        else -> super.onOptionsItemSelected(item)
+        else -> false
     }
 
     private fun AlertDialog.makeFloating(): AlertDialog {
@@ -572,7 +729,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
                 setGravity(if (imeUp) Gravity.TOP or Gravity.CENTER_HORIZONTAL else Gravity.CENTER)
                 val lp = attributes
                 lp.x = 0
-                lp.y = if (imeUp) binding.toolbar.height + (8 * resources.displayMetrics.density).toInt() else 0
+                lp.y = if (imeUp) binding.searchBar.bottom + (8 * resources.displayMetrics.density).toInt() else 0
                 attributes = lp
                 dialogMoved = false
             }
@@ -630,8 +787,8 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             pl[1] < pinBottom && pl[1] + panel.height > pinTop
         if (!overlap) return
         val tl = IntArray(2)
-        binding.toolbar.getLocationOnScreen(tl)
-        val minTop = tl[1] + binding.toolbar.height + 4 * d
+        binding.searchBar.getLocationOnScreen(tl)
+        val minTop = tl[1] + binding.searchBar.height + 8 * d
         val above = pinTop - panel.height - 8 * d
         val below = pinBottom + 8 * d
         val screenH = resources.displayMetrics.heightPixels
@@ -675,178 +832,14 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         super.onDestroy()
     }
 
-    private fun searchDialog(prefill: String = "") {
-        val alertDialog = MaterialAlertDialogBuilder(this)
-        val view = layoutInflater.inflate(R.layout.dialog_layout,null)
-        val editText = view.findViewById<AppCompatAutoCompleteTextView>(R.id.search_edittxt)
-        editText.hint = getString(R.string.search_hint)
-        if (prefill.isNotEmpty()) { editText.setText(prefill); editText.setSelection(prefill.length) }
-        var shown: AlertDialog? = null
-        editText.attachPlaceSuggestions(lifecycleScope) { place ->
-            moveMapToNewLocation(LatLng(place.lat, place.lon))
-            hideKeyboard(editText)
-        }
-        editText.setOnEditorActionListener { _, actionId, _ ->
-            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
-                shown?.getButton(AlertDialog.BUTTON_POSITIVE)?.performClick()
-                true
-            } else false
-        }
-        val progressBar = buildProgressDialog(getString(R.string.searching))
-        alertDialog.setTitle(getString(R.string.search_dialog_title))
-        alertDialog.setView(view)
-        alertDialog.setPositiveButton(getString(R.string.search_button), null)
-        alertDialog.setNegativeButton(getString(R.string.add_favourite), null)
-        fun doSearch() {
-            hideKeyboard(editText)
-            if (isNetworkConnected()) {
-                val getInput = editText.text.toString().trim()
-                if (getInput.isNotEmpty()) {
-                    lifecycleScope.launch {
-                        searchAddress(this@MapActivity, getInput)
-                            .catch { emit(SearchProgress.Fail(getString(R.string.address_not_found))) }
-                            .collect { result ->
-                                when (result) {
-                                    is SearchProgress.Progress -> {
-                                        if (!isFinishing) progressBar.show()
-                                    }
-                                    is SearchProgress.Complete -> {
-                                        progressBar.dismissSafe()
-                                        moveMapToNewLocation(LatLng(result.lat, result.lon))
-                                    }
-                                    is SearchProgress.Fail -> {
-                                        progressBar.dismissSafe()
-                                        showToast(result.error ?: getString(R.string.address_not_found))
-                                    }
-                                }
-                            }
-                    }
-                }
-            } else {
-                showToast(getString(R.string.no_internet))
-            }
-        }
-        val created = alertDialog.create()
-        shown = created
-        created.setOnShowListener {
-            created.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener { doSearch() }
-            created.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
-                val pos = mLatLng
-                if (mMarker?.isVisible != true || pos == null) {
-                    showToast(getString(R.string.location_not_selected))
-                } else {
-                    hideKeyboard(editText)
-                    val label = editText.text.toString().trim()
-                    showFavouriteNameDialog(
-                        PlaceCandidate(label, pos.latitude, pos.longitude),
-                        moveMap = false,
-                        onBack = { searchDialog(label) }
-                    )
-                }
-            }
-        }
-        created.makeFloating()
-        bindPinInfo(view.findViewById(R.id.pin_info))
-        created.show()
-    }
-
-    private fun addFavouriteDialog(prefill: String = "") {
-        val view = layoutInflater.inflate(R.layout.dialog_add_fav, null)
-        val editText = view.findViewById<AppCompatAutoCompleteTextView>(R.id.search_edittxt)
-        editText.hint = getString(R.string.fav_name_search_hint)
-        if (prefill.isNotEmpty()) { editText.setText(prefill); editText.setSelection(prefill.length) }
-        var addDialog: AlertDialog? = null
-        editText.attachPlaceSuggestions(lifecycleScope) { place ->
-            addDialog?.dismiss()
-            val typed = editText.text.toString()
-            showFavouriteNameDialog(place, onBack = { addFavouriteDialog(typed) })
-        }
-
-        val dlg = MaterialAlertDialogBuilder(this)
-            .setTitle(getString(R.string.add_fav_dialog_title))
-            .setView(view)
-            .setNegativeButton(getString(R.string.search_button), null)
-            .setPositiveButton(getString(R.string.dialog_button_add), null)
-            .create()
-
-        addDialog = dlg
-        dlg.setOnShowListener {
-            dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val pos = mLatLng
-                if (mMarker?.isVisible != true || pos == null) {
-                    showToast(getString(R.string.location_not_selected))
-                    return@setOnClickListener
-                }
-                val label = editText.text.toString().trim()
-                    .ifEmpty { "%.5f, %.5f".format(Locale.US, pos.latitude, pos.longitude) }
-                saveFavourite(label, pos.latitude, pos.longitude)
-                dlg.dismiss()
-            }
-            dlg.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
-                val query = editText.text.toString().trim()
-                if (query.isEmpty()) {
-                    showToast(getString(R.string.fav_search_empty))
-                } else {
-                    searchFavouritePlaces(query, { dlg.dismiss() }, { addFavouriteDialog(query) })
-                }
-            }
-            editText.requestFocus()
-        }
-        editText.setOnEditorActionListener { _, actionId, _ ->
-            if (actionId == EditorInfo.IME_ACTION_DONE) {
-                dlg.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
-                true
-            } else false
-        }
-        dlg.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
-        dlg.makeFloating()
-        bindPinInfo(view.findViewById(R.id.pin_info))
-        dlg.show()
-    }
-
     private fun saveFavourite(label: String, lat: Double, lon: Double) {
         viewModel.storeFavorite(label, lat, lon) { ok ->
             showToast(getString(if (ok) R.string.record_saved else R.string.cant_save))
         }
     }
 
-    private fun searchFavouritePlaces(query: String, onFound: () -> Unit, onBack: () -> Unit) {
-        val progress = buildProgressDialog(getString(R.string.searching))
-        lifecycleScope.launch {
-            if (!isFinishing) progress.show()
-            val result = try {
-                searchPlaces(this@MapActivity, query)
-            } catch (e: CancellationException) {
-                progress.dismissSafe()
-                throw e
-            } catch (_: java.io.IOException) {
-                progress.dismissSafe()
-                showToast(getString(R.string.no_internet))
-                return@launch
-            } catch (_: Exception) {
-                emptyList()
-            }
-            progress.dismissSafe()
-            if (result.isEmpty()) {
-                showToast(getString(R.string.address_not_found))
-            } else if (!isFinishing) {
-                onFound()
-                showFavouritePlacePicker(result, onBack)
-            }
-        }
-    }
-
-    private fun showFavouritePlacePicker(places: List<PlaceCandidate>, onBack: () -> Unit) {
-        MaterialAlertDialogBuilder(this)
-            .setTitle(getString(R.string.fav_pick_location))
-            .setItems(places.map { it.label }.toTypedArray()) { _, i ->
-                showFavouriteNameDialog(places[i], onBack = { showFavouritePlacePicker(places, onBack) })
-            }
-            .setNegativeButton(getString(R.string.dialog_button_cancel)) { d, _ -> d.cancel() }
-            .create().backTo(onBack).makeFloating().show()
-    }
-
     private fun showFavouriteNameDialog(place: PlaceCandidate, moveMap: Boolean = true, onBack: (() -> Unit)? = null) {
+        if (favDialog?.isShowing == true) return
         if (moveMap) moveMapToNewLocation(LatLng(place.lat, place.lon))
         val view = layoutInflater.inflate(R.layout.dialog_add_fav, null)
         val editText = view.findViewById<EditText>(R.id.search_edittxt)
@@ -859,6 +852,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             .setNegativeButton(getString(R.string.dialog_button_cancel), null)
             .setPositiveButton(getString(R.string.dialog_button_add), null)
             .create().backTo(onBack)
+        favDialog = dlg
 
         fun submit() {
             val label = editText.text.toString().trim()
@@ -878,26 +872,6 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         dlg.makeFloating()
         view.findViewById<TextView>(R.id.pin_info)?.text = pinText(LatLng(place.lat, place.lon))
         dlg.show()
-    }
-
-    private fun openFavouriteListDialog() {
-        val alertDialog = MaterialAlertDialogBuilder(this)
-        alertDialog.setTitle(getString(R.string.favourites))
-        val view = layoutInflater.inflate(R.layout.fav,null)
-        val  rcv = view.findViewById<RecyclerView>(R.id.favorites_list)
-        rcv.layoutManager = LinearLayoutManager(this)
-        rcv.adapter = favListAdapter
-        favListAdapter.onItemClick = {
-            val la = it.lat
-            val lo = it.lng
-            if (la != null && lo != null) moveMapToNewLocation(LatLng(la, lo))
-        }
-        favListAdapter.onItemDelete = {
-            viewModel.deleteFavourite(it)
-        }
-        alertDialog.setView(view)
-        alertDialog.setNegativeButton(getString(R.string.dialog_button_close), null)
-        alertDialog.create().makeFloating().show()
     }
 
     private fun showStartNotification(address: String){

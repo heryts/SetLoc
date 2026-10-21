@@ -78,8 +78,8 @@ object RouteClient {
         val route = JSONObject(text).optJSONArray("routes")?.optJSONObject(0)
             ?: throw RouteException(R.string.route_err_not_found)
         val encoded = route.optJSONObject("polyline")?.optString("encodedPolyline").orEmpty()
-        if (encoded.isEmpty()) throw RouteException(R.string.route_err_not_found)
-        val points = decodePolyline(encoded)
+        if (!Polyline.isComplete(encoded)) throw RouteException(R.string.route_err_not_found)
+        val points = Polyline.decode(encoded)
         if (points.size < 2) throw RouteException(R.string.route_err_not_found)
         val seconds = route.optString("duration").removeSuffix("s").toDoubleOrNull() ?: 0.0
         return Result(points, seconds)
@@ -139,35 +139,5 @@ object RouteClient {
         certCache = c
         certLoaded = true
         return c
-    }
-
-    private fun decodePolyline(encoded: String): List<LatLng> {
-        val out = ArrayList<LatLng>(encoded.length / 4)
-        var index = 0
-        var lat = 0
-        var lng = 0
-        while (index < encoded.length) {
-            var result = 0
-            var shift = 0
-            var b: Int
-            do {
-                b = encoded[index++].code - 63
-                result = result or ((b and 0x1f) shl shift)
-                shift += 5
-            } while (b >= 0x20 && index < encoded.length)
-            lat += if (result and 1 != 0) (result shr 1).inv() else result shr 1
-
-            result = 0
-            shift = 0
-            do {
-                b = encoded[index++].code - 63
-                result = result or ((b and 0x1f) shl shift)
-                shift += 5
-            } while (b >= 0x20 && index < encoded.length)
-            lng += if (result and 1 != 0) (result shr 1).inv() else result shr 1
-
-            out.add(LatLng(lat / 1e5, lng / 1e5))
-        }
-        return out
     }
 }

@@ -40,8 +40,8 @@ case "$1" in sync|check|status|doctor|super|net|bt) ;; *) sh "$MODDIR/bridge.sh"
 RAW=$(dec "$(settings get global $KEY 2>/dev/null)")
 get() { T=";$RAW;"; V=${T#*";$1="}; [ "$V" = "$T" ] && return; echo "${V%%;*}"; }
 E=$(get enabled);  [ -z "$E" ] && E=0
-LAT=$(get lat);    [ -z "$LAT" ] && LAT=-6.2088
-LNG=$(get lng);    [ -z "$LNG" ] && LNG=106.8456
+LAT=$(get lat);    [ -z "$LAT" ] && LAT=40.7128
+LNG=$(get lng);    [ -z "$LNG" ] && LNG=-74.0060
 ACC=$(get acc);    [ -z "$ACC" ] && ACC=10
 RND=$(get random); [ -z "$RND" ] && RND=0
 SPD=$(get spd); BRG=$(get brg); ALT=$(get alt); ALTV=$(get altv); RR=$(get rr)
@@ -75,6 +75,14 @@ sysmode() {
   mirror
 }
 isnum() { case "$1" in ''|-|.|-.|*[!0-9.-]*|*.*.*|?*-*) return 1 ;; *) return 0 ;; esac; }
+inrange() {
+  v=${1#-}; i=${v%%.*}; [ -n "$i" ] || i=0
+  f=; case "$v" in *.*) f=${v#*.} ;; esac
+  [ "$i" -lt "$2" ] && return 0
+  [ "$i" -eq "$2" ] || return 1
+  case "$f" in *[!0]*) return 1 ;; esac
+  return 0
+}
 validpkg() { case "$1" in ''|.*|*[!A-Za-z0-9._]*) return 1 ;; *) return 0 ;; esac; }
 
 case "$1" in
@@ -83,6 +91,7 @@ case "$1" in
   toggle) [ "$E" = 1 ] && E=0 || E=1; save; sh "$MODDIR/bridge.sh" setstart $E >/dev/null 2>&1 ;;
   set)
     isnum "$2" && isnum "$3" || { echo "usage: set <lat> <lng> [acc]"; exit 1; }
+    inrange "$2" 90 && inrange "$3" 180 || { echo "lat harus -90..90 dan lng -180..180"; exit 1; }
     LAT=$2; LNG=$3; SPD=0; BRG=""
     if [ -n "$4" ]; then isnum "$4" || { echo "acc must be a number"; exit 1; }; ACC=$4; fi
     save ;;
@@ -106,9 +115,11 @@ case "$1" in
   pkg)
     case "$2" in
       add)  validpkg "$3" || { echo "usage: pkg add <package>"; exit 1; }
+            [ "$3" = android ] && { echo "android diatur lewat: system on|heartbeat|off"; exit 1; }
             mkdir -p "$PKGDIR" && : > "$PKGDIR/$3" && am force-stop "$3" 2>/dev/null
             echo "added $3 (app restarted)" ;;
       rm)   validpkg "$3" || { echo "usage: pkg rm <package>"; exit 1; }
+            [ "$3" = android ] && { echo "android diatur lewat: system on|heartbeat|off"; exit 1; }
             rm -f "$PKGDIR/$3" && am force-stop "$3" 2>/dev/null
             echo "removed $3" ;;
       list) ls -1A "$PKGDIR" 2>/dev/null ;;

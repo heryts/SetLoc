@@ -546,7 +546,11 @@ function trackPos(trk, nowMs) {
   if (!rows.length || rows.some(r => r.length < 5 || r.some(Number.isNaN))) return null;
   const last = rows.length - 1, pos = Math.max(0, (nowMs - t0) / tk);
   const i = Math.min(Math.floor(pos), last), j = Math.min(i + 1, last), f = i === last ? 0 : pos - i;
-  return [rows[i][0] + (rows[j][0] - rows[i][0]) * f, rows[i][1] + (rows[j][1] - rows[i][1]) * f];
+  let dl = rows[j][1] - rows[i][1];
+  if (dl > 180) dl -= 360; else if (dl < -180) dl += 360;
+  let lo = rows[i][1] + dl * f;
+  if (lo > 180) lo -= 360; else if (lo < -180) lo += 360;
+  return [rows[i][0] + (rows[j][0] - rows[i][0]) * f, lo];
 }
 
 function renderStatus(raw) {

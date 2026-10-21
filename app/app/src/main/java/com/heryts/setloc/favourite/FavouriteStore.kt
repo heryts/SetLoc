@@ -10,6 +10,7 @@ import org.json.JSONObject
 object FavouriteStore {
     private const val FILE = "setloc_fav"
     private const val KEY = "list"
+    private const val KEY_BAD = "list_bad"
 
     private val lock = Any()
     private val state = MutableStateFlow<List<Favourite>>(emptyList())
@@ -24,7 +25,9 @@ object FavouriteStore {
         synchronized(lock) {
             if (loaded) return
             val raw = sp.getString(KEY, null)
-            val list = if (raw != null) parse(raw) else emptyList()
+            val parsed = if (raw != null) parse(raw) else emptyList()
+            if (parsed == null) sp.edit().putString(KEY_BAD, raw).remove(KEY).commit()
+            val list = parsed ?: emptyList()
             nextId = (list.maxOfOrNull { it.id } ?: 0L) + 1
             state.value = list
             loaded = true
@@ -64,18 +67,22 @@ object FavouriteStore {
         return sp.edit().putString(KEY, arr.toString()).commit()
     }
 
-    private fun parse(raw: String): List<Favourite> = try {
+    private fun parse(raw: String): List<Favourite>? = try {
         val arr = JSONArray(raw)
-        (0 until arr.length()).map {
-            val o = arr.getJSONObject(it)
-            Favourite(
-                o.getLong("id"),
-                if (o.isNull("a")) null else o.getString("a"),
-                if (o.isNull("la")) null else o.getDouble("la"),
-                if (o.isNull("ln")) null else o.getDouble("ln")
-            )
+        (0 until arr.length()).mapNotNull {
+            try {
+                val o = arr.getJSONObject(it)
+                Favourite(
+                    o.getLong("id"),
+                    if (o.isNull("a")) null else o.getString("a"),
+                    if (o.isNull("la")) null else o.getDouble("la"),
+                    if (o.isNull("ln")) null else o.getDouble("ln")
+                )
+            } catch (_: Exception) {
+                null
+            }
         }.sortedByDescending { it.id }
     } catch (_: Exception) {
-        emptyList()
+        null
     }
 }

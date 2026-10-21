@@ -111,7 +111,25 @@ sget() { cmd settings get global "$1" 2>/dev/null || settings get global "$1" 2>
 sput() { cmd settings put global "$1" "$2" >/dev/null 2>&1 || settings put global "$1" "$2"; }
 csget() { V=$(sget "$1"); [ -n "$V" ] && [ "$V" != null ] && dec "$V"; }
 csput() { sput "$1" "$(enc "$2")"; }
-numok() { case "$1" in ''|*[!0-9.eE+-]*) return 1 ;; *) return 0 ;; esac; }
+numok() {
+  _nm=$1; _nx=
+  case "$_nm" in *[eE]*) _nx=${_nm#*[eE]}; _nm=${_nm%%[eE]*}; [ -n "$_nx" ] || return 1 ;; esac
+  case "$_nm" in -*|+*) _nm=${_nm#?} ;; esac
+  case "$_nm" in ''|*[!0-9.]*|*.*.*) return 1 ;; esac
+  case "$_nm" in *[0-9]*) ;; *) return 1 ;; esac
+  case "${_nx#[-+]}" in *[!0-9]*) return 1 ;; esac
+  [ -z "$_nx" ] || [ -n "${_nx#[-+]}" ] || return 1
+  return 0
+}
+inrange() {
+  case "$1" in ''|*[!0-9.-]*|*.*.*|?*-*) return 1 ;; esac
+  v=${1#-}; i=${v%%.*}; [ -n "$i" ] || i=0
+  f=; case "$v" in *.*) f=${v#*.} ;; esac
+  [ "$i" -lt "$2" ] 2>/dev/null && return 0
+  [ "$i" -eq "$2" ] 2>/dev/null || return 1
+  case "$f" in *[!0]*) return 1 ;; esac
+  return 0
+}
 
 compose() {
   X=";spd=$SPD;alt=$ALT;altv=$ALTV;rr=$RR"
@@ -330,7 +348,7 @@ set_app_start() {
 }
 
 set_app_pos() {
-  numok "$1" && numok "$2" || { log "setpos: koordinat tidak valid"; return 1; }
+  numok "$1" && numok "$2" && inrange "$1" 90 && inrange "$2" 180 || { log "setpos: koordinat tidak valid"; return 1; }
   app_pref setpos || return 1
   am force-stop "$APP" >/dev/null 2>&1
   pref_del latitude_d; pref_del longitude_d

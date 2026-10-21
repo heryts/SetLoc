@@ -83,8 +83,18 @@ final class Config {
     static volatile boolean hideBt = false;
     static volatile boolean playing;
     static volatile boolean tkMode;
-    static volatile double lat = Double.NaN;
-    static volatile double lng = Double.NaN;
+    static final class Pos {
+        final double lat, lng;
+        Pos(double lat, double lng) { this.lat = lat; this.lng = lng; }
+    }
+
+    static volatile Pos pos = new Pos(Double.NaN, Double.NaN);
+
+    static boolean hasPos() {
+        Pos q = pos;
+        return !Double.isNaN(q.lat) && !Double.isNaN(q.lng);
+    }
+
     static volatile float acc = 10f;
     static volatile float spd = 0f;
     static volatile float brg = Float.NaN;
@@ -150,7 +160,8 @@ final class Config {
         long now = SystemClock.elapsedRealtime();
         Pt p = snap;
         if (p != null && now - p.at < SNAP_MS) return p;
-        double la = lat, lo = lng;
+        Pos q = pos;
+        double la = q.lat, lo = q.lng;
         float sSpd = spd, sBrg = brg;
         double sAlt = altitudeNow();
         if (jitter) {
@@ -358,13 +369,17 @@ final class Config {
         Track t = track;
         if (t == null) return;
         long rel = now - t.t0;
-        double pos = rel <= 0 ? 0.0 : (double) rel / t.tk;
+        double at = rel <= 0 ? 0.0 : (double) rel / t.tk;
         int i;
         double f;
-        if (pos >= t.n - 1) { i = t.n - 1; f = 0.0; } else { i = (int) pos; f = pos - i; }
+        if (at >= t.n - 1) { i = t.n - 1; f = 0.0; } else { i = (int) at; f = at - i; }
         int j = f > 0.0 ? i + 1 : i;
-        lat = t.la[i] + (t.la[j] - t.la[i]) * f;
-        lng = t.lo[i] + (t.lo[j] - t.lo[i]) * f;
+        double tla = t.la[i] + (t.la[j] - t.la[i]) * f;
+        double dl = t.lo[j] - t.lo[i];
+        if (dl > 180.0) dl -= 360.0; else if (dl < -180.0) dl += 360.0;
+        double lo = t.lo[i] + dl * f;
+        if (lo > 180.0) lo -= 360.0; else if (lo < -180.0) lo += 360.0;
+        pos = new Pos(tla, lo);
         alt = t.al[i] + (t.al[j] - t.al[i]) * f;
         spd = st >= 1 ? 0f : Math.max(0f, (float) (t.sp[i] + (t.sp[j] - t.sp[i]) * f));
         brg = lerpAngle(t.br[i], t.br[j], f);
@@ -383,7 +398,8 @@ final class Config {
             return;
         }
         boolean en = false, jit = false, pl = false, tk = false;
-        double la = lat, lo = lng;
+        Pos q0 = pos;
+        double la = q0.lat, lo = q0.lng;
         float ac = acc, sp = 0f, br = Float.NaN, av = 0f, rad = 8f;
         double al = 0.0;
         for (String kv : s.split(";")) {
@@ -417,7 +433,7 @@ final class Config {
         if (tk) { beatStale = 0; beatArmed = false; }
         acc = ac; altVar = av; rr = rad; jitter = jit; playing = pl;
         if (!(tk && track != null)) {
-            lat = la; lng = lo; spd = beatStale >= 1 ? 0f : sp; brg = br; alt = al;
+            pos = new Pos(la, lo); spd = beatStale >= 1 ? 0f : sp; brg = br; alt = al;
         }
         enabled = en && beatStale < 2 && (!tk || trkStale < 2);
     }
@@ -486,8 +502,14 @@ final class Config {
                     trkMissAt = 0;
                     trkStale = 0;
                 }
+                int staleBefore = beatStale;
                 parse(cs);
-                if (tkMode) applyTrack(rt); else checkBeat(dec(Settings.Global.getString(cr, KEY_BEAT)));
+                if (tkMode) {
+                    applyTrack(rt);
+                } else {
+                    checkBeat(dec(Settings.Global.getString(cr, KEY_BEAT)));
+                    if (beatStale != staleBefore) parse(cs);
+                }
                 String net = orFile(dec(Settings.Global.getString(cr, KEY_NET)), fileNet, useFile);
                 String bt = orFile(dec(Settings.Global.getString(cr, KEY_BT)), fileBt, useFile);
                 String sv = orFile(dec(Settings.Global.getString(cr, KEY_SYS)), fileSys, useFile);

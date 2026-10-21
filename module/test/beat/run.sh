@@ -3,6 +3,10 @@ D="$(cd "$(dirname "$0")" && pwd)"
 SRC="$D/../../zygote/src/main/java/io/gpsz/zygote/Config.java"
 W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 cp -r "$D/stubs/." "$W/"
+sed -n '/^KV=/p;/^enc() {/,/^}/p' "$D/../../zygote/src/main/assets/bridge.sh" > "$W/enc.sh"
+[ -n "$WIRE_HEX" ] || { WIRE_PLAIN=48213; WIRE_HEX=$( . "$W/enc.sh"; enc "$WIRE_PLAIN" ); }
+[ -n "$WIRE_HEX5" ] || { WIRE_PLAIN5=12345; WIRE_HEX5=$( . "$W/enc.sh"; enc "$WIRE_PLAIN5" ); }
+export WIRE_PLAIN WIRE_HEX WIRE_PLAIN5 WIRE_HEX5
 cp "$SRC" "$W/io/gpsz/zygote/Config.java"
 cp "$D/BeatTest.java" "$D/TrackTest.java" "$W/io/gpsz/zygote/"
 JC=javac; command -v javac >/dev/null 2>&1 || JC="java -m jdk.compiler/com.sun.tools.javac.Main"

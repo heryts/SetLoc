@@ -118,16 +118,17 @@ final class Fix {
     static void stamp(Location l, String provider) {
         long nowNs = SystemClock.elapsedRealtimeNanos();
         long fixNs = nowNs - (30L + RND.nextInt(90)) * 1_000_000L;
-        if (!isNetwork(provider)) {
-            synchronized (LAST_NS) {
-                Long last = LAST_NS.get(provider);
-                if (last != null) {
+        synchronized (LAST_NS) {
+            Long last = LAST_NS.get(provider);
+            if (last != null) {
+                if (!isNetwork(provider)) {
                     long snapped = last + 1_000_000_000L + RND.nextInt(3) * 1_000_000L - 1_000_000L;
                     long age = nowNs - snapped;
                     if (Math.abs(snapped - fixNs) < 100_000_000L && age >= 20_000_000L && age <= 160_000_000L) fixNs = snapped;
                 }
-                LAST_NS.put(provider, fixNs);
+                if (fixNs <= last) fixNs = Math.min(last + 1_000_000L, nowNs);
             }
+            LAST_NS.put(provider, fixNs);
         }
         long ageMs = (nowNs - fixNs) / 1_000_000L;
         l.setElapsedRealtimeNanos(fixNs);

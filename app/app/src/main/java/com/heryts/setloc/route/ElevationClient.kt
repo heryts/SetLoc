@@ -47,7 +47,7 @@ object ElevationClient {
             val f = if (len <= 0.0) 1.0 else ((d - cum[seg - 1]) / len).coerceIn(0.0, 1.0)
             val a = points[seg - 1]
             val b = points[seg]
-            out.add(LatLng(a.latitude + (b.latitude - a.latitude) * f, a.longitude + (b.longitude - a.longitude) * f))
+            out.add(LatLng(a.latitude + (b.latitude - a.latitude) * f, RouteRunner.lerpLng(a.longitude, b.longitude, f)))
         }
         return out
     }

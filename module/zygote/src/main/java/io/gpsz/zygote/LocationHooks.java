@@ -142,7 +142,7 @@ final class LocationHooks {
                     ZygoteEntry.<RuntimeException>sneaky(t);
                 }
                 try {
-                    if (Config.enabled && !Double.isNaN(Config.lat) && !Double.isNaN(Config.lng)) {
+                    if (Config.enabled && Config.hasPos()) {
                         Object r = frame.accessor().getReference(EmulatedStackFrame.RETURN_VALUE_IDX);
                         if (isFix(r)) snapOf((Location) r);
                     }
@@ -152,7 +152,7 @@ final class LocationHooks {
             boolean handled = false;
             Throwable denied = null;
             try {
-                if (Config.enabled && !Double.isNaN(Config.lat) && !Double.isNaN(Config.lng)) {
+                if (Config.enabled && Config.hasPos()) {
                     Object value;
                     if (kind == K_LAST_KNOWN) {
                         value = null;
@@ -434,7 +434,7 @@ final class LocationHooks {
             final boolean returnsBool = (m.getReturnType() == boolean.class);
             try {
                 Hooks.hook(m, Hooks.EntryPointType.DIRECT, (original, frame) -> {
-                    if (!Config.enabled || Double.isNaN(Config.lat) || Double.isNaN(Config.lng)) {
+                    if (!Config.enabled || !Config.hasPos()) {
                         try { Transformers.invokeExactNoChecks(original, frame); }
                         catch (Throwable t) { ZygoteEntry.<RuntimeException>sneaky(t); }
                         return;

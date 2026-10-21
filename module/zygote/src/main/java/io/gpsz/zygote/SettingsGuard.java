@@ -118,10 +118,12 @@ final class SettingsGuard {
         } catch (Throwable ignored) { }
     }
 
-    private static boolean reveals(String part) {
+    private static boolean reveals(String part, boolean program) {
         if (part == null) return false;
         for (String k : KEYS) if (part.contains(k)) return true;
-        for (String t : part.trim().split("\\s+")) {
+        String trimmed = part.trim();
+        if (!program && trimmed.indexOf(' ') < 0 && trimmed.indexOf('\t') < 0) return false;
+        for (String t : trimmed.split("\\s+")) {
             int i = t.lastIndexOf('/');
             String base = i >= 0 ? t.substring(i + 1) : t;
             if (base.equals("settings") || base.equals("content")) return true;
@@ -242,8 +244,9 @@ final class SettingsGuard {
                 try {
                     Object self = frame.accessor().getReference(0);
                     if (self instanceof ProcessBuilder) {
+                        int idx = 0;
                         for (String part : ((ProcessBuilder) self).command()) {
-                            if (reveals(part)) { deny = true; break; }
+                            if (reveals(part, idx++ == 0)) { deny = true; break; }
                         }
                     }
                 } catch (Throwable ignored) { }

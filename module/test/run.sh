@@ -165,6 +165,12 @@ GM="sh $MR/mod/gpsz.sh"
 $GM set -7.25 110.5 >/dev/null 2>&1
 check "set menulis lat/lng baru ke kedua berkas mirror" 'grep -q "^cfg:enabled=.;lat=-7.25;lng=110.5;" "$MR/sys/gpsz_config" && cmp -s "$MR/sys/gpsz_config" "$MR/adb/gpsz_config"'
 check "berkas mirror memuat baris sys/net/bt" 'grep -q "^sys:" "$MR/sys/gpsz_config" && grep -q "^net:" "$MR/sys/gpsz_config" && grep -q "^bt:" "$MR/sys/gpsz_config"'
+check "set menolak lat di luar -90..90" '! $GM set 90.5 10 >/dev/null 2>&1 && ! $GM set -91 10 >/dev/null 2>&1 && ! $GM set 90.000001 10 >/dev/null 2>&1'
+check "set menolak lng di luar -180..180" '! $GM set 10 180.5 >/dev/null 2>&1 && ! $GM set 10 -181 >/dev/null 2>&1'
+check "set yang ditolak tidak mengubah berkas" 'grep -q "^cfg:enabled=.;lat=-7.25;lng=110.5;" "$MR/sys/gpsz_config"'
+check "set menerima batas tepat" '$GM set 90 180 >/dev/null 2>&1 && $GM set -90.0 -180 >/dev/null 2>&1 && $GM set 0 0 >/dev/null 2>&1'
+$GM set -7.25 110.5 >/dev/null 2>&1
+check "pkg add/rm android ditolak" '! $GM pkg add android >/dev/null 2>&1 && ! $GM pkg rm android >/dev/null 2>&1 && [ ! -e "$MR/mod/packages/android" ]'
 $GM net off >/dev/null 2>&1
 check "net off tercermin ke berkas (net:0)" 'grep -q "^net:0$" "$MR/sys/gpsz_config"'
 $GM bt on >/dev/null 2>&1
@@ -179,6 +185,44 @@ check "random 1 memperbarui berkas (tidak basi)" 'grep -q ";random=1" "$MR/sys/g
 printf 'cfg:basi\n' > "$MR/sys/gpsz_config"
 sh "$MR/mod/bridge.sh" mirror >/dev/null 2>&1
 check "berkas basi ditimpa mirror" '! grep -q "^cfg:basi$" "$MR/sys/gpsz_config"'
+
+sed -n '/^numok() {/,/^}/p;/^inrange() {/,/^}/p' "$A/bridge.sh" > "$T/vf.sh"
+check "bridge inrange: batas dan di luar batas" '( . "$T/vf.sh"; inrange 90 90 && inrange 90.0 90 && inrange -180 180 && inrange 0 90 && inrange .5 90 && ! inrange 90.01 90 && ! inrange 181 180 && ! inrange 1e5 90 && ! inrange -- 90 && ! inrange "" 90 && ! inrange 99999999999999999999 90 )'
+check "bridge numok: harus ada digit" '( . "$T/vf.sh"; numok -7.5 && numok 1e-3 && numok 0 && ! numok e && ! numok + && ! numok -- && ! numok +- && ! numok "" && ! numok abc )'
+
+echo "[default koordinat]"
+PM="$A/../../../../../app/app/src/main/java/com/heryts/setloc/utils/PrefManager.kt"
+shLat() { sed -n 's/.*LAT=\(-\{0,1\}[0-9.]*\)$/\1/p' "$1" | head -1; }
+shLng() { sed -n 's/.*LNG=\(-\{0,1\}[0-9.]*\)$/\1/p' "$1" | head -1; }
+D_GL=$(shLat "$A/gpsz.sh"); D_GN=$(shLng "$A/gpsz.sh"); D_BL=$(shLat "$A/bridge.sh"); D_BN=$(shLng "$A/bridge.sh")
+D_PL=$(sed -n 's/.*getFloat(LATITUDE, \(-\{0,1\}[0-9.]*\)F.*/\1/p' "$PM" | head -1)
+D_PN=$(sed -n 's/.*getFloat(LONGITUDE, \(-\{0,1\}[0-9.]*\)F.*/\1/p' "$PM" | head -1)
+check "lat default gpsz.sh = bridge.sh = PrefManager" '[ -n "$D_GL" ] && [ "$D_GL" = "$D_BL" ] && [ "$D_BL" = "$D_PL" ]'
+check "lng default gpsz.sh = bridge.sh = PrefManager" '[ -n "$D_GN" ] && [ "$D_GN" = "$D_BN" ] && [ "$D_BN" = "$D_PN" ]'
+
+echo "[make-keystore.sh]"
+MK="$A/../../../../../make-keystore.sh"
+check "make-keystore: read -r dan password lewat env, bukan argumen" 'grep -q "IFS= read -r PASS" "$MK" && grep -q -- "-passout env:KS_PASS" "$MK" && ! grep -q "pass:" "$MK"'
+if command -v openssl >/dev/null 2>&1 && command -v java >/dev/null 2>&1 && { command -v javac >/dev/null 2>&1 || java --list-modules 2>/dev/null | grep -q '^jdk.compiler@'; }; then
+  KD="$T/ks"; rm -rf "$KD"; mkdir -p "$KD/app"; cp "$MK" "$KD/"
+  openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout "$KD/k.pem" -out "$KD/c.pem" -subj /CN=t -days 2 >/dev/null 2>&1
+  cat > "$KD/Prop.java" <<'EOJ'
+import java.io.*;
+import java.util.*;
+public class Prop { public static void main(String[] a) throws Exception { Properties p = new Properties(); try (FileInputStream f = new FileInputStream(a[0])) { p.load(f); } System.out.print(p.getProperty(a[1])); } }
+EOJ
+  cat > "$KD/t.sh" <<'EOS'
+KD=$1; PW='a\b$c "d" `e` \\f'
+printf '%s\n' "$PW" | sh "$KD/make-keystore.sh" "$KD/k.pem" "$KD/c.pem" "$KD/o.p12" >/dev/null 2>&1 || exit 1
+P="$PW" openssl pkcs12 -in "$KD/o.p12" -passin env:P -nokeys >/dev/null 2>&1 || exit 2
+[ "$(java "$KD/Prop.java" "$KD/app/keystore.properties" storePassword)" = "$PW" ] || exit 3
+[ "$(java "$KD/Prop.java" "$KD/app/keystore.properties" keyPassword)" = "$PW" ] || exit 4
+[ "$(java "$KD/Prop.java" "$KD/app/keystore.properties" storeFile)" = "$KD/o.p12" ] || exit 5
+EOS
+  check "make-keystore: password dengan backslash, \$, kutip dan spasi utuh di p12 dan keystore.properties" 'sh "$KD/t.sh" "$KD"'
+else
+  bad "tes make-keystore dilewati: openssl/java tidak ada"
+fi
 
 echo "[bridge.sh: pref_set]"
 sed -n '/^pref_set() {/,/^}/p' "$A/bridge.sh" > "$T/pref_set.sh"
@@ -215,7 +259,7 @@ EOX
 }
 derive_at() {
   ( MODDIR="$P/mod"; PREFC="$P/shared_prefs/com.heryts.setloc_prefs.xml"; CURBC=0; PATH="$PATH"
-    sed -n '/^numok()/p;/^fval()/p;/^fstr()/p;/^sget()/p;/^compose() {/,/^}/p;/^route_apply() {/,/^}/p;/^derive() {/,/^}/p;/^find_pref() {/,/^}/p' "$A/bridge.sh" > "$P/fn.sh"
+    sed -n '/^numok() {/,/^}/p;/^fval()/p;/^fstr()/p;/^sget()/p;/^compose() {/,/^}/p;/^route_apply() {/,/^}/p;/^derive() {/,/^}/p;/^find_pref() {/,/^}/p' "$A/bridge.sh" > "$P/fn.sh"
     . "$P/fn.sh"; FAST=0; derive; echo "$OUT" )
 }
 mkpref $((UPC)) 48
@@ -241,7 +285,7 @@ check "derive: titik statis memakai string presisi penuh, bukan float" 'echo "$o
 echo "[bridge.sh: jendela trk]"
 TL="$T/tl100.txt"; : > "$TL"; i=0
 while [ $i -lt 100 ]; do printf '%11.6f %11.6f %7.3f %6.2f %8.2f\n' "-7.$i" "110.5" 5 90 12 >> "$TL"; i=$((i+1)); done
-sed -n '/^numok()/p;/^sput()/p;/^TRKKEY=/p;/^TRK_W=/p;/^TRK_LEAD=/p;/^trk_win() {/,/^}/p;/^trk_pump() {/,/^}/p;/^route_due() {/,/^}/p' "$A/bridge.sh" > "$T/trk_fn.sh"
+sed -n '/^numok() {/,/^}/p;/^sput()/p;/^TRKKEY=/p;/^TRK_W=/p;/^TRK_LEAD=/p;/^trk_win() {/,/^}/p;/^trk_pump() {/,/^}/p;/^route_due() {/,/^}/p' "$A/bridge.sh" > "$T/trk_fn.sh"
 rm -f "$T/st/$TRKTAG"
 out=$( . "$T/trk_fn.sh"; RT_TK=500; RT_NN=100; RT_TLW=48; RT_TF="$TL"; RT_HE=0; TRK=1
   read UP _ < /proc/uptime; PC0=${UP%.*}${UP#*.}; RT_T0=$PC0

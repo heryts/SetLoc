@@ -3,22 +3,200 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fitsSystemWindows="true">
-
-    <com.google.android.material.appbar.AppBarLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:fitsSystemWindows="true">
-
-        <com.google.android.material.appbar.MaterialToolbar
-            android:id="@+id/toolbar"
-            android:layout_width="match_parent"
-            android:layout_height="?attr/actionBarSize" />
-
-    </com.google.android.material.appbar.AppBarLayout>
+    android:focusable="true"
+    android:focusableInTouchMode="true">
 
     <include
         layout="@layout/map_container"/>
+
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/search_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:layout_marginStart="12dp"
+        android:layout_marginTop="12dp"
+        android:layout_marginEnd="12dp"
+        app:cardCornerRadius="26dp"
+        app:cardElevation="6dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageButton
+                    android:id="@+id/search_icon"
+                    android:layout_width="48dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginStart="4dp"
+                    android:background="?attr/selectableItemBackground"
+                    android:contentDescription="@string/back"
+                    android:src="@drawable/ic_baseline_search_24" />
+
+                <EditText
+                    android:id="@+id/search_input"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:background="@null"
+                    android:hint="@string/search_here"
+                    android:imeOptions="actionSearch"
+                    android:importantForAutofill="no"
+                    android:inputType="text"
+                    android:maxLines="1"
+                    android:singleLine="true"
+                    android:textColorHint="?android:attr/textColorSecondary"
+                    android:textSize="16sp" />
+
+                <ImageButton
+                    android:id="@+id/search_clear"
+                    android:layout_width="40dp"
+                    android:layout_height="match_parent"
+                    android:background="?attr/selectableItemBackground"
+                    android:contentDescription="@string/clear_text"
+                    android:src="@drawable/ic_close"
+                    android:visibility="gone" />
+
+                <ImageButton
+                    android:id="@+id/menu_btn"
+                    android:layout_width="48dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="4dp"
+                    android:background="?attr/selectableItemBackground"
+                    android:contentDescription="@string/more_options"
+                    android:src="@drawable/ic_more_vert" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/dropdown"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingBottom="8dp"
+                android:visibility="gone">
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:alpha="0.15"
+                    android:background="?android:attr/textColorSecondary" />
+
+                <LinearLayout
+                    android:id="@+id/fav_section"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/fav_row"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:clipToPadding="false"
+                        android:overScrollMode="never"
+                        android:paddingStart="8dp"
+                        android:paddingTop="4dp"
+                        android:paddingEnd="8dp" />
+
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/section_header"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="16dp"
+                    android:paddingTop="8dp"
+                    android:paddingEnd="8dp"
+                    android:paddingBottom="2dp"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:id="@+id/section_title"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <ProgressBar
+                        android:id="@+id/search_progress"
+                        style="?android:attr/progressBarStyleSmall"
+                        android:layout_width="16dp"
+                        android:layout_height="16dp"
+                        android:layout_marginStart="12dp"
+                        android:visibility="gone" />
+
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+
+                    <TextView
+                        android:id="@+id/section_action"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:background="?attr/selectableItemBackground"
+                        android:padding="8dp"
+                        android:text="@string/search_clear_history"
+                        android:textColor="?attr/colorPrimary"
+                        android:textSize="14sp"
+                        android:visibility="gone" />
+
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/empty_text"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:padding="16dp"
+                    android:text="@string/address_not_found"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:visibility="gone" />
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/result_list"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:visibility="gone" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+    </com.google.android.material.card.MaterialCardView>
+
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/add_route"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start"
+        android:layout_marginStart="24dp"
+        android:layout_marginBottom="104dp"
+        android:contentDescription="@string/route_action"
+        android:src="@drawable/ic_route"
+        android:visibility="gone"
+        app:fabSize="mini" />
+
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/add_fav"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start"
+        android:layout_marginStart="24dp"
+        android:layout_marginBottom="156dp"
+        android:contentDescription="@string/add_favourite"
+        android:src="@drawable/ic_favorite"
+        android:visibility="gone"
+        app:fabSize="mini" />
 
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/route"
@@ -26,7 +204,7 @@
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|start"
         android:layout_marginStart="24dp"
-        android:layout_marginBottom="104dp"
+        android:layout_marginBottom="208dp"
         android:contentDescription="@string/route_options"
         android:src="@drawable/ic_check"
         android:visibility="gone"
@@ -38,7 +216,7 @@
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|start"
         android:layout_marginStart="24dp"
-        android:layout_marginBottom="156dp"
+        android:layout_marginBottom="260dp"
         android:contentDescription="@string/route_clear"
         android:src="@drawable/ic_delete"
         android:visibility="gone"
