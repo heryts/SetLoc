@@ -91,6 +91,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     private var openOptionsWhenReady = false
     private var dockedTop = 0
     private var routesDialogUp = false
+    private var confirmDialog: AlertDialog? = null
     private var currentRouteKey: String? = null
     private var routeJob: Job? = null
     private class CachedRoute(val result: RouteClient.Result, val at: Long, var elev: FloatArray? = null)
@@ -734,9 +735,13 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         onBackPressedDispatcher.addCallback(this, backCb)
         searchPanel.onVisibilityChanged = { shown ->
             backCb.isEnabled = shown
-            if (shown) floatingDialog?.dismissSafe()
+            if (shown) {
+                confirmDialog?.dismissSafe()
+                floatingDialog?.dismissSafe()
+            }
         }
         binding.menuBtn.setOnClickListener {
+            confirmDialog?.dismissSafe()
             floatingDialog?.dismissSafe()
             searchPanel.close()
             PopupMenu(this, binding.menuBtn, Gravity.END).apply {
@@ -854,6 +859,8 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     )
 
     override fun onDestroy() {
+        confirmDialog?.dismissSafe()
+        confirmDialog = null
         floatingDialog?.dismissSafe()
         floatingDialog = null
         super.onDestroy()
@@ -1051,6 +1058,10 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             }
             .setNegativeButton(android.R.string.cancel, null)
             .create()
+        confirmDialog?.dismissSafe()
+        confirmDialog = dlg
+        dlg.setOnDismissListener { if (confirmDialog === dlg) confirmDialog = null }
+        dlg.setCanceledOnTouchOutside(false)
         val aw = anchor?.takeIf { it.isShowing }?.window
         if (aw == null) {
             dlg.show()
@@ -1068,8 +1079,12 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         val rootCy = rootLoc[1] + root.height / 2
         dlg.window?.apply {
             clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            addFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL)
             WindowCompat.setDecorFitsSystemWindows(this, false)
+            aw.decorView.background?.constantState?.newDrawable()?.mutate()?.let { setBackgroundDrawable(it) }
+            setElevation(0f)
             setGravity(Gravity.CENTER)
+            attachTouchRouting(this@MapActivity.window, false)
             val lp = attributes
             lp.x = anchorCx - rootCx
             lp.y = anchorCy - rootCy
