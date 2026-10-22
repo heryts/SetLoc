@@ -29,9 +29,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Random;
-import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 
@@ -373,7 +371,7 @@ final class LocationHooks {
         }
     }
 
-    private static final Map<Location, Snap> PER_OBJ = Collections.synchronizedMap(new WeakHashMap<>());
+    private static final WeakIdentityMap<Snap> PER_OBJ = new WeakIdentityMap<>();
 
     private static Snap read(Location f, long ns, long ms) {
         Boolean prev = PARSING.get();
