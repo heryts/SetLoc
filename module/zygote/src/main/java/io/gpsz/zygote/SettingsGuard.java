@@ -31,7 +31,7 @@ import java.util.Set;
 
 final class SettingsGuard {
     private static Set<String> KEYS = Collections.emptySet();
-    private static final int K_STR = 0, K_QUERY = 1, K_CALL = 2, K_MAP = 3, K_EXEC = 4, K_OBS = 5, K_REG_OBS = 6;
+    private static final int K_STR = 0, K_QUERY = 1, K_CALL = 2, K_MAP = 3, K_EXEC = 4, K_OBS = 5, K_REG_OBS = 6, K_PCALL = 7;
     private static final int RET = EmulatedStackFrame.RETURN_VALUE_IDX;
     private static final String[] QUERY_STRING_ARGS = {
             ContentResolver.QUERY_ARG_SQL_SELECTION,
@@ -53,6 +53,7 @@ final class SettingsGuard {
         hookCache();
         hookProvider(ContentResolver.class);
         hookProvider(ContentProviderClient.class);
+        hookProxy();
         hookObserver();
         hookRegisterObserver();
         hookExec();
@@ -71,7 +72,7 @@ final class SettingsGuard {
                     Hooks.hook(m, Hooks.EntryPointType.DIRECT, (original, frame) -> {
                         try {
                             if (Config.READING.get() == null && Config.enabled && Config.hasPos() && !Config.sysHeartbeat) {
-                                Object key = frame.accessor().getReference(2);
+                                Object key = frame.accessor().getReference(1);
                                 if (LOCATION_MODE.equals(key)) {
                                     if (ret == int.class) {
                                         frame.accessor().setValue(RET, 3);
@@ -101,7 +102,7 @@ final class SettingsGuard {
                 Class<?>[] ps = m.getParameterTypes();
                 for (int i = 0; i < ps.length; i++) {
                     if (ps[i] == Uri.class || Collection.class.isAssignableFrom(ps[i])) {
-                        put(m, K_OBS, 0, i + 2);
+                        put(m, K_OBS, 0, i + 1);
                         break;
                     }
                 }
@@ -123,8 +124,32 @@ final class SettingsGuard {
 
     private static void hookExec() {
         try {
-            Method m = ProcessBuilder.class.getDeclaredMethod("start");
-            put(m, K_EXEC, 0, 0);
+            for (Method m : ProcessBuilder.class.getDeclaredMethods()) {
+                if (!m.getName().equals("start")) continue;
+                int mod = m.getModifiers();
+                if (Modifier.isAbstract(mod) || Modifier.isNative(mod) || Modifier.isStatic(mod)) continue;
+                put(m, K_EXEC, 0, 0);
+            }
+        } catch (Throwable ignored) { }
+    }
+
+    private static void hookProxy() {
+        try {
+            Class<?> c = Class.forName("android.content.ContentProviderProxy");
+            for (Method m : c.getDeclaredMethods()) {
+                int mod = m.getModifiers();
+                if (Modifier.isAbstract(mod) || Modifier.isNative(mod) || Modifier.isStatic(mod)) continue;
+                Class<?>[] ps = m.getParameterTypes();
+                if (m.getName().equals("query") && Cursor.class.isAssignableFrom(m.getReturnType())) {
+                    boolean hasUri = false;
+                    for (Class<?> p : ps) if (p == Uri.class) { hasUri = true; break; }
+                    if (hasUri) put(m, K_QUERY, ps.length, 0);
+                } else if (m.getName().equals("call") && m.getReturnType() == Bundle.class) {
+                    List<Integer> s = new ArrayList<>();
+                    for (int i = 0; i < ps.length; i++) if (ps[i] == String.class) s.add(i + 1);
+                    if (s.size() >= 3) put(m, K_PCALL, s.get(s.size() - 2), s.get(s.size() - 1));
+                }
+            }
         } catch (Throwable ignored) { }
     }
 
@@ -161,7 +186,7 @@ final class SettingsGuard {
                 put(m, K_QUERY, ps.length, 0);
             } else if (m.getName().equals("call") && m.getReturnType() == Bundle.class) {
                 List<Integer> s = new ArrayList<>();
-                for (int i = 0; i < ps.length; i++) if (ps[i] == String.class) s.add(i + 2);
+                for (int i = 0; i < ps.length; i++) if (ps[i] == String.class) s.add(i + 1);
                 if (s.size() >= 2) put(m, K_CALL, s.get(s.size() - 2), s.get(s.size() - 1));
             }
         }
@@ -182,6 +207,31 @@ final class SettingsGuard {
             int i = t.lastIndexOf('/');
             String base = i >= 0 ? t.substring(i + 1) : t;
             if (base.equals("settings") || base.equals("content")) return true;
+        }
+        return false;
+    }
+
+    private static String baseName(String s) {
+        if (s == null) return "";
+        String t = s.trim();
+        int i = t.lastIndexOf('/');
+        return i >= 0 ? t.substring(i + 1) : t;
+    }
+
+    private static boolean isSettingsTool(String base) {
+        return base.equals("cmd") || base.equals("dumpsys") || base.equals("settings") || base.equals("content");
+    }
+
+    private static boolean revealsArgv(List<String> cmd) {
+        if (cmd == null || cmd.isEmpty()) return false;
+        for (int i = 0; i < cmd.size(); i++) {
+            if (reveals(cmd.get(i), i == 0)) return true;
+        }
+        if (isSettingsTool(baseName(cmd.get(0)))) {
+            for (int i = 1; i < cmd.size(); i++) {
+                String b = baseName(cmd.get(i));
+                if (b.equals("settings") || b.equals("content")) return true;
+            }
         }
         return false;
     }
@@ -232,7 +282,7 @@ final class SettingsGuard {
     private static boolean queryHidden(EmulatedStackFrame frame, int argc) {
         Uri uri = null;
         boolean hit = false;
-        for (int i = 2; i <= argc + 1; i++) {
+        for (int i = 1; i <= argc; i++) {
             Object o;
             try { o = frame.accessor().getReference(i); } catch (Throwable t) { continue; }
             if (o instanceof Uri && uri == null) uri = (Uri) o;
@@ -244,7 +294,7 @@ final class SettingsGuard {
     }
 
     private static boolean settingsUri(EmulatedStackFrame frame, int argc) {
-        for (int i = 2; i <= argc + 1; i++) {
+        for (int i = 1; i <= argc; i++) {
             try {
                 Object o = frame.accessor().getReference(i);
                 if (o instanceof Uri) return "settings".equals(((Uri) o).getAuthority());
@@ -319,23 +369,21 @@ final class SettingsGuard {
     }
 
     private static HookTransformer transformer(final int kind, final int a, final int b) {
+        final boolean isCall = kind == K_CALL || kind == K_PCALL;
         return (original, frame) -> {
             if (kind == K_EXEC) {
                 boolean deny = false;
                 try {
-                    Object self = frame.accessor().getReference(1);
+                    Object self = frame.accessor().getReference(0);
                     if (self instanceof ProcessBuilder) {
-                        List<String> cmd = ((ProcessBuilder) self).command();
-                        for (int i = 0; i < cmd.size(); i++) {
-                            if (reveals(cmd.get(i), i == 0)) { deny = true; break; }
-                        }
+                        deny = revealsArgv(((ProcessBuilder) self).command());
                     }
                 } catch (Throwable ignored) { }
                 if (deny) ZygoteEntry.<RuntimeException>sneaky(new IOException("Cannot run program: error=13, Permission denied"));
             } else if (kind == K_OBS) {
                 boolean drop = false;
                 try {
-                    if (!Config.ownObserver(frame.accessor().getReference(1))) {
+                    if (!Config.ownObserver(frame.accessor().getReference(0))) {
                         Object o = frame.accessor().getReference(b);
                         if (o instanceof Uri) {
                             drop = hiddenUri((Uri) o);
@@ -380,11 +428,11 @@ final class SettingsGuard {
                             frame.accessor().setValue(RET, null);
                             return;
                         }
-                    } else if (kind == K_CALL) {
+                    } else if (isCall) {
                         Object method = frame.accessor().getReference(a);
                         if (method instanceof String) {
                             String mn = (String) method;
-                            Object first = frame.accessor().getReference(1);
+                            Object first = frame.accessor().getReference(kind == K_PCALL ? a - 1 : 1);
                             boolean settings = first instanceof Uri
                                     ? hiddenAuthority(((Uri) first).getAuthority())
                                     : first instanceof String && hiddenAuthority((String) first);
@@ -426,7 +474,7 @@ final class SettingsGuard {
                     Cursor c = (Cursor) r;
                     Cursor n = hide ? emptyLike(c) : filterRows(c);
                     if (n != c) frame.accessor().setValue(RET, n);
-                } else if (kind == K_CALL && r instanceof Bundle) {
+                } else if (isCall && r instanceof Bundle) {
                     Object method = frame.accessor().getReference(a);
                     if (method instanceof String && ((String) method).startsWith("LIST_")) stripBundle((Bundle) r);
                 } else if (kind == K_MAP && r instanceof Map) {
