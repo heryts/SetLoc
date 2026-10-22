@@ -1017,10 +1017,11 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         val box = FrameLayout(this)
         box.addView(scroll, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0))
         var selectedId = -1L
+        var extra = 0
         val dlgRef = arrayOfNulls<AlertDialog>(1)
 
         fun render() {
-            scroll.layoutParams.height = (minOf(items.size, 4) * 44 * d).toInt()
+            scroll.layoutParams.height = (minOf(items.size, 4) * 40 * d).toInt() + extra
             scroll.requestLayout()
             rows.removeAllViews()
             items.forEach { r ->
@@ -1029,7 +1030,10 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
                 name.text = r.name
                 name.setTypeface(null, if (r.id == selectedId) Typeface.BOLD else Typeface.NORMAL)
                 val remove = {
-                    confirmDeleteSavedRoute(r) {
+                    confirmDeleteSavedRoute(r, { e ->
+                        extra = e
+                        render()
+                    }) {
                         items.remove(r)
                         if (items.isEmpty()) dlgRef[0]?.dismissSafe() else render()
                     }
@@ -1100,7 +1104,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         }
     }
 
-    private fun confirmDeleteSavedRoute(r: SavedRoute, onDone: () -> Unit) {
+    private fun confirmDeleteSavedRoute(r: SavedRoute, fit: (Int) -> Unit, onDone: () -> Unit) {
         val anchor = floatingDialog
         val dlg = MaterialAlertDialogBuilder(this)
             .setTitle(R.string.delete_saved_route)
@@ -1113,7 +1117,10 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             .create()
         confirmDialog?.dismissSafe()
         confirmDialog = dlg
-        dlg.setOnDismissListener { if (confirmDialog === dlg) confirmDialog = null }
+        dlg.setOnDismissListener {
+            if (confirmDialog === dlg) confirmDialog = null
+            fit(0)
+        }
         dlg.setCanceledOnTouchOutside(false)
         val aw = anchor?.takeIf { it.isShowing }?.window
         if (aw == null) {
@@ -1121,6 +1128,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
             return
         }
         val d = resources.displayMetrics.density
+        val side = (16 * d).toInt()
         val loc = IntArray(2)
         aw.decorView.getLocationOnScreen(loc)
         val root = window.decorView
@@ -1144,20 +1152,57 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         }
         val fill = sampleColor(aw.decorView, aw.decorView.width - (56 * d).toInt(), (32 * d).toInt())
         dlg.show()
-        dlg.window?.let { w ->
-            w.setLayout(
-                aw.decorView.width - (32 * d).toInt(),
-                WindowManager.LayoutParams.WRAP_CONTENT
-            )
-            if (fill != null) {
-                w.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
-                w.decorView.findViewById<View>(androidx.appcompat.R.id.parentPanel)?.background =
-                    android.graphics.drawable.GradientDrawable().apply {
-                        setColor(fill)
-                        cornerRadius = 4 * d
-                    }
+        val w = dlg.window ?: return
+        val width = aw.decorView.width - 2 * side
+        w.setLayout(width, WindowManager.LayoutParams.WRAP_CONTENT)
+        val panel = w.decorView.findViewById<View>(androidx.appcompat.R.id.parentPanel)
+        if (fill != null) {
+            w.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
+            panel?.background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(fill)
+                cornerRadius = 4 * d
             }
         }
+        val anchorPanel = aw.decorView.findViewById<View>(androidx.appcompat.R.id.parentPanel)
+        val anchorTop = aw.decorView.findViewById<View>(androidx.appcompat.R.id.topPanel)
+        if (panel == null || anchorPanel == null || anchorTop == null) return
+        val decor = w.decorView
+        decor.alpha = 0f
+        var grown = 0
+        fun measureArea(): IntArray {
+            val a = IntArray(2)
+            val t = IntArray(2)
+            anchorPanel.getLocationOnScreen(a)
+            anchorTop.getLocationOnScreen(t)
+            val top = t[1] + anchorTop.height
+            return intArrayOf(top, a[1] + anchorPanel.height - top)
+        }
+        fun align(pass: Int) {
+            if (!dlg.isShowing) return
+            val area = measureArea()
+            val natural = panel.height
+            if (natural > area[1] + 1 && pass < 3) {
+                grown += natural - area[1]
+                fit(grown)
+                aw.decorView.post { aw.decorView.post { align(pass + 1) } }
+                return
+            }
+            if (area[1] > natural) {
+                panel.layoutParams.height = ViewGroup.LayoutParams.MATCH_PARENT
+                w.setLayout(width, area[1])
+            }
+            decor.post {
+                decor.post {
+                    val p = IntArray(2)
+                    panel.getLocationOnScreen(p)
+                    val lp = w.attributes
+                    lp.y += area[0] - p[1]
+                    w.attributes = lp
+                    decor.post { decor.alpha = 1f }
+                }
+            }
+        }
+        decor.post { align(0) }
     }
 
     private fun sampleColor(v: View, x: Int, y: Int): Int? = try {
