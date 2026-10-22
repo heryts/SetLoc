@@ -593,7 +593,13 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         binding.routeDelete.setOnClickListener { onDeleteClick() }
         binding.routeDelete.setOnLongClickListener { onDeleteLongClick(); true }
         binding.addFav.setOnLongClickListener { showSavedRoutes(); true }
-        binding.addFav.setOnClickListener { if (routeReady) showSaveRouteDialog() else addFavouriteFromPin() }
+        binding.addFav.setOnClickListener {
+            when {
+                routeReady -> showSaveRouteDialog()
+                routeLoading -> Unit
+                else -> addFavouriteFromPin()
+            }
+        }
     }
 
     private fun updateRouteFab() {
@@ -602,7 +608,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         val hasRoute = (routeReady || routeLoading) && idle
         binding.route.visibility = if (picked || hasRoute) View.VISIBLE else View.GONE
         binding.routeDelete.visibility = if ((routeWaypoints.isNotEmpty() && idle) || picked) View.VISIBLE else View.GONE
-        val saveMode = routeReady && idle
+        val saveMode = hasRoute
         binding.addFav.visibility = if (picked || saveMode) View.VISIBLE else View.GONE
         binding.addFav.contentDescription = getString(if (saveMode) R.string.save_route else R.string.add_favourite)
     }
