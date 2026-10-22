@@ -323,14 +323,13 @@ final class LocationHooks {
                 }
                 return;
             }
-            if (kind == K_LOCATION_ENABLED) {
-                if (PARSING.get() == null && Config.enabled && Config.hasPos() && !Config.sysHeartbeat) {
+            if (kind == K_LOCATION_ENABLED || kind == K_PROVIDER_ENABLED || kind == K_GET_PROVIDERS) {
+                boolean active = PARSING.get() == null && Config.enabled && Config.hasPos() && !Config.sysHeartbeat;
+                if (active && kind == K_LOCATION_ENABLED) {
                     frame.accessor().setValue(EmulatedStackFrame.RETURN_VALUE_IDX, Boolean.TRUE);
                     return;
                 }
-            }
-            if (kind == K_PROVIDER_ENABLED) {
-                if (PARSING.get() == null && Config.enabled && Config.hasPos() && !Config.sysHeartbeat) {
+                if (active && kind == K_PROVIDER_ENABLED) {
                     try {
                         Object p = frame.accessor().getReference(1);
                         if (p instanceof String && SPOOF_PROVIDERS.contains(p)) {
@@ -339,21 +338,23 @@ final class LocationHooks {
                         }
                     } catch (Throwable ignored) { }
                 }
-            }
-            if (kind == K_GET_PROVIDERS) {
-                if (PARSING.get() == null && Config.enabled && Config.hasPos() && !Config.sysHeartbeat) {
+                try {
+                    Transformers.invokeExactNoChecks(original, frame);
+                } catch (Throwable t) {
+                    ZygoteEntry.<RuntimeException>sneaky(t);
+                }
+                if (active && kind == K_GET_PROVIDERS) {
                     try {
                         Object r = frame.accessor().getReference(EmulatedStackFrame.RETURN_VALUE_IDX);
                         if (r instanceof List) {
-                            @SuppressWarnings("unchecked")
-                            List<String> src = (List<String>) r;
-                            List<String> dst = new ArrayList<>(src);
+                            List<String> dst = new ArrayList<>();
+                            for (Object o : (List<?>) r) if (o instanceof String) dst.add((String) o);
                             for (String p : SPOOF_PROVIDERS) if (!dst.contains(p)) dst.add(p);
                             frame.accessor().setValue(EmulatedStackFrame.RETURN_VALUE_IDX, dst);
-                            return;
                         }
                     } catch (Throwable ignored) { }
                 }
+                return;
             }
             if (PARSING.get() != null) {
                 try {
@@ -413,7 +414,7 @@ final class LocationHooks {
                     else if (kind == K_CELL_LOC) {
                         value = Config.hideNet ? NULL_RESULT : null;
                     }
-                    else if (kind >= K_FEED_NMEA) {
+                    else if (kind >= K_FEED_NMEA && kind <= K_FEED_ANT) {
                         value = Boolean.valueOf(feed(kind, frame, np));
                     }
                     else if (kind >= K_EXT) value = (kind == K_NO_BOOL || kind == K_GNSS_TRUE || (kind >= K_BT_DROP && kind <= K_BT_TRUE ? Config.hideBt : Config.hideNet)) ? fakeExt(kind) : null;
