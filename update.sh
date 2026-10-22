@@ -32,7 +32,7 @@ OUT=module/zygote/build/outputs/magisk/release/SetLocZygisk-release.zip
 C=$(mktemp -d)
 unzip -q "$OUT" -d "$C"
 [ -f "$C/customize.d/40-install-apk.sh" ] && [ "$(grep -c 40-install-apk.sh "$C/customize.sh")" = 2 ] \
-  && [ -f "$C/bin/arm64-v8a/setlocd" ] && cmp -s "$C/apk/SetLoc.apk" "$(ls -t app/app/build/outputs/apk/release/*.apk | head -n 1)" || { echo "GAGAL: isi zip tidak sesuai"; exit 1; }
+  && [ -f "$C/bin/arm64-v8a/setlocd" ] && [ -f "$C/lib/arm64-v8a/libgpsz.so" ] && cmp -s "$C/apk/SetLoc.apk" "$(ls -t app/app/build/outputs/apk/release/*.apk | head -n 1)" || { echo "GAGAL: isi zip tidak sesuai"; exit 1; }
 rm -rf "$C"
 cp "$OUT" "$HOME/SetLocZygisk-v$VER.zip"
 [ -d /mnt/c ] && cp "$OUT" "/mnt/c/SetLocZygisk-v$VER.zip"

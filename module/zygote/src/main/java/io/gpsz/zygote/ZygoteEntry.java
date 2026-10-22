@@ -27,6 +27,7 @@ public final class ZygoteEntry {
     @DoNotShrink
     public static void main() {
         try {
+            Native.load();
             if ("android".equals(ZygoteLoader.getPackageName())) {
                 Config.startPolling(SystemHooks::install);
                 return;

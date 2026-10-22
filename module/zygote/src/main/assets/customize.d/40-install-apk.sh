@@ -13,6 +13,14 @@ else
 fi
 rm -rf "$MODPATH/bin"
 
+if [ -n "$ABI" ] && [ -f "$MODPATH/lib/$ABI/libgpsz.so" ]; then
+  mkdir -p "$MODPATH/native" && cp "$MODPATH/lib/$ABI/libgpsz.so" "$MODPATH/native/libgpsz.so" && chmod 644 "$MODPATH/native/libgpsz.so"
+  ui_print "- Pustaka native libgpsz ($ABI)"
+else
+  ui_print "  ! libgpsz untuk ${ABI:-arsitektur ini} tidak ada di modul"
+fi
+rm -rf "$MODPATH/lib"
+
 OLD_MOD=${OLD_MOD:-/data/adb/modules/${MODID:-setloc_zygisk}}
 if [ "$OLD_MOD" != "$MODPATH" ] && [ -d "$OLD_MOD/packages" ]; then
   mkdir -p "$MODPATH/packages"
