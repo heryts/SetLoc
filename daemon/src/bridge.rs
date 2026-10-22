@@ -4,7 +4,7 @@ use crate::config::fval;
 use crate::engine::Core;
 use crate::lock::{is_empty, running, Lock};
 use crate::pref::{find_pref, pref_del, pref_set, pref_str};
-use crate::sys::{self, csget, is_self_cmd, quiet, run, run_all, sleep_ms, spawn_detached, APP};
+use crate::sys::{csget, is_self_cmd, quiet, run, run_all, sleep_ms, spawn_detached, APP};
 use std::fs;
 use std::path::{Path, PathBuf};
 

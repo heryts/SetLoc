@@ -4,7 +4,6 @@ import android.app.AppOpsManager;
 import android.location.GnssAntennaInfo;
 import android.location.GnssMeasurementsEvent;
 import android.location.GnssStatus;
-import android.location.GpsStatus;
 import android.location.Location;
 import android.location.LocationManager;
 import android.location.OnNmeaMessageListener;
@@ -100,7 +99,7 @@ final class LocationHooks {
         hookUnfeed(LocationManager.class, "unregisterAntennaInfoListener", GnssAntennaInfo.Listener.class);
         hookAll(LocationManager.class, "addGpsStatusListener", K_FEED_GPS);
         hookAll(LocationManager.class, "getGpsStatus", K_GPS_STATUS);
-        hookUnfeed(LocationManager.class, "removeGpsStatusListener", GpsStatus.Listener.class);
+        hookUnfeed(LocationManager.class, "removeGpsStatusListener", GPS_LISTENER);
         hookCreator();
         installAppOps();
         hookGetCurrentLocation();
@@ -256,7 +255,20 @@ final class LocationHooks {
         }
     }
 
+    private static final int GPS_EVENT_STARTED = 1, GPS_EVENT_STOPPED = 2, GPS_EVENT_FIRST_FIX = 3, GPS_EVENT_SATELLITE_STATUS = 4;
+    private static final Class<?> GPS_STATUS = classOrNull("android.location.GpsStatus");
+    private static final Class<?> GPS_LISTENER = classOrNull("android.location.GpsStatus$Listener");
+
+    private static Class<?> classOrNull(String name) {
+        try {
+            return Class.forName(name);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
     private static void hookUnfeed(Class<?> c, String name, Class<?> listenerType) {
+        if (listenerType == null) return;
         for (Method m : c.getDeclaredMethods()) {
             if (!m.getName().equals(name)) continue;
             Class<?>[] ps = m.getParameterTypes();
@@ -759,14 +771,14 @@ final class LocationHooks {
     private static Object fakeGpsStatus(Object arg) {
         try {
             Object st = GnssFake.statusObject(GnssFake.snapshot(true));
-            if (!(st instanceof GnssStatus)) return null;
-            if (arg instanceof GpsStatus) {
-                Method set = hidden(GpsStatus.class, "setStatus", GnssStatus.class, int.class);
+            if (!(st instanceof GnssStatus) || GPS_STATUS == null) return null;
+            if (GPS_STATUS.isInstance(arg)) {
+                Method set = hidden(GPS_STATUS, "setStatus", GnssStatus.class, int.class);
                 if (set == null) return null;
                 set.invoke(arg, st, 900);
                 return arg;
             }
-            Method create = hidden(GpsStatus.class, "create", GnssStatus.class, int.class);
+            Method create = hidden(GPS_STATUS, "create", GnssStatus.class, int.class);
             return create == null ? null : create.invoke(null, st, 900);
         } catch (Throwable t) {
             return null;
@@ -800,26 +812,32 @@ final class LocationHooks {
         }, off);
     }
 
-    private static void feedLegacy(final GpsStatus.Listener l, final Executor ex, Runnable off) {
+    private static void gpsEvent(Object l, int event) {
+        try {
+            GnssFake.call(l, "onGpsStatusChanged", event);
+        } catch (Throwable ignored) { }
+    }
+
+    private static void feedLegacy(final Object l, final Executor ex, Runnable off) {
         GnssFake.feedStatus(l, LocationHooks::live, new GnssFake.StatusSink() {
             @Override
             public void started() {
-                ex.execute(() -> l.onGpsStatusChanged(GpsStatus.GPS_EVENT_STARTED));
+                ex.execute(() -> gpsEvent(l, GPS_EVENT_STARTED));
             }
 
             @Override
             public void firstFix(int ttffMs) {
-                ex.execute(() -> l.onGpsStatusChanged(GpsStatus.GPS_EVENT_FIRST_FIX));
+                ex.execute(() -> gpsEvent(l, GPS_EVENT_FIRST_FIX));
             }
 
             @Override
             public void status(GnssFake.Snapshot s) {
-                ex.execute(() -> l.onGpsStatusChanged(GpsStatus.GPS_EVENT_SATELLITE_STATUS));
+                ex.execute(() -> gpsEvent(l, GPS_EVENT_SATELLITE_STATUS));
             }
 
             @Override
             public void stopped() {
-                ex.execute(() -> l.onGpsStatusChanged(GpsStatus.GPS_EVENT_STOPPED));
+                ex.execute(() -> gpsEvent(l, GPS_EVENT_STOPPED));
             }
         }, off);
     }
@@ -828,9 +846,13 @@ final class LocationHooks {
         final Executor ex = executorOf(frame, np);
         final LocationManager lm = (LocationManager) frame.accessor().getReference(0);
         if (kind == K_FEED_GPS) {
-            final GpsStatus.Listener l = argOf(frame, np, GpsStatus.Listener.class);
+            final Object l = GPS_LISTENER == null ? null : argOf(frame, np, GPS_LISTENER);
             if (l == null) return false;
-            feedLegacy(l, ex, () -> lm.addGpsStatusListener(l));
+            feedLegacy(l, ex, () -> {
+                try {
+                    GnssFake.call(lm, "addGpsStatusListener", l);
+                } catch (Throwable ignored) { }
+            });
             return true;
         }
         if (kind == K_FEED_NMEA) {
