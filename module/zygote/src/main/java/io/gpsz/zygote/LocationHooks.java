@@ -40,17 +40,16 @@ final class LocationHooks {
     private static final int K_DIST = 11, K_BEARING_TO = 12;
     private static final int K_VACC = 13, K_SACC = 14, K_BACC = 15, K_HAS_VACC = 16, K_HAS_SACC = 17, K_HAS_BACC = 18;
     private static final int K_MSL = 19, K_MSL_ACC = 20, K_HAS_MSL = 21, K_HAS_MSL_ACC = 22;
-    private static final int K_EXT = 30, K_NO_BOOL = 30, K_EMPTY_LIST = 31, K_BSSID = 32, K_NULL = 33, K_CELL_UPDATE = 34, K_SSID = 40, K_CELL_LIST_ARG = 35, K_DROP = 36;
+    private static final int K_EXT = 30, K_NO_BOOL = 30, K_BSSID = 32, K_NULL = 33, K_CELL_UPDATE = 34, K_CELL_LIST_ARG = 35, K_DROP = 36;
     private static final int K_BT_DROP = 37, K_BT_INT = 38, K_BT_TRUE = 39, K_CREATE = 41, K_GNSS_TRUE = 42, K_TOSTRING = 43, K_DELIVER = 44;
     private static final int K_WIFI_SCAN = 45, K_WIFI_SSID = 47, K_CELL_ALL = 48, K_CELL_LOC = 49;
-    private static final int K_FEED_NMEA = 50, K_FEED_MEAS = 51, K_FEED_ANT = 52, K_UNFEED = 53;
+    private static final int K_FEED_NMEA = 50, K_FEED_MEAS = 51, K_FEED_ANT = 52, K_UNFEED = 53, K_SET = 54;
     private static final Object VOID_RESULT = new Object();
     private static final Object NULL_RESULT = new Object();
     private static final int K_SPD = 5, K_BRG = 6, K_ALT = 7, K_HAS_SPD = 8, K_HAS_BRG = 9, K_HAS_ALT = 10;
     private static final long MAX_CLOCK_SKEW_MS = 5_000L;
     private static final int OP_MOCK_LOCATION = 58;
     private static final int MODE_IGNORED = 1;
-    private static final Random RND = new Random();
     private static boolean crashed = false;
     private static final ThreadLocal<Boolean> PARSING = new ThreadLocal<>();
 
@@ -110,6 +109,7 @@ final class LocationHooks {
             hookAll(stub, "onCellLocationChanged", K_DROP);
         }
         hook(Location.class, "toString", K_TOSTRING);
+        hook(Location.class, "set", K_SET, Location.class);
         hookAll("android.location.LocationManager$LocationListenerTransport", "onLocationChanged", K_DELIVER);
         hookAll("android.location.LocationManager$GetCurrentLocationTransport", "onLocation", K_DELIVER);
     }
@@ -210,10 +210,22 @@ final class LocationHooks {
                 }
                 try {
                     if (Config.enabled && Config.hasPos()) {
-                        Object r = frame.accessor().getReference(EmulatedStackFrame.RETURN_VALUE_IDX);
-                        if (isFix(r)) snapOf((Location) r);
+                        fixSnap(frame.accessor().getReference(EmulatedStackFrame.RETURN_VALUE_IDX));
                     }
                 } catch (Throwable ignored) { }
+                return;
+            }
+            if (kind == K_SET) {
+                try {
+                    Transformers.invokeExactNoChecks(original, frame);
+                } catch (Throwable t) {
+                    ZygoteEntry.<RuntimeException>sneaky(t);
+                }
+                if (PARSING.get() == null) {
+                    try {
+                        if (Config.enabled && Config.hasPos()) fixSnap(frame.accessor().getReference(0));
+                    } catch (Throwable ignored) { }
+                }
                 return;
             }
             if (kind == K_UNFEED) {
@@ -258,7 +270,8 @@ final class LocationHooks {
                     }
                     else if (kind == K_TOSTRING) {
                         Object s0 = frame.accessor().getReference(0);
-                        value = isFix(s0) ? fakeToString((Location) s0) : null;
+                        Snap s = fixSnap(s0);
+                        value = s != null ? fakeToString((Location) s0, s) : null;
                     }
                     else if (kind == K_CELL_UPDATE) {
                         value = null;
@@ -293,11 +306,10 @@ final class LocationHooks {
                             || kind == K_HAS_SPD || kind == K_HAS_BRG || kind == K_HAS_ALT
                             || (kind >= K_VACC && kind <= K_HAS_BACC)
                             || (kind >= K_MSL && kind <= K_HAS_MSL_ACC)) {
-                        Object self = frame.accessor().getReference(0);
-                        value = (self instanceof Location && isFix((Location) self))
-                                ? fakeMotion(kind, (Location) self) : null;
+                        Snap s = fixSnap(frame.accessor().getReference(0));
+                        value = s != null ? fakeMotion(kind, s) : null;
                     }
-                    else value = isFix(frame.accessor().getReference(0)) ? fake(kind) : null;
+                    else value = isFix(frame.accessor().getReference(0)) ? fake() : null;
                     if (value == VOID_RESULT) {
                         handled = true;
                     } else if (value == NULL_RESULT) {
@@ -321,48 +333,90 @@ final class LocationHooks {
     }
 
     private static final class Snap {
-        final Location fix;
         final long ns, ms;
-        Snap(Location fix, long ns, long ms) {
-            this.fix = fix;
+        final double lat, lng, alt, msl;
+        final float acc, spd, brg, vAcc, sAcc, bAcc, mslAcc;
+        final boolean hasAcc, hasSpd, hasBrg, hasAlt, hasVAcc, hasSAcc, hasBAcc, hasMsl, hasMslAcc;
+
+        Snap(Location f, long ns, long ms) {
             this.ns = ns;
             this.ms = ms;
+            lat = f.getLatitude();
+            lng = f.getLongitude();
+            hasAcc = f.hasAccuracy();
+            acc = hasAcc ? f.getAccuracy() : 0f;
+            hasSpd = f.hasSpeed();
+            spd = hasSpd ? f.getSpeed() : 0f;
+            hasBrg = f.hasBearing();
+            brg = hasBrg ? f.getBearing() : 0f;
+            hasAlt = f.hasAltitude();
+            alt = hasAlt ? f.getAltitude() : 0.0;
+            hasVAcc = f.hasVerticalAccuracy();
+            vAcc = hasVAcc ? f.getVerticalAccuracyMeters() : 0f;
+            hasSAcc = f.hasSpeedAccuracy();
+            sAcc = hasSAcc ? f.getSpeedAccuracyMetersPerSecond() : 0f;
+            hasBAcc = f.hasBearingAccuracy();
+            bAcc = hasBAcc ? f.getBearingAccuracyDegrees() : 0f;
+            boolean m = false, ma = false;
+            double mv = 0.0;
+            float mav = 0f;
+            try {
+                m = f.hasMslAltitude();
+                if (m) mv = f.getMslAltitudeMeters();
+                ma = f.hasMslAltitudeAccuracy();
+                if (ma) mav = f.getMslAltitudeAccuracyMeters();
+            } catch (Throwable ignored) { }
+            hasMsl = m;
+            msl = mv;
+            hasMslAcc = ma;
+            mslAcc = mav;
         }
     }
 
     private static final Map<Location, Snap> PER_OBJ = Collections.synchronizedMap(new WeakHashMap<>());
 
-    private static Snap snapOf(Location l) {
-        if (l == null) return null;
+    private static Snap read(Location f, long ns, long ms) {
+        Boolean prev = PARSING.get();
+        PARSING.set(Boolean.TRUE);
+        try {
+            return new Snap(f, ns, ms);
+        } finally {
+            if (prev == null) PARSING.remove(); else PARSING.set(prev);
+        }
+    }
+
+    private static Snap fixSnap(Object o) {
+        if (!(o instanceof Location)) return null;
+        Location l = (Location) o;
         long ns, ms;
+        String p;
         try {
             ns = l.getElapsedRealtimeNanos();
             ms = l.getTime();
+            p = l.getProvider();
         } catch (Throwable t) {
             return null;
         }
+        if (ns == 0 || ms <= 0 || p == null || p.isEmpty()) return null;
         Snap e = PER_OBJ.get(l);
         if (e != null && e.ns == ns && e.ms == ms) return e;
-        String provider = l.getProvider();
-        Location fix = new Location(provider == null ? LocationManager.GPS_PROVIDER : provider);
-        Fix.apply(fix, provider, Config.snapshot());
+        Location fix = new Location(p);
+        Fix.apply(fix, p, Config.snapshot());
         long now = System.currentTimeMillis();
-        if (ms > now + MAX_CLOCK_SKEW_MS) {
-            ms = now;
-            fix.setTime(ms);
-        }
-        if (ns == 0) {
-            ns = SystemClock.elapsedRealtimeNanos();
-            fix.setElapsedRealtimeNanos(ns);
-        }
-        e = new Snap(fix, ns, ms);
+        if (ms > now + MAX_CLOCK_SKEW_MS) ms = now;
+        e = read(fix, ns, ms);
         PER_OBJ.put(l, e);
+        Boolean prev = PARSING.get();
+        PARSING.set(Boolean.TRUE);
         try {
             l.set(fix);
             l.setTime(ms);
             l.setElapsedRealtimeNanos(ns);
             Fix.clearMock(l);
-        } catch (Throwable ignored) { }
+        } catch (Throwable ignored) {
+        } finally {
+            if (prev == null) PARSING.remove(); else PARSING.set(prev);
+        }
         return e;
     }
 
@@ -379,29 +433,22 @@ final class LocationHooks {
         }
     }
 
-    private static Snap posOf(Location l) {
-        return isFix(l) ? snapOf(l) : null;
-    }
-
     private static Object fakePos(int kind, EmulatedStackFrame frame) {
         Object self = frame.accessor().getReference(0);
         if (!(self instanceof Location)) return null;
-        Location me = (Location) self;
         if (kind == K_LAT || kind == K_LNG) {
-            if (!isFix(me)) return null;
-            Snap s = snapOf(me);
-            if (s == null) return null;
-            Location a = s.fix;
-            return Double.valueOf(kind == K_LAT ? a.getLatitude() : a.getLongitude());
+            Snap s = fixSnap(self);
+            return s == null ? null : Double.valueOf(kind == K_LAT ? s.lat : s.lng);
         }
         Object other = frame.accessor().getReference(1);
         if (!(other instanceof Location)) return null;
-        Location dest = (Location) other;
-        if (!isFix(me) && !isFix(dest)) return null;
-        Snap sa = posOf(me), sb = posOf(dest);
-        Location a = sa != null ? sa.fix : me, b = sb != null ? sb.fix : dest;
+        Snap sa = fixSnap(self), sb = fixSnap(other);
+        if (sa == null && sb == null) return null;
+        Location me = (Location) self, dest = (Location) other;
         float[] r = new float[2];
-        Location.distanceBetween(a.getLatitude(), a.getLongitude(), b.getLatitude(), b.getLongitude(), r);
+        Location.distanceBetween(
+                sa != null ? sa.lat : me.getLatitude(), sa != null ? sa.lng : me.getLongitude(),
+                sb != null ? sb.lat : dest.getLatitude(), sb != null ? sb.lng : dest.getLongitude(), r);
         return Float.valueOf(kind == K_DIST ? r[0] : r[1]);
     }
 
@@ -410,9 +457,9 @@ final class LocationHooks {
             try {
                 Object o = frame.accessor().getReference(i);
                 if (o instanceof List) {
-                    for (Object e : (List<?>) o) if (isFix(e)) snapOf((Location) e);
-                } else if (isFix(o)) {
-                    snapOf((Location) o);
+                    for (Object e : (List<?>) o) fixSnap(e);
+                } else {
+                    fixSnap(o);
                 }
             } catch (Throwable ignored) { }
         }
@@ -432,47 +479,41 @@ final class LocationHooks {
         return sb.toString();
     }
 
-    private static String fakeToString(Location me) {
-        Snap s = snapOf(me);
-        if (s == null) return me.toString();
-        Location a = s.fix;
+    private static String fakeToString(Location me, Snap s) {
         StringBuilder sb = new StringBuilder("Location[").append(me.getProvider()).append(' ')
-                .append(String.format(Locale.US, "%.6f,%.6f", a.getLatitude(), a.getLongitude()));
-        if (a.hasAccuracy()) sb.append(" hAcc=").append(a.getAccuracy());
+                .append(String.format(Locale.US, "%.6f,%.6f", s.lat, s.lng));
+        if (s.hasAcc) sb.append(" hAcc=").append(s.acc);
         sb.append(" et=").append(fmtDur(me.getElapsedRealtimeNanos() / 1_000_000L));
-        if (a.hasAltitude()) sb.append(" alt=").append(a.getAltitude());
-        if (a.hasSpeed()) sb.append(" vel=").append(a.getSpeed());
-        if (a.hasBearing()) sb.append(" bear=").append(a.getBearing());
+        if (s.hasAlt) sb.append(" alt=").append(s.alt);
+        if (s.hasSpd) sb.append(" vel=").append(s.spd);
+        if (s.hasBrg) sb.append(" bear=").append(s.brg);
         return sb.append(']').toString();
     }
 
-    private static Object fakeMotion(int kind, Location self) {
-        Snap s = snapOf(self);
-        if (s == null) return null;
-        Location a = s.fix;
+    private static Object fakeMotion(int kind, Snap s) {
         switch (kind) {
-            case K_ACC: return a.hasAccuracy() ? Float.valueOf(a.getAccuracy()) : null;
-            case K_SPD: return a.hasSpeed() ? Float.valueOf(a.getSpeed()) : Float.valueOf(0f);
-            case K_BRG: return a.hasBearing() ? Float.valueOf(a.getBearing()) : Float.valueOf(0f);
-            case K_ALT: return a.hasAltitude() ? Double.valueOf(a.getAltitude()) : null;
-            case K_VACC: return a.hasVerticalAccuracy() ? Float.valueOf(a.getVerticalAccuracyMeters()) : null;
-            case K_SACC: return a.hasSpeedAccuracy() ? Float.valueOf(a.getSpeedAccuracyMetersPerSecond()) : null;
-            case K_BACC: return a.hasBearingAccuracy() ? Float.valueOf(a.getBearingAccuracyDegrees()) : null;
-            case K_MSL: return a.hasMslAltitude() ? Double.valueOf(a.getMslAltitudeMeters()) : null;
-            case K_MSL_ACC: return a.hasMslAltitudeAccuracy() ? Float.valueOf(a.getMslAltitudeAccuracyMeters()) : null;
-            case K_HAS_SPD: return Boolean.valueOf(a.hasSpeed());
-            case K_HAS_BRG: return Boolean.valueOf(a.hasBearing());
-            case K_HAS_ALT: return Boolean.valueOf(a.hasAltitude());
-            case K_HAS_VACC: return Boolean.valueOf(a.hasVerticalAccuracy());
-            case K_HAS_SACC: return Boolean.valueOf(a.hasSpeedAccuracy());
-            case K_HAS_BACC: return Boolean.valueOf(a.hasBearingAccuracy());
-            case K_HAS_MSL: return Boolean.valueOf(a.hasMslAltitude());
-            case K_HAS_MSL_ACC: return Boolean.valueOf(a.hasMslAltitudeAccuracy());
+            case K_ACC: return s.hasAcc ? Float.valueOf(s.acc) : null;
+            case K_SPD: return Float.valueOf(s.spd);
+            case K_BRG: return Float.valueOf(s.brg);
+            case K_ALT: return s.hasAlt ? Double.valueOf(s.alt) : null;
+            case K_VACC: return s.hasVAcc ? Float.valueOf(s.vAcc) : null;
+            case K_SACC: return s.hasSAcc ? Float.valueOf(s.sAcc) : null;
+            case K_BACC: return s.hasBAcc ? Float.valueOf(s.bAcc) : null;
+            case K_MSL: return s.hasMsl ? Double.valueOf(s.msl) : null;
+            case K_MSL_ACC: return s.hasMslAcc ? Float.valueOf(s.mslAcc) : null;
+            case K_HAS_SPD: return Boolean.valueOf(s.hasSpd);
+            case K_HAS_BRG: return Boolean.valueOf(s.hasBrg);
+            case K_HAS_ALT: return Boolean.valueOf(s.hasAlt);
+            case K_HAS_VACC: return Boolean.valueOf(s.hasVAcc);
+            case K_HAS_SACC: return Boolean.valueOf(s.hasSAcc);
+            case K_HAS_BACC: return Boolean.valueOf(s.hasBAcc);
+            case K_HAS_MSL: return Boolean.valueOf(s.hasMsl);
+            case K_HAS_MSL_ACC: return Boolean.valueOf(s.hasMslAcc);
             default: return null;
         }
     }
 
-    private static Object fake(int kind) {
+    private static Object fake() {
         Config.tick();
         return Boolean.FALSE;
     }
@@ -499,7 +540,7 @@ final class LocationHooks {
 
     private static Object fakeWifiScan() {
         try {
-            Location fix = Fix.fresh(LocationManager.FUSED_PROVIDER);
+            Location fix = Fix.at(LocationManager.FUSED_PROVIDER);
             List<EnvSim.Ap> aps = EnvSim.wifiFor(fix);
             List<ScanResult> out = new ArrayList<>(aps.size());
             for (EnvSim.Ap ap : aps) {
@@ -539,7 +580,7 @@ final class LocationHooks {
 
     private static Object fakeWifiSsid() {
         try {
-            List<EnvSim.Ap> aps = EnvSim.wifiFor(Fix.fresh(LocationManager.FUSED_PROVIDER));
+            List<EnvSim.Ap> aps = EnvSim.wifiFor(Fix.at(LocationManager.FUSED_PROVIDER));
             return aps.isEmpty() ? "<unknown ssid>" : aps.get(0).ssid;
         } catch (Throwable t) {
             return "<unknown ssid>";
@@ -602,14 +643,10 @@ final class LocationHooks {
 
     private static Object fakeExt(int kind) {
         switch (kind) {
-            case K_EMPTY_LIST:
-                return Collections.emptyList();
             case K_BSSID:
                 return "02:00:00:00:00:00";
             case K_NULL:
                 return NULL_RESULT;
-            case K_SSID:
-                return "<unknown ssid>";
             case K_BT_DROP:
                 return VOID_RESULT;
             case K_BT_INT:
@@ -636,10 +673,8 @@ final class LocationHooks {
     private static Location fakeLastKnown(EmulatedStackFrame frame) {
         Object arg = frame.accessor().getReference(1);
         String provider = arg instanceof String ? (String) arg : LocationManager.GPS_PROVIDER;
-        Location l = Fix.fresh(provider);
-        Location scratch = new Location(l);
-        scratch.setElapsedRealtimeNanos(0);
-        PER_OBJ.put(l, new Snap(scratch, l.getElapsedRealtimeNanos(), l.getTime()));
+        Location l = Fix.lastKnown(provider);
+        PER_OBJ.put(l, read(l, l.getElapsedRealtimeNanos(), l.getTime()));
         return l;
     }
 

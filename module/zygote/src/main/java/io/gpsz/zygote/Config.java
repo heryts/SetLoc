@@ -15,12 +15,11 @@ import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.NoSuchElementException;
 import java.util.Objects;
-import java.util.Random;
 import java.util.StringTokenizer;
 import java.util.function.BooleanSupplier;
 
 final class Config {
-    private static final String SALT = "Qx7mK2vTnL9p";
+    private static final String SALT = "Vzvwk4Rxj7Ps";
 
     static String tag(String logical) {
         String s = SALT + logical;
@@ -105,12 +104,10 @@ final class Config {
     static volatile double alt = 0.0;
     static volatile float altVar = 0f;
     static volatile float rr = 8f;
-    private static final Random RND = new Random();
-    private static volatile double altNoise = 0.0;
-    private static volatile long altAt = 0;
     private static final double JITTER_TAU_S = 10.0;
+    private static final double FLOOR_RADIUS_M = 0.8;
     private static double jitN = 0.0, jitE = 0.0;
-    private static long jitAt = 0;
+    private static final double[] JIT_PERIOD_S = {7.0, 13.0, 23.0, 41.0};
 
     static final class Pt {
         final double lat, lng;
@@ -173,71 +170,84 @@ final class Config {
         double la = q.lat, lo = q.lng;
         float sSpd = spd, sBrg = brg;
         double sAlt = altitudeNow();
-        if (jitter) {
-            stepJitter(now);
-            double c = Math.cos(Math.toRadians(la));
-            if (Math.abs(c) < 1e-6) c = 1e-6;
-            la += jitN / 111320.0;
-            lo += jitE / (111320.0 * c);
-            la = Math.max(-90.0, Math.min(90.0, la));
-            if (lo > 180.0) lo -= 360.0; else if (lo < -180.0) lo += 360.0;
-        } else {
-            jitAt = 0;
-        }
-        float jit = (float) (RND.nextGaussian() * 0.35);
+        stepJitter(now, jitter ? rr : FLOOR_RADIUS_M);
+        double c = Math.cos(Math.toRadians(la));
+        if (Math.abs(c) < 1e-6) c = 1e-6;
+        la += jitN / 111320.0;
+        lo += jitE / (111320.0 * c);
+        la = Math.max(-90.0, Math.min(90.0, la));
+        if (lo > 180.0) lo -= 360.0; else if (lo < -180.0) lo += 360.0;
+        float jit = (float) (gauss(31, now / SNAP_MS) * 0.35);
         p = new Pt(la, lo, now, sSpd, sBrg, sAlt, jit);
         snap = p;
         return p;
     }
 
-    private static void stepJitter(long now) {
-        double r = rr;
-        if (r <= 0f) { jitN = 0; jitE = 0; jitAt = now; return; }
-        double sigma = r / 3.0;
-        if (jitAt == 0) {
-            jitN = RND.nextGaussian() * sigma;
-            jitE = RND.nextGaussian() * sigma;
-        } else {
-            double dt = Math.max(0, Math.min(60_000, now - jitAt)) / 1000.0;
-            double a = Math.exp(-dt / JITTER_TAU_S);
-            double s = sigma * Math.sqrt(1.0 - a * a);
-            jitN = jitN * a + RND.nextGaussian() * s;
-            jitE = jitE * a + RND.nextGaussian() * s;
+    private static double wave(long axis, double tSec, double sigma) {
+        double sum = 0.0;
+        for (int i = 0; i < JIT_PERIOD_S.length; i++) {
+            double phase = hashUnit(100 + axis, i) * 2 * Math.PI;
+            sum += Math.sin(2 * Math.PI * tSec / JIT_PERIOD_S[i] + phase);
         }
+        return sum * sigma / Math.sqrt(JIT_PERIOD_S.length / 2.0);
+    }
+
+    private static void stepJitter(long now, double r) {
+        if (r <= 0f) { jitN = 0; jitE = 0; return; }
+        double sigma = r / 3.0;
+        double t = now / 1000.0;
+        jitN = wave(1, t, sigma);
+        jitE = wave(2, t, sigma);
         double d = Math.hypot(jitN, jitE);
         if (d > r) {
             jitN *= r / d;
             jitE *= r / d;
         }
-        jitAt = now;
+    }
+
+    static double gauss(long salt, long bucket) {
+        return (hashUnit(salt, bucket) + hashUnit(salt + 1000, bucket) + hashUnit(salt + 2000, bucket) - 1.5) * 2.0;
     }
 
     static float accNow(Pt p) {
         return Math.max(1f, acc + (p != null ? p.accJit : 0f));
     }
 
-    private static int gSat = 0, gMean = 0;
-    private static long gAt = 0;
-    private static double netLat = 0, netLng = 0;
-    private static long netAt = 0;
-    private static long netGap = 0;
+    private static final long SEED = seedFromSalt();
 
-    static synchronized int[] gnssExtras() {
-        long now = SystemClock.elapsedRealtime();
-        if (gSat == 0) {
-            gSat = 7 + RND.nextInt(6);
-            gMean = 25 + RND.nextInt(8);
-            gAt = now;
-        } else if (now - gAt >= 1000) {
-            gAt = now;
-            int r = RND.nextInt(10);
-            if (r == 0) gSat++; else if (r == 1) gSat--;
-            r = RND.nextInt(6);
-            if (r == 0) gMean++; else if (r == 1) gMean--;
-            gSat = Math.max(5, Math.min(14, gSat));
-            gMean = Math.max(22, Math.min(36, gMean));
+    private static long seedFromSalt() {
+        long h = 0xCBF29CE484222325L;
+        for (int i = 0; i < SALT.length(); i++) {
+            h = (h ^ (SALT.charAt(i) & 0xFF)) * 0x100000001B3L;
         }
-        return new int[]{gSat, gMean, gMean + 9 + RND.nextInt(3)};
+        return h;
+    }
+
+    static long seed() {
+        return SEED;
+    }
+
+    private static long mix(long z) {
+        z += 0x9E3779B97F4A7C15L;
+        z = (z ^ (z >>> 30)) * 0xBF58476D1CE4E5B9L;
+        z = (z ^ (z >>> 27)) * 0x94D049BB133111EBL;
+        return z ^ (z >>> 31);
+    }
+
+    static double hashUnit(long a, long b) {
+        long h = mix(SEED ^ mix(a) ^ (mix(b) << 1));
+        return (h >>> 11) * (1.0 / (1L << 53));
+    }
+
+    static int[] gnssExtras() {
+        long t = SystemClock.elapsedRealtime() / 1000;
+        double p1 = hashUnit(11, 0) * 2 * Math.PI, p2 = hashUnit(12, 0) * 2 * Math.PI;
+        double p3 = hashUnit(13, 0) * 2 * Math.PI, p4 = hashUnit(14, 0) * 2 * Math.PI;
+        int sat = 9 + (int) Math.round(2.2 * Math.sin(t / 53.0 + p1) + 1.6 * Math.sin(t / 17.0 + p2));
+        int mean = 29 + (int) Math.round(3.0 * Math.sin(t / 71.0 + p3) + 1.5 * Math.sin(t / 23.0 + p4));
+        sat = Math.max(5, Math.min(14, sat));
+        mean = Math.max(22, Math.min(36, mean));
+        return new int[]{sat, mean, mean + 9 + (int) (hashUnit(15, t) * 3)};
     }
 
     static float vAcc(Pt p) {
@@ -252,36 +262,40 @@ final class Config {
         return Math.max(1f, 10f + Math.abs(p.accJit) * 8f);
     }
 
-    static synchronized double[] networkOffset(double refLat) {
-        long now = SystemClock.elapsedRealtime();
-        if (netAt == 0 || now - netAt > netGap) {
-            netGap = 20_000 + RND.nextInt(20_000);
-            double ang = RND.nextDouble() * 2 * Math.PI;
-            double dist = 35 + RND.nextDouble() * 90;
-            double c = Math.cos(Math.toRadians(refLat));
-            if (Math.abs(c) < 1e-6) c = 1e-6;
-            netLat = Math.sin(ang) * dist / 111320.0;
-            netLng = Math.cos(ang) * dist / (111320.0 * c);
-            netAt = now;
-        }
-        return new double[]{netLat, netLng};
+    private static final long NET_GRID_MS = 30_000;
+
+    private static long netBoundary(long k) {
+        return k * NET_GRID_MS + (long) ((hashUnit(20, k) - 0.5) * 10_000);
+    }
+
+    static double[] networkOffset(double refLat) {
+        long t = SystemClock.elapsedRealtime();
+        long k = t / NET_GRID_MS;
+        if (netBoundary(k + 1) <= t) k++;
+        else if (netBoundary(k) > t) k--;
+        double ang = hashUnit(21, k) * 2 * Math.PI;
+        double dist = 35 + hashUnit(22, k) * 90;
+        double c = Math.cos(Math.toRadians(refLat));
+        if (Math.abs(c) < 1e-6) c = 1e-6;
+        return new double[]{Math.sin(ang) * dist / 111320.0, Math.cos(ang) * dist / (111320.0 * c)};
     }
 
     static float networkAccuracy(float gpsAcc) {
-        return Math.max(25f, gpsAcc * 2.5f + 20f + (float) (RND.nextGaussian() * 6));
+        return Math.max(25f, gpsAcc * 2.5f + 20f + (float) (gauss(51, SystemClock.elapsedRealtime() / 1000) * 6));
     }
 
     static double altitudeNow() {
         float v = altVar;
         if (v <= 0f) return alt;
-        long now = SystemClock.elapsedRealtime();
-        if (now - altAt >= 1000) {
-            altAt = now;
-            double target = (RND.nextDouble() * 2.0 - 1.0) * v;
-            double n = altNoise + (target - altNoise) * 0.5;
-            altNoise = Math.max(-v, Math.min(v, n));
+        long sec = SystemClock.elapsedRealtime() / 1000;
+        double n = 0.0;
+        double w = 4.0, tot = 0.0;
+        for (int i = 0; i < 3; i++) {
+            n += w * (hashUnit(41, sec - i) * 2.0 - 1.0);
+            tot += w;
+            w /= 2.0;
         }
-        return alt + altNoise;
+        return alt + v * n / tot;
     }
 
     private static void live(Application app, boolean on) {
@@ -646,7 +660,6 @@ final class Config {
                         READING.remove();
                     }
                 }
-                ZygoteEntry.i("config file loaded: " + path);
                 return;
             } catch (Throwable ignored) { }
         }
@@ -698,7 +711,6 @@ final class Config {
                 if (fields == null) continue;
                 setFileFields(fields);
                 fileSeen = sig;
-                ZygoteEntry.i("config file reloaded: " + path);
                 return;
             } catch (Throwable t) {
                 failed = true;

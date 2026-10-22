@@ -117,7 +117,7 @@ final class GnssFake {
     private static final Sat[] POOL = buildPool();
 
     private static Sat[] buildPool() {
-        Random r = new Random();
+        Random r = new Random(Config.seed());
         int[][] plan = {{T_GPS, 32, 11}, {T_GLO, 24, 6}, {T_GAL, 36, 6}, {T_BDS, 37, 6}};
         List<Sat> out = new ArrayList<>();
         for (int[] p : plan) {
@@ -160,7 +160,7 @@ final class GnssFake {
             int i = order[k];
             Sat s = POOL[i];
             double norm = (el[i] - 8.0) / 77.0;
-            double c = g[1] - 7.0 + 14.0 * norm + (RND.nextDouble() - 0.5) * 2.4;
+            double c = g[1] - 7.0 + 14.0 * norm + (Config.hashUnit(s.type * 100L + s.svid, (long) t) - 0.5) * 2.4;
             out.type[k] = s.type;
             out.svid[k] = s.svid;
             out.cn0[k] = (float) Math.max(14.0, Math.min(47.0, c));
@@ -258,10 +258,10 @@ final class GnssFake {
     }
 
     private static String coord(double v, boolean lat) {
-        double a = Math.abs(v);
-        int d = (int) a;
-        double m = (a - d) * 60.0;
-        return String.format(Locale.US, lat ? "%02d%010.7f" : "%03d%010.7f", d, m);
+        long t = Math.round(Math.abs(v) * 60_000_000.0);
+        long m = t % 60_000_000L;
+        return String.format(Locale.US, lat ? "%02d%02d.%06d" : "%03d%02d.%06d",
+                t / 60_000_000L, m / 1_000_000L, m % 1_000_000L);
     }
 
     static List<String> nmea(Snapshot s) {

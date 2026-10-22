@@ -37,7 +37,7 @@ public class BeatTest {
     eq("null beat 12s -> frozen",Config.spd,0f);
     SystemClock.fake=500000; Config.parse("enabled=1;lat=-7.7;lng=110.4;acc=10;random=0;rr=8");
     Config.Pt a=Config.snapshot(); SystemClock.fake+=30; Config.Pt b=Config.snapshot();
-    eq("snapshot tanpa jitter lat",a.lat,-7.7); eq("snapshot tanpa jitter lng",a.lng,110.4);
+    eq("snapshot tanpa jitter lat dalam 1 m",Math.abs(a.lat+7.7)<1e-5,true); eq("snapshot tanpa jitter lng dalam 1 m",Math.abs(a.lng-110.4)<1e-5,true);
     eq("snapshot < 50 ms dipakai ulang",a==b,true);
     SystemClock.fake+=40; eq("snapshot >= 50 ms diperbarui",Config.snapshot()!=a,true);
     SystemClock.fake+=1000; Config.parse("enabled=1;lat=-7.7;lng=110.4;acc=10;random=1;rr=8");
@@ -112,16 +112,16 @@ public class BeatTest {
     eq("refresh: beat basi 72 dtk -> spoof off",Config.enabled,false);
     sput("beat","resume1"); SystemClock.fake+=1000; Config.refresh(null,null,null);
     eq("refresh: beat kembali -> enabled langsung di refresh yang sama",Config.enabled,true); eq("refresh: beat kembali -> spd langsung pulih",Config.spd,33.0f);
-    SystemClock.fake=2_000_000; double[] pv=Config.networkOffset(-7.7); long lc=SystemClock.fake, mn=Long.MAX_VALUE, mx=0, sm=0; int cn=0;
-    for(long tt=2_000_000;tt<2_000_000+900_000L;tt+=50){ SystemClock.fake=tt; double[] o=Config.networkOffset(-7.7); if(o[0]!=pv[0]||o[1]!=pv[1]){ long d=tt-lc; mn=Math.min(mn,d); mx=Math.max(mx,d); sm+=d; cn++; lc=tt; pv=o; } }
-    eq("networkOffset: interval ganti acak 20-40 dtk",cn>=10&&mn>=20000&&mx<=40100&&sm/cn>=24000,true);
+    SystemClock.fake=2_000_000; double[] pv=Config.networkOffset(-7.7); long lc=-1, mn=Long.MAX_VALUE, mx=0, sm=0; int cn=0;
+    for(long tt=2_000_000;tt<2_000_000+900_000L;tt+=50){ SystemClock.fake=tt; double[] o=Config.networkOffset(-7.7); if(o[0]!=pv[0]||o[1]!=pv[1]){ if(lc>=0){ long d=tt-lc; mn=Math.min(mn,d); mx=Math.max(mx,d); sm+=d; cn++; } lc=tt; pv=o; } }
+    eq("networkOffset: interval ganti acak 20-40 dtk",cn>=10&&mn>=19950&&mx<=40100&&sm/cn>=24000,true);
     { final String CA="enabled=1;lat=-7.0;lng=110.0;acc=10;random=0", CB="enabled=1;lat=40.0;lng=-74.0;acc=10;random=0";
       final java.util.concurrent.atomic.AtomicBoolean stop=new java.util.concurrent.atomic.AtomicBoolean(false);
       Thread w=new Thread(()->{ boolean f=false; while(!stop.get()){ Config.parse(f?CA:CB); f=!f; } });
       w.start(); try{ Thread.sleep(30); }catch(InterruptedException e){}
       long end=System.nanoTime()+1_500_000_000L, clk=9_000_000; int torn=0, reads=0;
       while(System.nanoTime()<end){ clk+=100; SystemClock.fake=clk; Config.Pt p=Config.snapshot(); reads++;
-        boolean pa=p.lat==-7.0&&p.lng==110.0, pb=p.lat==40.0&&p.lng==-74.0; if(!pa&&!pb) torn++; }
+        boolean pa=Math.abs(p.lat+7.0)<1e-4&&Math.abs(p.lng-110.0)<1e-4, pb=Math.abs(p.lat-40.0)<1e-4&&Math.abs(p.lng+74.0)<1e-4; if(!pa&&!pb) torn++; }
       stop.set(true); try{ w.join(); }catch(InterruptedException e){}
       eq("snapshot: lat/lng selalu satu pasangan utuh ("+reads+" baca)",torn,0); }
     System.out.println(fails==0?"ALL PASS":"FAILURES "+fails); System.exit(fails);

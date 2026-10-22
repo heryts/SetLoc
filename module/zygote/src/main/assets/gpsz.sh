@@ -1,7 +1,7 @@
 #!/system/bin/sh
 MODDIR=$(cd "$(dirname "$0")" && pwd)
 PKGDIR="$MODDIR/packages"
-KV="81 120 55 109 75 50 118 84 110 76 57 112 "
+KV="86 122 118 119 107 52 82 120 106 55 80 115 "
 enc() {
   kr=$KV
   vals=
@@ -30,12 +30,12 @@ dec() {
   done
   printf "$esc"
 }
-KEY=691c6a
-SYSKEY=da59e5
-BEATKEY=eccaa8
-TRKKEY=7ff7c7
-NETKEY=5770df
-BTKEY=c60482
+KEY=956349
+SYSKEY=db078e
+BEATKEY=c1e67d
+TRKKEY=c724d0
+NETKEY=70a4b0
+BTKEY=50a6bb
 case "$1" in sync|check|status|doctor|super|net|bt) ;; *) sh "$MODDIR/bridge.sh" sync >/dev/null 2>&1 ;; esac
 RAW=$(dec "$(settings get global $KEY 2>/dev/null)")
 get() { T=";$RAW;"; V=${T#*";$1="}; [ "$V" = "$T" ] && return; echo "${V%%;*}"; }

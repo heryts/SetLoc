@@ -53,7 +53,6 @@ final class SystemHooks {
         boolean first = !installed;
         installed = true;
         if (lpmHooks > 0 && (lmsHooks > 0 || lmsTries >= 12)) return isLive();
-        int lpm0 = lpmHooks, lms0 = lmsHooks;
         try {
             ClassLoader cl = systemLoader();
             if (first || lpmClass == null) prepareReflection(cl);
@@ -64,11 +63,7 @@ final class SystemHooks {
                 if (generatorStarted) startGenerator();
             }
         } catch (Throwable ignored) { }
-        boolean live = isLive();
-        if (first || lpm0 != lpmHooks || lms0 != lmsHooks) {
-            ZygoteEntry.i("system hooks: lpm=" + lpmHooks + " lms=" + lmsHooks + " live=" + live);
-        }
-        return live;
+        return isLive();
     }
 
     private static boolean isLive() {
@@ -195,7 +190,6 @@ final class SystemHooks {
             try {
                 Hooks.hook(m, Hooks.EntryPointType.DIRECT, transformer(kind, argIdx, lstIdx, ret == boolean.class), Hooks.EntryPointType.DIRECT);
                 hooked++;
-                ZygoteEntry.i("system hook: " + c.getSimpleName() + "." + n + " (kind " + kind + ")");
             } catch (Throwable ignored) { }
         }
         return hooked;
@@ -334,7 +328,7 @@ final class SystemHooks {
                                 denied = e;
                             }
                             if (denied == null && providerEnabled(frame.accessor().getReference(0), provider)) {
-                                frame.accessor().setValue(EmulatedStackFrame.RETURN_VALUE_IDX, Fix.fresh(provider));
+                                frame.accessor().setValue(EmulatedStackFrame.RETURN_VALUE_IDX, Fix.lastKnown(provider));
                             }
                             break;
                         }
@@ -461,11 +455,6 @@ final class SystemHooks {
     }
 
     private static void startGenerator() {
-        if (lpmOnReport == null || resultWrap == null) {
-            ZygoteEntry.i("system hooks: fix generator disabled (onReportLocation=" + (lpmOnReport != null)
-                    + " wrap=" + (resultWrap != null) + ")");
-            return;
-        }
         Thread th = new Thread(() -> {
             long lastScan = 0;
             long wait = 1000;

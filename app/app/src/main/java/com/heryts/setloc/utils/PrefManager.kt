@@ -14,7 +14,7 @@ import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.edit
 
 object PrefManager {
-    private const val SALT = "Qx7mK2vTnL9p"
+    private const val SALT = "Vzvwk4Rxj7Ps"
 
     fun tag(logical: String): String {
         val s = SALT + logical

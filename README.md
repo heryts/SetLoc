@@ -31,10 +31,19 @@ System-wide dan Heartbeat butuh reboot kalau belum aktif. Kalau terjadi bootloop
 Saat memutar rute, daemon menulis jendela 24 detik (`gpsz_trk`) dan hook menginterpolasi posisi sendiri, jadi Settings hampir tidak ditulis selama rute berjalan. Kalau ada masalah, buat file `disable_trk` di folder modul untuk kembali ke mode lama (satu tulis per tick).
 
 ## Catatan deteksi
-- Hook getter per-app bisa dilewati kalau ART meng-inline `getLatitude` dan sejenisnya di kode app yang sudah dikompilasi. Hook `Location.CREATOR` menulis nilai palsu ke field objek saat objek dibuat, jadi pembacaan inline pun mendapat nilai palsu, tetapi ini mitigasi, bukan jaminan. Andalkan mode System-wide atau Heartbeat sebagai jalur utama.
+- Hook getter per-app bisa dilewati kalau ART meng-inline `getLatitude` dan sejenisnya di kode app yang sudah dikompilasi. Hook `Location.CREATOR`, `Location.set` dan pengiriman callback menulis nilai palsu ke field objek saat objek dibuat atau disalin, jadi pembacaan inline pun mendapat nilai palsu, tetapi ini mitigasi, bukan jaminan. Andalkan mode System-wide atau Heartbeat sebagai jalur utama.
+- Paket `com.heryts.setloc` disembunyikan di app yang disuntik dari `PackageManager`: `getPackageInfo`, `getApplicationInfo`, `getActivityInfo`, `getServiceInfo`, `getReceiverInfo`, `getProviderInfo`, `getInstallSourceInfo`, daftar paket terpasang, `queryIntent*`, dan `getPackagesForUid`. Pemeriksaan lewat kode native atau Binder langsung tidak tercakup.
 - Key `Settings.Global` modul (`gpsz_*`) disembunyikan di app yang disuntik (kecuali app SetLoc) dari `Settings.Global.getString` dan sejenisnya, `ContentResolver.query/call`, dan `ContentProviderClient.query/call`. Notifikasi `ContentObserver` untuk URI key `gpsz_*` dibuang, dan `ProcessBuilder.start` yang perintahnya memuat `gpsz_` atau memanggil `settings`/`content` ditolak dengan IOException.
 - Di mode Per-app dan System-wide, callback GNSS status, NMEA, pengukuran GNSS, dan info antena tetap terdaftar dan menerima data satelit palsu yang konsisten dengan lokasi palsu: `onStarted`, `onFirstFix`, lalu `onSatelliteStatusChanged`, kalimat NMEA, dan `GnssMeasurementsEvent` tiap detik. Navigation message dan batching tetap ditolak. Google Play Services dan komponen sistem tetap lolos.
 - Log modul hanya ditulis di proses `android`, tidak di proses app.
+- `SALT`, `KV`, dan nama key `Settings.Global` dibuat acak per build oleh `tools/RotateSalt.java` (disimpan di `.salt`), bukan konstanta yang sama untuk semua pemasang. `ROTATE_SALT=1 sh build-all.sh` membuat salt baru. App dan modul harus dibangun dari salt yang sama. Key lama dihapus otomatis oleh daemon saat modul baru berjalan.
+- Satelit GNSS palsu, jumlah satelit, dan offset lokasi network ditentukan dari seed salt dan `elapsedRealtime`, jadi semua proses melihat data yang sama pada saat yang sama. Hal yang sama berlaku untuk offset `random`, jitter akurasi, dan variasi ketinggian.
+- Saat `random` mati, posisi tetap diberi derau halus di bawah 1 meter supaya tidak identik dari pembacaan ke pembacaan.
+
+## Batas yang tidak bisa ditutup dari hook Java
+- Mode Per-app tidak menangkap app yang membaca lokasi lewat NDK atau Binder langsung. Mode System-wide atau Heartbeat tetap jalur yang andal.
+- Getter yang di-inline ART hanya tertutup kalau nilai palsu sudah tertulis di objek saat dibuat. Objek yang dibuat sebelum spoof aktif tetap asli.
+- Deteksi lewat IP, zona waktu, atau menara seluler di luar hook lokasi tidak tersentuh.
 
 ## Kalau tidak jalan
 ```

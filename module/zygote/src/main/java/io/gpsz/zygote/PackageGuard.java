@@ -1,12 +1,17 @@
 package io.gpsz.zygote;
 
+import android.content.ComponentName;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageItemInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
+import android.content.pm.VersionedPackage;
 
 import com.v7878.unsafe.invoke.EmulatedStackFrame;
 import com.v7878.unsafe.invoke.Transformers;
+import com.v7878.vmtools.HookTransformer;
 import com.v7878.vmtools.Hooks;
 
-import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
@@ -15,12 +20,25 @@ import java.util.Set;
 
 final class PackageGuard {
     private static final int RET = EmulatedStackFrame.RETURN_VALUE_IDX;
-    private static final Set<String> BY_NAME = Set.of(
+    private static final String OWN = ZygoteEntry.OWN_PACKAGE;
+    private static final Set<String> MISSING = Set.of(
             "getPackageInfo", "getPackageInfoAsUser",
             "getApplicationInfo", "getApplicationInfoAsUser",
-            "getPackageUid", "getPackageUidAsUser");
-    private static final Set<String> LISTS = Set.of("getInstalledPackages", "getInstalledApplications",
-            "getInstalledPackagesAsUser", "getInstalledApplicationsAsUser");
+            "getPackageUid", "getPackageUidAsUser",
+            "getPackageGids", "getInstallSourceInfo",
+            "getApplicationIcon", "getApplicationBanner", "getApplicationLogo",
+            "getResourcesForApplication",
+            "getActivityInfo", "getServiceInfo", "getReceiverInfo", "getProviderInfo");
+    private static final Set<String> UNKNOWN = Set.of("getInstallerPackageName", "getApplicationEnabledSetting");
+    private static final Set<String> LISTS = Set.of(
+            "getInstalledPackages", "getInstalledApplications",
+            "getInstalledPackagesAsUser", "getInstalledApplicationsAsUser",
+            "getPackagesHoldingPermissions",
+            "queryIntentActivities", "queryIntentActivitiesAsUser", "queryIntentActivityOptions",
+            "queryIntentServices", "queryIntentServicesAsUser",
+            "queryBroadcastReceivers", "queryBroadcastReceiversAsUser",
+            "queryIntentContentProviders", "queryIntentContentProvidersAsUser",
+            "queryContentProviders");
 
     static void install() {
         if (ZygoteEntry.isSelf()) return;
@@ -30,8 +48,12 @@ final class PackageGuard {
                 if (Modifier.isAbstract(mod) || Modifier.isNative(mod)) continue;
                 String n = m.getName();
                 Class<?>[] ps = m.getParameterTypes();
-                if (BY_NAME.contains(n) && ps.length >= 1 && ps[0] == String.class) {
-                    hookThrow(m);
+                Class<?> first = ps.length > 0 ? ps[0] : null;
+                if (MISSING.contains(n) && (first == String.class || first == ComponentName.class
+                        || first == VersionedPackage.class)) {
+                    hookGuard(m, true);
+                } else if (UNKNOWN.contains(n) && first == String.class) {
+                    hookGuard(m, false);
                 } else if (LISTS.contains(n) && List.class.isAssignableFrom(m.getReturnType())) {
                     hookFilter(m);
                 } else if (n.equals("getPackagesForUid") && m.getReturnType() == String[].class) {
@@ -43,101 +65,99 @@ final class PackageGuard {
         } catch (Throwable ignored) { }
     }
 
-    private static void hookThrow(Method m) {
+    private static void hook(Method m, HookTransformer t) {
         try {
-            Hooks.hook(m, Hooks.EntryPointType.DIRECT, (original, frame) -> {
-                try {
-                    if (ZygoteEntry.OWN_PACKAGE.equals(frame.accessor().getReference(1))) {
-                        ZygoteEntry.<RuntimeException>sneaky(
-                                new PackageManager.NameNotFoundException(ZygoteEntry.OWN_PACKAGE));
-                        return;
-                    }
-                } catch (ClassCastException | IndexOutOfBoundsException ignored) { }
-                try {
-                    Transformers.invokeExactNoChecks(original, frame);
-                } catch (Throwable t) {
-                    ZygoteEntry.<RuntimeException>sneaky(t);
-                }
-            }, Hooks.EntryPointType.DIRECT);
+            Hooks.hook(m, Hooks.EntryPointType.DIRECT, t, Hooks.EntryPointType.DIRECT);
         } catch (Throwable ignored) { }
+    }
+
+    private static String pkgOf(Object o) {
+        if (o instanceof String) return (String) o;
+        if (o instanceof ComponentName) return ((ComponentName) o).getPackageName();
+        if (o instanceof VersionedPackage) return ((VersionedPackage) o).getPackageName();
+        return null;
+    }
+
+    private static void hookGuard(Method m, final boolean checked) {
+        hook(m, (original, frame) -> {
+            try {
+                Object arg = frame.accessor().getReference(1);
+                if (OWN.equals(pkgOf(arg))) {
+                    ZygoteEntry.<RuntimeException>sneaky(checked
+                            ? new PackageManager.NameNotFoundException(String.valueOf(arg))
+                            : new IllegalArgumentException("Unknown package: " + OWN));
+                    return;
+                }
+            } catch (ClassCastException | IndexOutOfBoundsException ignored) { }
+            try {
+                Transformers.invokeExactNoChecks(original, frame);
+            } catch (Throwable t) {
+                ZygoteEntry.<RuntimeException>sneaky(t);
+            }
+        });
     }
 
     private static void hookFilter(Method m) {
-        try {
-            Hooks.hook(m, Hooks.EntryPointType.DIRECT, (original, frame) -> {
-                try {
-                    Transformers.invokeExactNoChecks(original, frame);
-                } catch (Throwable t) {
-                    ZygoteEntry.<RuntimeException>sneaky(t);
+        hook(m, (original, frame) -> {
+            try {
+                Transformers.invokeExactNoChecks(original, frame);
+            } catch (Throwable t) {
+                ZygoteEntry.<RuntimeException>sneaky(t);
+            }
+            try {
+                Object r = frame.accessor().getReference(RET);
+                if (!(r instanceof List)) return;
+                List<?> src = (List<?>) r;
+                List<Object> dst = new ArrayList<>(src.size());
+                for (Object item : src) {
+                    if (!owns(item)) dst.add(item);
                 }
-                try {
-                    Object r = frame.accessor().getReference(RET);
-                    if (!(r instanceof List)) return;
-                    List<?> src = (List<?>) r;
-                    List<Object> dst = new ArrayList<>(src.size());
-                    for (Object item : src) {
-                        if (!isOwn(item)) dst.add(item);
-                    }
-                    if (dst.size() != src.size()) frame.accessor().setValue(RET, dst);
-                } catch (Throwable ignored) { }
-            }, Hooks.EntryPointType.DIRECT);
-        } catch (Throwable ignored) { }
+                if (dst.size() != src.size()) frame.accessor().setValue(RET, dst);
+            } catch (Throwable ignored) { }
+        });
     }
 
     private static void hookArray(Method m) {
-        try {
-            Hooks.hook(m, Hooks.EntryPointType.DIRECT, (original, frame) -> {
-                try {
-                    Transformers.invokeExactNoChecks(original, frame);
-                } catch (Throwable t) {
-                    ZygoteEntry.<RuntimeException>sneaky(t);
+        hook(m, (original, frame) -> {
+            try {
+                Transformers.invokeExactNoChecks(original, frame);
+            } catch (Throwable t) {
+                ZygoteEntry.<RuntimeException>sneaky(t);
+            }
+            try {
+                Object r = frame.accessor().getReference(RET);
+                if (!(r instanceof String[])) return;
+                String[] src = (String[]) r;
+                List<String> dst = new ArrayList<>(src.length);
+                for (String s : src) {
+                    if (!OWN.equals(s)) dst.add(s);
                 }
-                try {
-                    Object r = frame.accessor().getReference(RET);
-                    if (!(r instanceof String[])) return;
-                    String[] src = (String[]) r;
-                    List<String> dst = new ArrayList<>(src.length);
-                    boolean found = false;
-                    for (String s : src) {
-                        if (ZygoteEntry.OWN_PACKAGE.equals(s)) { found = true; continue; }
-                        dst.add(s);
-                    }
-                    if (found) frame.accessor().setValue(RET, dst.toArray(new String[0]));
-                } catch (Throwable ignored) { }
-            }, Hooks.EntryPointType.DIRECT);
-        } catch (Throwable ignored) { }
+                if (dst.size() != src.length) frame.accessor().setValue(RET, dst.toArray(new String[0]));
+            } catch (Throwable ignored) { }
+        });
     }
 
     private static void hookNameForUid(Method m) {
-        try {
-            Hooks.hook(m, Hooks.EntryPointType.DIRECT, (original, frame) -> {
-                try {
-                    Transformers.invokeExactNoChecks(original, frame);
-                } catch (Throwable t) {
-                    ZygoteEntry.<RuntimeException>sneaky(t);
-                }
-                try {
-                    Object r = frame.accessor().getReference(RET);
-                    if (ZygoteEntry.OWN_PACKAGE.equals(r)) {
-                        frame.accessor().setValue(RET, null);
-                    }
-                } catch (Throwable ignored) { }
-            }, Hooks.EntryPointType.DIRECT);
-        } catch (Throwable ignored) { }
+        hook(m, (original, frame) -> {
+            try {
+                Transformers.invokeExactNoChecks(original, frame);
+            } catch (Throwable t) {
+                ZygoteEntry.<RuntimeException>sneaky(t);
+            }
+            try {
+                if (OWN.equals(frame.accessor().getReference(RET))) frame.accessor().setValue(RET, null);
+            } catch (Throwable ignored) { }
+        });
     }
 
-    private static boolean isOwn(Object item) {
-        if (item == null) return false;
-        try {
-            return ZygoteEntry.OWN_PACKAGE.equals(item.getClass().getField("packageName").get(item));
-        } catch (Throwable ignored) { }
-        try {
-            Field f = item.getClass().getDeclaredField("packageName");
-            f.setAccessible(true);
-            return ZygoteEntry.OWN_PACKAGE.equals(f.get(item));
-        } catch (Throwable t) {
-            return false;
+    private static boolean owns(Object item) {
+        if (item instanceof ResolveInfo) {
+            ResolveInfo r = (ResolveInfo) item;
+            return owns(r.activityInfo) || owns(r.serviceInfo) || owns(r.providerInfo);
         }
+        if (item instanceof PackageItemInfo) return OWN.equals(((PackageItemInfo) item).packageName);
+        if (item instanceof PackageInfo) return OWN.equals(((PackageInfo) item).packageName);
+        return false;
     }
 
     private PackageGuard() { }

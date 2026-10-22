@@ -14,6 +14,7 @@ import java.util.Random;
 
 final class Fix {
     private static final Random RND = new Random();
+    private static final long PHASE_NS = (long) (RND.nextDouble() * 1e9);
     private static final Map<String, Long> LAST_NS = new HashMap<>();
     private static boolean resolved = false;
     private static Method setMock, removeMsl, removeMslAcc;
@@ -64,7 +65,7 @@ final class Fix {
 
     private static void applyMotion(Location l, Config.Pt p) {
         l.setAltitude(p.alt);
-        l.setSpeed(p.spd);
+        l.setSpeed(p.spd > 0.3f ? Math.max(0f, p.spd + p.accJit * 0.15f) : p.spd);
         l.setVerticalAccuracyMeters(Config.vAcc(p));
         l.setSpeedAccuracyMetersPerSecond(Config.sAcc(p));
         if (Float.isNaN(p.brg)) {
@@ -135,10 +136,29 @@ final class Fix {
         l.setTime(System.currentTimeMillis() - ageMs);
     }
 
-    static Location fresh(String provider) {
+    static Location at(String provider) {
         Location l = new Location(provider);
         apply(l, provider, Config.snapshot());
+        return l;
+    }
+
+    static Location fresh(String provider) {
+        Location l = at(provider);
         stamp(l, provider);
+        return l;
+    }
+
+    static Location lastKnown(String provider) {
+        Location l = at(provider);
+        long nowNs = SystemClock.elapsedRealtimeNanos();
+        long fixNs;
+        synchronized (LAST_NS) {
+            Long last = LAST_NS.get(provider);
+            fixNs = last != null && nowNs - last < 5_000_000_000L
+                    ? last : nowNs - Math.floorMod(nowNs - PHASE_NS, 1_000_000_000L);
+        }
+        l.setElapsedRealtimeNanos(fixNs);
+        l.setTime(System.currentTimeMillis() - (nowNs - fixNs) / 1_000_000L);
         return l;
     }
 

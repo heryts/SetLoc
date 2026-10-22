@@ -5,7 +5,7 @@ APK="$MODDIR/apk/SetLoc.apk"
 PREFNAME="${APP}_prefs.xml"
 
 LOCKD="$MODDIR/.daemon.lock"
-KV="81 120 55 109 75 50 118 84 110 76 57 112 "
+KV="86 122 118 119 107 52 82 120 106 55 80 115 "
 enc() {
   kr=$KV
   vals=
@@ -34,12 +34,13 @@ dec() {
   done
   printf "$esc"
 }
-KEY=691c6a
-SYSKEY=da59e5
-BEATKEY=eccaa8
-TRKKEY=7ff7c7
-NETKEY=5770df
-BTKEY=c60482
+KEY=956349
+SYSKEY=db078e
+BEATKEY=c1e67d
+TRKKEY=c724d0
+NETKEY=70a4b0
+BTKEY=50a6bb
+OLDKEYS="691c6a da59e5 eccaa8 7ff7c7 5770df c60482 83266e"
 TRK_W=48
 TRK_LEAD=24
 LASTF="$MODDIR/.last_app_cfg"
@@ -47,6 +48,15 @@ CFGS=/data/system/gpsz_config
 CFGF=/data/adb/gpsz_config
 TRKF=/data/system/gpsz_trk
 STAMP="$MODDIR/.sync_stamp"
+
+legacy_clean() {
+  [ -n "$OLDKEYS" ] || return 0
+  [ "$(cat "$MODDIR/.legacy_done" 2>/dev/null)" = "$OLDKEYS" ] && return 0
+  for k in $OLDKEYS; do
+    cmd settings delete global "$k" >/dev/null 2>&1 || settings delete global "$k" >/dev/null 2>&1
+  done
+  echo "$OLDKEYS" > "$MODDIR/.legacy_done"
+}
 
 keepalive() {
   ( pm grant $APP android.permission.WRITE_SECURE_SETTINGS
@@ -620,6 +630,7 @@ CURBC=$(sget boot_count)
 SYNCED=$PREFC
 INO=0; WPID=; WDIR=; WOKE=0
 ino_up
+legacy_clean
 sync_cfg
 app_installed && keepalive
 LAST=$(sig)

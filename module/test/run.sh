@@ -37,7 +37,7 @@ EOS
 chmod +x "$T/bin/"*
 PATH="$T/bin:$PATH"; export PATH
 
-SALT="Qx7mK2vTnL9p"
+SALT="Vzvwk4Rxj7Ps"
 tag() {
   rest="$SALT$1"
   h=2166136261
@@ -64,7 +64,7 @@ enc() {
   done
   printf '%s' "$out"
 }
-SYSTAG=da59e5; TRKTAG=7ff7c7; BEATTAG=eccaa8
+SYSTAG=db078e; TRKTAG=c724d0; BEATTAG=c1e67d
 
 echo "[sintaks]"
 for f in "$A"/*.sh "$A"/customize.d/*.sh "$A/../../../../setup.sh"; do

@@ -24,6 +24,13 @@ with_jdk() { jh=$1; shift; JAVA_HOME=$jh PATH="$jh/bin:$PATH" "$@"; }
 
 J21=$(find_jdk 21 "$JAVA21_HOME") || exit 1
 
+if [ -f tools/RotateSalt.java ]; then
+  ROT=; [ -n "$ROTATE_SALT" ] && ROT=--new
+  "$J21/bin/java" tools/RotateSalt.java $ROT || { echo "GAGAL: RotateSalt"; exit 1; }
+else
+  echo "PERINGATAN: tools/RotateSalt.java tidak ada di $(pwd), salt tidak diputar (memakai salt yang sudah tertanam di source)"
+fi
+
 if [ -n "$MAPS_API_KEY" ]; then
   { grep -v '^MAPS_API_KEY=' app/local.properties 2>/dev/null || true; echo "MAPS_API_KEY=$MAPS_API_KEY"; } > app/local.properties.new
   mv -f app/local.properties.new app/local.properties
