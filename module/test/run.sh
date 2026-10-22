@@ -507,6 +507,8 @@ svc 1 marker
 check "penanda sudah ada: tidak menyentuh pengaturan" '[ "$(sysval)" = 1 ]'
 
 echo "[kunci Settings.Global dan beat terenkripsi]"
+check "SALT WebUI sama dengan salt build (dekode state system/heartbeat)" '[ "$(sed -n "s/^const SALT = .\(.*\).;.*/\1/p" "$A/webroot/index.html")" = "$SALT" ]'
+check "SALT WebUI sama dengan Config.java" '[ "$(sed -n "s/^const SALT = .\(.*\).;.*/\1/p" "$A/webroot/index.html")" = "$(sed -n "s/.*SALT = \"\(.*\)\";/\1/p" "$A/../java/io/gpsz/zygote/Config.java")" ]'
 for p in KEY:cfg SYSKEY:sys BEATKEY:beat TRKKEY:trk NETKEY:net BTKEY:bt; do
   for f in bridge.sh gpsz.sh; do
     check "$f ${p%%:*} cocok dengan tag(${p#*:})" '[ "$(sed -n "s/^${p%%:*}=//p" "$A/$f")" = "$(tag "${p#*:}")" ]'
