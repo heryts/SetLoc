@@ -15,6 +15,7 @@ import com.v7878.vmtools.HookTransformer;
 import com.v7878.vmtools.Hooks;
 
 import java.io.IOException;
+import java.io.Serializable;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
@@ -189,12 +190,17 @@ final class SettingsGuard {
         return o instanceof String && KEYS.contains(o);
     }
 
+    private static Object valueOf(Bundle b, String k) {
+        Serializable v = b.getSerializable(k, Serializable.class);
+        return v != null ? v : b.getBundle(k);
+    }
+
     private static boolean bundleMentions(Bundle b) {
         if (b == null) return false;
         try {
             for (String k : b.keySet()) {
                 if (KEYS.contains(k)) return true;
-                Object v = b.get(k);
+                Object v = valueOf(b, k);
                 if (v instanceof String && isKey(v)) return true;
                 if (v instanceof Bundle && bundleMentions((Bundle) v)) return true;
             }
@@ -306,7 +312,7 @@ final class SettingsGuard {
         } catch (Throwable ignored) { }
         try {
             for (String k : b.keySet()) {
-                Object v = b.get(k);
+                Object v = valueOf(b, k);
                 if (v instanceof Bundle) stripBundle((Bundle) v);
             }
         } catch (Throwable ignored) { }
