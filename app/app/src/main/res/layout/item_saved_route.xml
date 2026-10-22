@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="56dp"
+    android:layout_height="44dp"
     android:background="?attr/selectableItemBackground"
     android:gravity="center_vertical"
     android:orientation="horizontal"
     android:paddingStart="24dp"
-    android:paddingEnd="12dp">
+    android:paddingEnd="8dp">
 
     <TextView
         android:id="@+id/saved_route_name"
@@ -15,20 +15,15 @@
         android:layout_weight="1"
         android:ellipsize="end"
         android:maxLines="1"
-        android:textColor="?android:attr/textColorPrimary"
-        android:textSize="16sp" />
+        android:textAppearance="?android:attr/textAppearanceListItem" />
 
     <ImageButton
         android:id="@+id/saved_route_delete"
         android:layout_width="40dp"
         android:layout_height="40dp"
-        android:layout_marginStart="8dp"
-        android:alpha="0.75"
         android:background="?attr/selectableItemBackgroundBorderless"
         android:contentDescription="@string/delete_saved_route"
         android:focusable="false"
-        android:padding="8dp"
-        android:scaleType="fitCenter"
         android:src="@drawable/ic_delete" />
 
 </LinearLayout>
