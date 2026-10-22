@@ -240,8 +240,27 @@ final class SettingsGuard {
         return o instanceof String && KEYS.contains(o);
     }
 
+    private static final Method BUNDLE_GET = bundleGet();
+
+    private static Method bundleGet() {
+        try {
+            return Bundle.class.getMethod("get", String.class);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static Object rawGet(Bundle b, String k) {
+        if (BUNDLE_GET == null) return null;
+        try {
+            return BUNDLE_GET.invoke(b, k);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
     private static Object valueOf(Bundle b, String k) {
-        Object v = b.get(k);
+        Object v = rawGet(b, k);
         if (v instanceof Serializable) return v;
         return b.getBundle(k);
     }
@@ -358,7 +377,7 @@ final class SettingsGuard {
         }
         for (String k : drop) b.remove(k);
         try {
-            Object v = b.get(Settings.NameValueTable.VALUE);
+            Object v = rawGet(b, Settings.NameValueTable.VALUE);
             if (v instanceof HashMap) stripMap((Map<?, ?>) v);
         } catch (Throwable ignored) { }
         try {

@@ -36,7 +36,7 @@ extern "C" fn on_stop(_: c_int) {
 pub fn install_signals() {
     for s in [1, 2, 15] {
         unsafe {
-            signal(s, on_stop as usize);
+            signal(s, on_stop as *const () as usize);
         }
     }
 }
