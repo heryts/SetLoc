@@ -241,8 +241,9 @@ final class SettingsGuard {
     }
 
     private static Object valueOf(Bundle b, String k) {
-        Serializable v = b.getSerializable(k, Serializable.class);
-        return v != null ? v : b.getBundle(k);
+        Object v = b.get(k);
+        if (v instanceof Serializable) return v;
+        return b.getBundle(k);
     }
 
     private static boolean bundleMentions(Bundle b) {
@@ -357,8 +358,8 @@ final class SettingsGuard {
         }
         for (String k : drop) b.remove(k);
         try {
-            Map<?, ?> v = b.getSerializable(Settings.NameValueTable.VALUE, HashMap.class);
-            if (v != null) stripMap(v);
+            Object v = b.get(Settings.NameValueTable.VALUE);
+            if (v instanceof HashMap) stripMap((Map<?, ?>) v);
         } catch (Throwable ignored) { }
         try {
             for (String k : b.keySet()) {

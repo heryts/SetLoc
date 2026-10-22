@@ -17,13 +17,20 @@ import java.io.File;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
 final class PackageGuard {
     private static final int RET = EmulatedStackFrame.RETURN_VALUE_IDX;
     private static final String OWN = ZygoteEntry.OWN_PACKAGE;
-    private static final Set<String> MISSING = Set.of(
+    private static Set<String> setOf(String... a) {
+        return Collections.unmodifiableSet(new HashSet<>(Arrays.asList(a)));
+    }
+
+    private static final Set<String> MISSING = setOf(
             "getPackageInfo", "getPackageInfoAsUser",
             "getApplicationInfo", "getApplicationInfoAsUser",
             "getPackageUid", "getPackageUidAsUser",
@@ -31,8 +38,8 @@ final class PackageGuard {
             "getApplicationIcon", "getApplicationBanner", "getApplicationLogo",
             "getActivityInfo", "getServiceInfo", "getReceiverInfo", "getProviderInfo",
             "getResourcesForApplication");
-    private static final Set<String> UNKNOWN = Set.of("getInstallerPackageName", "getApplicationEnabledSetting", "getComponentEnabledSetting");
-    private static final Set<String> LISTS = Set.of(
+    private static final Set<String> UNKNOWN = setOf("getInstallerPackageName", "getApplicationEnabledSetting", "getComponentEnabledSetting");
+    private static final Set<String> LISTS = setOf(
             "getInstalledPackages", "getInstalledApplications",
             "getInstalledPackagesAsUser", "getInstalledApplicationsAsUser",
             "getPackagesHoldingPermissions",

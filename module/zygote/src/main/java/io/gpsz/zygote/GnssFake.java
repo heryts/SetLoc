@@ -3,6 +3,7 @@ package io.gpsz.zygote;
 import android.location.GnssStatus;
 import android.location.Location;
 import android.location.LocationManager;
+import android.os.Build;
 import android.os.IInterface;
 import android.os.SystemClock;
 
@@ -30,7 +31,8 @@ final class GnssFake {
     static final int T_GPS = 1, T_GLO = 3, T_BDS = 5, T_GAL = 6;
     private static final int KIND_STATUS = 0, KIND_NMEA = 1, KIND_MEAS = 2, KIND_ANT = 3;
     private static final int F_EPH = 1, F_ALM = 2, F_USED = 4, F_CARRIER = 8, F_BASEBAND = 16;
-    private static final int SVID_SHIFT = 12, TYPE_SHIFT = 8;
+    private static final boolean LEGACY = Build.VERSION.SDK_INT < 30;
+    private static final int SVID_SHIFT = LEGACY ? 8 : 12, TYPE_SHIFT = LEGACY ? 4 : 8;
     private static final long GPS_EPOCH_MS = 315_964_800_000L;
     private static final int LEAP_S = 18;
     private static final long WEEK_NS = 604_800L * 1_000_000_000L;
@@ -100,7 +102,7 @@ final class GnssFake {
             int[] f = new int[n];
             for (int i = 0; i < n; i++) {
                 f[i] = (svid[i] << SVID_SHIFT) | (type[i] << TYPE_SHIFT)
-                        | F_EPH | F_ALM | F_CARRIER | F_BASEBAND | (used[i] ? F_USED : 0);
+                        | F_EPH | F_ALM | F_CARRIER | (LEGACY ? 0 : F_BASEBAND) | (used[i] ? F_USED : 0);
             }
             return f;
         }
@@ -235,6 +237,10 @@ final class GnssFake {
         if (m.getParameterCount() == 1) {
             Object st = statusObject(s);
             if (st != null) m.invoke(listener, st);
+            return;
+        }
+        if (m.getParameterCount() == 6) {
+            call(listener, "onSvStatusChanged", s.n, s.flags(), s.cn0, s.elev, s.az, s.carrier);
             return;
         }
         call(listener, "onSvStatusChanged", s.n, s.flags(), s.cn0, s.elev, s.az, s.carrier, s.baseband());
