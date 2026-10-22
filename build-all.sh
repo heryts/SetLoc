@@ -44,7 +44,7 @@ build_daemon() {
   for t in ${RUST_TARGETS:-aarch64-linux-android}; do
     case "$t" in
       aarch64-linux-android) abi=arm64-v8a; cc=aarch64-linux-android31-clang ;;
-      armv7-linux-androideabi) abi=armeabi-v7a; cc=armv7a-linux-androideabi33-clang ;;
+      armv7-linux-androideabi) abi=armeabi-v7a; cc=armv7a-linux-androideabi31-clang ;;
       x86_64-linux-android) abi=x86_64; cc=x86_64-linux-android31-clang ;;
       i686-linux-android) abi=x86; cc=i686-linux-android31-clang ;;
       *) echo "GAGAL: target Rust tidak dikenal: $t"; return 1 ;;

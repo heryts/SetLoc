@@ -606,11 +606,14 @@ final class LocationHooks {
     private static Object wifiSsidOf(String ssid) {
         try {
             Class<?> c = Class.forName("android.net.wifi.WifiSsid");
-            Method m = c.getMethod("fromBytes", byte[].class);
-            return m.invoke(null, (Object) ssid.getBytes(StandardCharsets.UTF_8));
-        } catch (Throwable t) {
-            return null;
-        }
+            byte[] b = ssid.getBytes(StandardCharsets.UTF_8);
+            for (String n : new String[]{"fromBytes", "createFromByteArray"}) {
+                try {
+                    return c.getMethod(n, byte[].class).invoke(null, (Object) b);
+                } catch (Throwable ignored) { }
+            }
+        } catch (Throwable ignored) { }
+        return null;
     }
 
     private static void putField(Object target, String name, Object value) {
