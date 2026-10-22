@@ -1021,7 +1021,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         val dlgRef = arrayOfNulls<AlertDialog>(1)
 
         fun render() {
-            scroll.layoutParams.height = (minOf(items.size, 4) * 40 * d).toInt() + extra
+            scroll.layoutParams.height = (minOf(items.size, 4) * 34 * d).toInt() + extra
             scroll.requestLayout()
             rows.removeAllViews()
             items.forEach { r ->
