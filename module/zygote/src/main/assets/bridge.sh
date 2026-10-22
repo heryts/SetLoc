@@ -61,9 +61,11 @@ legacy_clean() {
 keepalive() {
   ( pm grant $APP android.permission.WRITE_SECURE_SETTINGS
     cmd deviceidle whitelist +$APP
-    cmd appops set $APP RUN_ANY_IN_BACKGROUND allow
-    cmd appops set $APP RUN_IN_BACKGROUND allow
-    cmd appops set $APP SYSTEM_ALERT_WINDOW allow
+    if [ "$1" = full ]; then
+      cmd appops set $APP RUN_ANY_IN_BACKGROUND allow
+      cmd appops set $APP RUN_IN_BACKGROUND allow
+      cmd appops set $APP SYSTEM_ALERT_WINDOW allow
+    fi
     cmd activity set-standby-bucket $APP active
     am set-inactive $APP false ) >/dev/null 2>&1 &
 }
@@ -489,6 +491,52 @@ start_daemon() {
   daemon_running
 }
 
+SUPF="$MODDIR/.super.pid"
+
+super_alive() {
+  SP=; { read -r SP < "$SUPF"; } 2>/dev/null
+  case "$SP" in ''|*[!0-9]*) return 1 ;; esac
+  SC=; { read -r SC < "/proc/$SP/cmdline"; } 2>/dev/null
+  case "$SC" in *bridge.sh*super*) return 0 ;; esac
+  return 1
+}
+
+start_super() {
+  [ -f "$MODDIR/disable_super" ] && return 0
+  super_alive && return 0
+  if command -v setsid >/dev/null 2>&1; then
+    setsid nohup sh "$MODDIR/bridge.sh" super >/dev/null 2>&1 &
+  else
+    nohup sh "$MODDIR/bridge.sh" super >/dev/null 2>&1 &
+  fi
+  return 0
+}
+
+daemon_alive_fast() {
+  for F in "$LOCKD"/*; do
+    Q=${F##*/}
+    case "$Q" in ''|*[!0-9]*) continue ;; esac
+    C=; { read -r C < "/proc/$Q/cmdline"; } 2>/dev/null
+    case "$C" in *bridge.sh*daemon*) return 0 ;; esac
+  done
+  return 1
+}
+
+super_loop() {
+  echo $$ > "$SUPF"
+  { echo -1000 > /proc/$$/oom_score_adj; } 2>/dev/null
+  trap 'exit 143' TERM
+  trap 'exit 129' HUP
+  while true; do
+    sleep 10
+    SP=; { read -r SP < "$SUPF"; } 2>/dev/null
+    [ "$SP" = "$$" ] || exit 0
+    [ -f "$MODDIR/bridge.sh" ] || exit 0
+    [ -f "$MODDIR/disable_super" ] && continue
+    daemon_alive_fast || sh "$MODDIR/bridge.sh" ensure super >/dev/null 2>&1
+  done
+}
+
 sig() { [ -n "$PREFC" ] && echo "$PREFC $(stat -c '%i %y %s' "$PREFC" 2>/dev/null)"; }
 
 sigdue() {
@@ -570,8 +618,9 @@ case "$1" in
   setrandom) set_app_random "$2"; exit $? ;;
   ensure)
     daemon_running || { [ -z "$(ls "$LOCKD" 2>/dev/null)" ] && sleep 2; daemon_running; } \
-      && { echo "daemon=running"; exit 0; }
+      && { [ "$2" = super ] || start_super; echo "daemon=running"; exit 0; }
     if start_daemon; then
+      [ "$2" = super ] || start_super
       echo "daemon=running"
       exit 0
     fi
@@ -579,6 +628,7 @@ case "$1" in
     exit 1 ;;
   status)
     daemon_running && echo "daemon=running" || echo "daemon=stopped"
+    super_alive && echo "super=running" || echo "super=stopped"
     app_installed && echo "app=installed" || echo "app=missing"
     dumpsys package $APP 2>/dev/null | grep -q 'WRITE_SECURE_SETTINGS: granted=true' && echo "secure_settings=granted" || echo "secure_settings=missing"
     PREF=$(find_pref deep)
@@ -594,6 +644,7 @@ case "$1" in
   sysdefault)
     if [ -z "$(sget "$SYSKEY")" ] || [ "$(sget "$SYSKEY")" = null ]; then csput "$SYSKEY" 2; fi
     exit 0 ;;
+  super)   super_loop; exit 0 ;;
   daemon) ;;
   *) echo "usage: bridge.sh ensure [super]|sync|mirror|force|setstart 0|1|setpos <lat> <lng> [acc]|setrandom 0|1|status|install|sysdefault"; exit 1 ;;
 esac
@@ -632,7 +683,8 @@ INO=0; WPID=; WDIR=; WOKE=0
 ino_up
 legacy_clean
 sync_cfg
-app_installed && keepalive
+app_installed && keepalive full
+start_super
 LAST=$(sig)
 DELAY=0.5; N=0; PLAYING=0; SIGEVERY=10
 while true; do
@@ -640,7 +692,7 @@ while true; do
   N=$((N+1))
   yield_lock
   if [ $((N % 100)) -eq 0 ]; then lock_clean; fi
-  if [ $((N % 20)) -eq 0 ] || [ ! -f "$PREFC" ]; then PREFC=""; PREFC=$(find_pref); fi
+  if [ $((N % 20)) -eq 0 ] || { [ ! -f "$PREFC" ] && { [ -n "$PREFC" ] || [ $((N % 5)) -eq 0 ]; }; }; then PREFC=""; PREFC=$(find_pref); fi
   if [ "$INO" = 1 ]; then
     kill -0 "$WPID" 2>/dev/null || ino_up
   elif [ $((N % 20)) -eq 0 ]; then
@@ -682,7 +734,7 @@ while true; do
   case "$NEW" in
     *enabled=1*)
       DELAY=0.3
-      [ "$WASON" != 1 ] && { WASON=1; keepalive; } ;;
+      [ "$WASON" != 1 ] && { WASON=1; keepalive full; } ;;
     *) DELAY=1; WASON=0 ;;
   esac
   case "$NEW" in
@@ -691,4 +743,10 @@ while true; do
       KN=${UP%.*}${UP#*.}
       [ $((KN - ${KAAT:-0})) -ge 30000 ] && { KAAT=$KN; keepalive; } ;;
   esac
+  read UP _ < /proc/uptime
+  SN=${UP%.*}${UP#*.}
+  if [ $((SN - ${SUAT:-0})) -ge 3000 ]; then
+    SUAT=$SN
+    super_alive || start_super
+  fi
 done

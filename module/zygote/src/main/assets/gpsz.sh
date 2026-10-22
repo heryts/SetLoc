@@ -174,7 +174,7 @@ case "$1" in
   super)
     case "$2" in
       off) : > "$MODDIR/disable_super"; echo "supervisor dimatikan (daemon yang di-kill tidak dinyalakan lagi)" ;;
-      on)  rm -f "$MODDIR/disable_super"; echo "supervisor aktif" ;;
+      on)  rm -f "$MODDIR/disable_super"; sh "$MODDIR/bridge.sh" ensure >/dev/null 2>&1; echo "supervisor aktif" ;;
       *)   [ -f "$MODDIR/disable_super" ] && echo "supervisor=dimatikan" || echo "supervisor=aktif" ;;
     esac ;;
   doctor)

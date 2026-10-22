@@ -14,10 +14,21 @@ live_pids() {
     tr '\0' ' ' < "/proc/$q/cmdline" 2>/dev/null | grep -q 'bridge.sh daemon' && echo "$q"
   done
 }
-cleanup() { for p in $(live_pids); do kill -9 "$p" 2>/dev/null; done; rm -rf "$T"; }
+kill_bridges() {
+  for k in super any; do
+    for d in /proc/[0-9]*; do
+      c=$({ tr '\0' ' ' < "$d/cmdline"; } 2>/dev/null)
+      case "$k:$c" in
+        super:*"$1"/*bridge.sh*super*|any:*"$1"/*bridge.sh*) kill -9 "${d#/proc/}" 2>/dev/null ;;
+      esac
+    done
+  done
+}
+cleanup() { kill_bridges "$T"; rm -rf "$T"; }
 trap cleanup EXIT
 
 cp "$A/bridge.sh" "$A/gpsz.sh" "$M/"
+: > "$M/disable_super"
 for c in getprop:'echo 1' cmd:'[ "$1" = settings ] && shift && exec settings "$@"; exit 0' pm:'exit 0' am:'exit 0' \
          dumpsys:'exit 0' logcat:'exit 0'; do
   printf '#!/bin/sh\n%s\n' "${c#*:}" > "$T/bin/${c%%:*}"
@@ -116,6 +127,62 @@ rm -rf "$M/.daemon.lock"; sh "$M/bridge.sh" ensure >/dev/null; sleep 1
 check "ensure saat boot tidak membuat daemon kedua" '[ "$(live_pids | wc -l)" = 1 ] && [ "$(live_pids | head -1)" = "$W" ]'
 echo 1 > "$T/bootflag"
 for p in $(live_pids); do kill -TERM "$p"; done; sleep 7
+
+echo "[supervisor: saling mengawasi]"
+SV="$T/sv"; rm -rf "$SV"; mkdir -p "$SV"
+cp "$A/bridge.sh" "$SV/"
+sed -i 's/-ge 3000 \]/-ge 200 ]/;s/^    sleep 10$/    sleep 1/' "$SV/bridge.sh"
+check "salinan uji supervisor memakai selang pendek" 'grep -q -- "-ge 200 \]" "$SV/bridge.sh" && grep -q "^    sleep 1$" "$SV/bridge.sh"'
+sv_dpids() { for f in "$SV"/.daemon.lock/*; do q=${f##*/}; case "$q" in ''|*[!0-9]*) continue ;; esac; { tr '\0' ' ' < "/proc/$q/cmdline"; } 2>/dev/null | grep -q 'bridge.sh daemon' && echo "$q"; done; }
+sv_spid() { cat "$SV/.super.pid" 2>/dev/null; }
+sv_alive() { p=$(sv_spid); [ -n "$p" ] && { tr '\0' ' ' < "/proc/$p/cmdline"; } 2>/dev/null | grep -q 'bridge.sh super'; }
+sv_count() { n=0; for d in /proc/[0-9]*; do { tr '\0' ' ' < "$d/cmdline"; } 2>/dev/null | grep -q "$SV/bridge.sh supe[r]" && n=$((n+1)); done; echo $n; }
+sv_clean() { kill_bridges "$SV"; sleep 0.3; }
+sh "$SV/bridge.sh" ensure >/dev/null 2>&1; sleep 1
+check "ensure menghidupkan daemon dan supervisor" '[ "$(sv_dpids | wc -l)" = 1 ] && sv_alive'
+check "hanya ada satu proses supervisor" '[ "$(sv_count)" = 1 ]'
+SW=$(sv_dpids | head -1); kill -9 "$SW"; sleep 4
+check "supervisor menghidupkan lagi daemon yang di-SIGKILL" '[ "$(sv_dpids | wc -l)" = 1 ] && [ "$(sv_dpids | head -1)" != "$SW" ]'
+sleep 6
+SP0=$(sv_spid); kill -9 "$SP0"; sleep 8
+check "daemon menghidupkan lagi supervisor yang di-SIGKILL" 'sv_alive && [ "$(sv_spid)" != "$SP0" ]'
+check "supervisor pengganti tetap satu proses" '[ "$(sv_count)" = 1 ]'
+: > "$SV/disable_super"; SP0=$(sv_spid); kill -9 "$SP0"; sleep 8
+check "disable_super: supervisor tidak dihidupkan lagi oleh daemon" '! sv_alive'
+SW=$(sv_dpids | head -1); kill -9 "$SW"; sleep 4
+check "disable_super: daemon yang di-kill tidak dihidupkan lagi" '[ "$(sv_dpids | wc -l)" = 0 ]'
+rm -f "$SV/disable_super"; sh "$SV/bridge.sh" ensure >/dev/null 2>&1; sleep 1
+check "ensure sesudah disable_super dihapus menghidupkan keduanya" '[ "$(sv_dpids | wc -l)" = 1 ] && sv_alive'
+out=$(sh "$SV/bridge.sh" status 2>/dev/null)
+check "status melaporkan super=running" 'echo "$out" | grep -qx "super=running"'
+sv_clean
+out=$(sh "$SV/bridge.sh" status 2>/dev/null)
+check "status melaporkan super=stopped saat mati" 'echo "$out" | grep -qx "super=stopped"'
+for i in 1 2 3; do ( setsid sh "$SV/bridge.sh" super >/dev/null 2>&1 & ); done
+sleep 3
+check "tiga supervisor bersamaan -> tersisa satu" '[ "$(sv_count)" = 1 ]'
+sv_clean
+
+echo "[bridge.sh: keepalive penuh dan ringan]"
+KA="$T/ka"; rm -rf "$KA"; mkdir -p "$KA/bin"
+sed -n '/^keepalive() {/,/^}/p' "$A/bridge.sh" > "$KA/fn.sh"
+for c in pm cmd am; do printf '#!/bin/sh\necho "%s $*" >> "%s/log"\n' "$c" "$KA" > "$KA/bin/$c"; done
+chmod +x "$KA/bin/"*
+runka() { : > "$KA/log"; ( PATH="$KA/bin:$PATH"; APP=com.x.y; . "$KA/fn.sh"; keepalive $1; wait ) >/dev/null 2>&1; }
+runka full
+check "keepalive full: tiga appops, grant, whitelist, bucket, inactive" '[ "$(grep -c "^cmd appops set" "$KA/log")" = 3 ] && grep -q "^pm grant com.x.y android.permission.WRITE_SECURE_SETTINGS" "$KA/log" && grep -q "^cmd deviceidle whitelist +com.x.y" "$KA/log" && grep -q "set-standby-bucket com.x.y active" "$KA/log" && grep -q "^am set-inactive com.x.y false" "$KA/log"'
+runka
+check "keepalive ringan: tanpa appops, tetap grant, whitelist, bucket, inactive" '[ "$(grep -c "^cmd appops" "$KA/log")" = 0 ] && grep -q "^pm grant" "$KA/log" && grep -q "^cmd deviceidle whitelist" "$KA/log" && grep -q "set-standby-bucket" "$KA/log" && grep -q "^am set-inactive" "$KA/log"'
+
+echo "[bridge.sh: pencarian pref tidak membanjir saat penyimpanan terkunci]"
+LB="$T/lsb"; rm -rf "$LB"; mkdir -p "$LB/bin" "$LB/mod"
+printf '#!/bin/sh\necho "$*" >> "%s/ls.log"\nexit 0\n' "$LB" > "$LB/bin/ls"; chmod +x "$LB/bin/ls"
+cp "$A/bridge.sh" "$LB/mod/"
+( PATH="$LB/bin:$PATH"; export PATH; setsid sh "$LB/mod/bridge.sh" daemon >/dev/null 2>&1 & )
+sleep 13
+LSN=$(grep -c '^-t' "$LB/ls.log" 2>/dev/null); LSN=${LSN:-0}
+kill_bridges "$LB"
+check "tanpa pref: pencarian ls -t jarang (<= 5 kali dalam 13 dtk), sekarang $LSN" '[ "$LSN" -le 5 ]'
 
 echo "[gpsz.sh]"
 G="sh $M/gpsz.sh"; PK="$M/packages"
@@ -486,6 +553,7 @@ svc() {
   ( setsid sh -c 'echo $$ > "$1/pgid"; exec sh "$1/service.sh"' sh "$S" >/dev/null 2>&1 & )
   sleep 1.5
   kill -9 -- "-$(cat "$S/pgid")" 2>/dev/null
+  kill_bridges "$S"
 }
 sysval() { cat "$T/st/$SYSTAG" 2>/dev/null | ( read -r h; [ -n "$h" ] || { echo ''; exit; }
   krest="$SALT"; out=""; rest="$h"
