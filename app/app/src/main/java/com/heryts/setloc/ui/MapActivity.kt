@@ -1015,13 +1015,14 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         val scroll = ScrollView(this)
         scroll.addView(rows)
         val box = FrameLayout(this)
+        box.setPadding(0, (8 * d).toInt(), 0, 0)
         box.addView(scroll, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0))
         var selectedId = -1L
         var extra = 0
         val dlgRef = arrayOfNulls<AlertDialog>(1)
 
         fun render() {
-            scroll.layoutParams.height = (minOf(items.size, 4) * 34 * d).toInt() + extra
+            scroll.layoutParams.height = (minOf(items.size, 4) * 40 * d).toInt() + extra
             scroll.requestLayout()
             rows.removeAllViews()
             items.forEach { r ->
