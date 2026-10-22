@@ -13,9 +13,10 @@ cd "$REPO"
 [ -f build-all.sh ] && [ -f version.properties ] && [ -d app ] && [ -d module ] || { echo "GAGAL: $REPO bukan repo SetLoc"; exit 1; }
 [ -z "$CHECK_CLEAN" ] || [ -z "$(git status --porcelain app module 2>/dev/null)" ] \
   || { echo "GAGAL: CHECK_CLEAN=1 aktif dan ada perubahan belum di-commit di app/ atau module/"; exit 1; }
-EX="--exclude=local.properties --exclude=keystore.properties --exclude=*.p12 --exclude=*.pem --exclude=*.jks --exclude=*.keystore --exclude=build/ --exclude=.gradle/ --exclude=external/ --exclude=.cxx/"
+EX="--exclude=local.properties --exclude=keystore.properties --exclude=*.p12 --exclude=*.pem --exclude=*.jks --exclude=*.keystore --exclude=build/ --exclude=.gradle/ --exclude=external/ --exclude=.cxx/ --exclude=target/"
 rsync -a --delete $EX "$Z/app/" app/
-rsync -a --delete $EX --exclude=apk/ "$Z/module/" module/
+rsync -a --delete $EX --exclude=apk/ --exclude=assets/bin/ "$Z/module/" module/
+if [ -d "$Z/daemon" ]; then mkdir -p daemon; rsync -a --delete $EX "$Z/daemon/" daemon/; fi
 for f in README.md build-all.sh make-keystore.sh .gitignore .gitattributes version.properties .salt; do if [ -f "$Z/$f" ]; then cp "$Z/$f" .; fi; done
 if [ -d "$Z/tools" ]; then mkdir -p tools; rsync -a --delete "$Z/tools/" tools/; fi
 if [ -d "$Z/.github/workflows" ]; then mkdir -p .github/workflows; rsync -a --delete "$Z/.github/workflows/" .github/workflows/; fi
@@ -31,7 +32,7 @@ OUT=module/zygote/build/outputs/magisk/release/SetLocZygisk-release.zip
 C=$(mktemp -d)
 unzip -q "$OUT" -d "$C"
 [ -f "$C/customize.d/40-install-apk.sh" ] && [ "$(grep -c 40-install-apk.sh "$C/customize.sh")" = 2 ] \
-  && cmp -s "$C/apk/SetLoc.apk" "$(ls -t app/app/build/outputs/apk/release/*.apk | head -n 1)" || { echo "GAGAL: isi zip tidak sesuai"; exit 1; }
+  && [ -f "$C/bin/arm64-v8a/setlocd" ] && cmp -s "$C/apk/SetLoc.apk" "$(ls -t app/app/build/outputs/apk/release/*.apk | head -n 1)" || { echo "GAGAL: isi zip tidak sesuai"; exit 1; }
 rm -rf "$C"
 cp "$OUT" "$HOME/SetLocZygisk-v$VER.zip"
 [ -d /mnt/c ] && cp "$OUT" "/mnt/c/SetLocZygisk-v$VER.zip"

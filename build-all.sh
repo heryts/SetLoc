@@ -22,6 +22,43 @@ find_jdk() {
 
 with_jdk() { jh=$1; shift; JAVA_HOME=$jh PATH="$jh/bin:$PATH" "$@"; }
 
+find_ndk() {
+  for d in "$ANDROID_NDK_HOME" "$ANDROID_NDK_ROOT"; do
+    if [ -n "$d" ] && [ -d "$d/toolchains/llvm" ]; then echo "$d"; return 0; fi
+  done
+  sdk=${ANDROID_HOME:-$ANDROID_SDK_ROOT}
+  [ -n "$sdk" ] || sdk=$(sed -n 's/^sdk\.dir=//p' app/local.properties 2>/dev/null | head -n 1)
+  d=$(ls -d "$sdk"/ndk/* 2>/dev/null | sort -V | tail -n 1)
+  if [ -n "$sdk" ] && [ -n "$d" ] && [ -d "$d/toolchains/llvm" ]; then echo "$d"; return 0; fi
+  echo "NDK Android tidak ditemukan. Pasang lewat SDK Manager atau set ANDROID_NDK_HOME." >&2
+  return 1
+}
+
+build_daemon() {
+  [ -d "$HOME/.cargo/bin" ] && PATH="$HOME/.cargo/bin:$PATH"
+  command -v cargo >/dev/null 2>&1 || { echo "GAGAL: butuh cargo. Pasang: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"; return 1; }
+  ndk=$(find_ndk) || return 1
+  case "$(uname -s)" in Darwin) host=darwin-x86_64 ;; *) host=linux-x86_64 ;; esac
+  bin="$ndk/toolchains/llvm/prebuilt/$host/bin"
+  [ -z "$SKIP_TESTS" ] && { ( cd daemon && cargo test --release ) || return 1; }
+  for t in ${RUST_TARGETS:-aarch64-linux-android}; do
+    case "$t" in
+      aarch64-linux-android) abi=arm64-v8a; cc=aarch64-linux-android33-clang ;;
+      armv7-linux-androideabi) abi=armeabi-v7a; cc=armv7a-linux-androideabi33-clang ;;
+      x86_64-linux-android) abi=x86_64; cc=x86_64-linux-android33-clang ;;
+      i686-linux-android) abi=x86; cc=i686-linux-android33-clang ;;
+      *) echo "GAGAL: target Rust tidak dikenal: $t"; return 1 ;;
+    esac
+    if command -v rustup >/dev/null 2>&1 && ! rustup target list --installed | grep -qx "$t"; then
+      rustup target add "$t" || return 1
+    fi
+    up=$(echo "$t" | tr 'a-z-' 'A-Z_')
+    ( cd daemon && env "CARGO_TARGET_${up}_LINKER=$bin/$cc" cargo build --release --target "$t" ) || return 1
+    mkdir -p "module/zygote/src/main/assets/bin/$abi"
+    cp "daemon/target/$t/release/setlocd" "module/zygote/src/main/assets/bin/$abi/setlocd"
+  done
+}
+
 J21=$(find_jdk 21 "$JAVA21_HOME") || exit 1
 
 if [ -f tools/RotateSalt.java ]; then
@@ -41,7 +78,7 @@ trap 'rm -f "$SETUP_LOG"' EXIT
 ( cd module && sh setup.sh ) >"$SETUP_LOG" 2>&1 &
 SETUP_PID=$!
 
-echo "== 1/3 build app =="
+echo "== 1/4 build app =="
 TASKS="testDebugUnitTest assembleRelease"; [ -n "$SKIP_TESTS" ] && TASKS=assembleRelease
 ( cd app && with_jdk "$J21" sh ./gradlew $GRADLE_ARGS $TASKS )
 APK=$(ls -t app/app/build/outputs/apk/release/*.apk 2>/dev/null | head -n 1)
@@ -49,10 +86,13 @@ APK=$(ls -t app/app/build/outputs/apk/release/*.apk 2>/dev/null | head -n 1)
 mkdir -p module/zygote/src/main/assets/apk
 cp "$APK" module/zygote/src/main/assets/apk/SetLoc.apk
 
-echo "== 2/3 siapkan AndroidVMTools =="
+echo "== 2/4 build daemon Rust =="
+build_daemon || { echo "GAGAL: daemon Rust"; exit 1; }
+
+echo "== 3/4 siapkan AndroidVMTools =="
 wait "$SETUP_PID" || { cat "$SETUP_LOG"; exit 1; }
 cat "$SETUP_LOG"
 
-echo "== 3/3 build modul Zygisk =="
+echo "== 4/4 build modul Zygisk =="
 ( cd module && with_jdk "$J21" sh ./gradlew $GRADLE_ARGS --no-configuration-cache :zygote:assembleRelease )
 ls module/zygote/build/outputs/magisk/release/*.zip
