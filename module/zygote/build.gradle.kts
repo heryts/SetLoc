@@ -15,7 +15,7 @@ android {
 
     defaultConfig {
         applicationId = namespace
-        minSdk = 29
+        minSdk = 31
         targetSdk = 36
         versionCode = ver.getProperty("versionCode").toInt()
         versionName = ver.getProperty("versionName")

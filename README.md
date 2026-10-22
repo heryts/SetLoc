@@ -3,7 +3,7 @@
 Versi Zygisk dari pemalsu lokasi. Pilih titik atau putar rute dari app SetLoc, dan lokasi palsunya dipakai app lain.
 
 ## Syarat
-- Android 10 ke atas (minSdk 29) dengan root dan Zygisk aktif
+- Android 12 ke atas (minSdk 31) dengan root dan Zygisk aktif
 - Manajer root yang bisa memasang modul (Magisk, KernelSU, APatch, atau sejenisnya)
 
 ## Pasang

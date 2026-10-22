@@ -3,7 +3,6 @@ package io.gpsz.zygote;
 import android.location.Location;
 import android.location.LocationManager;
 import android.os.Binder;
-import android.os.Build;
 import android.os.IInterface;
 import android.os.SystemClock;
 
@@ -26,9 +25,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
 final class SystemHooks {
-    private static final boolean LEGACY = Build.VERSION.SDK_INT < 30;
-    private static final String LMS = LEGACY ? "com.android.server.LocationManagerService" : "com.android.server.location.LocationManagerService";
-    private static final String LPM = LEGACY ? "com.android.server.LocationManagerService$LocationProvider" : "com.android.server.location.provider.LocationProviderManager";
+    private static final String LMS = "com.android.server.location.LocationManagerService";
+    private static final String LPM = "com.android.server.location.provider.LocationProviderManager";
 
     private static final String[] PROVIDERS = {
         LocationManager.GPS_PROVIDER, LocationManager.FUSED_PROVIDER, LocationManager.NETWORK_PROVIDER
@@ -63,16 +61,12 @@ final class SystemHooks {
             if (first || lpmClass == null) prepareReflection(cl);
             if (lpmHooks == 0) lpmHooks = hookClass(cl, LPM, false);
             if (lmsHooks == 0 && lmsTries < 12) { lmsTries++; lmsHooks = hookClass(cl, LMS, true); }
-            if (!generatorStarted && (first || canReport())) {
-                generatorStarted = canReport();
+            if (!generatorStarted && (first || (lpmOnReport != null && resultWrap != null))) {
+                generatorStarted = lpmOnReport != null && resultWrap != null;
                 if (generatorStarted) startGenerator();
             }
         } catch (Throwable ignored) { }
         return isLive();
-    }
-
-    private static boolean canReport() {
-        return lpmOnReport != null && (LEGACY || resultWrap != null);
     }
 
     private static boolean isLive() {
@@ -129,33 +123,11 @@ final class SystemHooks {
                 if (cl != null) return cl;
             }
         } catch (Throwable ignored) { }
-        if (LEGACY) {
-            try {
-                Class<?> sm = Class.forName("android.os.ServiceManager");
-                Method gs = findMethod(sm, "getService", String.class);
-                Object lms = gs == null ? null : gs.invoke(null, "location");
-                if (lms != null && lms.getClass().getClassLoader() != null) return lms.getClass().getClassLoader();
-            } catch (Throwable ignored) { }
-            try {
-                ClassLoader ctx = Thread.currentThread().getContextClassLoader();
-                if (ctx != null) return ctx;
-            } catch (Throwable ignored) { }
-        }
         ClassLoader cl = ClassLoader.getSystemClassLoader();
         return cl != null ? cl : SystemHooks.class.getClassLoader();
     }
 
     private static void prepareReflection(ClassLoader cl) {
-        if (LEGACY) {
-            try {
-                lpmClass = Class.forName(LPM, false, cl);
-                lpmGetName = findMethod(lpmClass, "getName");
-                lpmOnReport = findMethod(lpmClass, "onReportLocation", Location.class);
-                lmsClass = Class.forName(LMS, false, cl);
-                enabledForUser = findMethod(lmsClass, "isProviderEnabledForUser", String.class, int.class);
-            } catch (Throwable ignored) { }
-            return;
-        }
         try {
             resultClass = Class.forName("android.location.LocationResult");
             resultSize = findMethod(resultClass, "size");
@@ -212,10 +184,9 @@ final class SystemHooks {
                     if (ret == void.class) kind = K_BLOCK_VOID;
                     else if (ret == boolean.class) kind = K_BLOCK_BOOL;
                 }
-            } else if (n.equals("onReportLocation")) {
-                Class<?> want = LEGACY ? Location.class : resultClass;
-                for (int i = 0; want != null && i < ps.length; i++) {
-                    if (ps[i] == want) { kind = K_ARG_RESULT; argIdx = i + 1; break; }
+            } else if (n.equals("onReportLocation") && resultClass != null) {
+                for (int i = 0; i < ps.length; i++) {
+                    if (ps[i] == resultClass) { kind = K_ARG_RESULT; argIdx = i + 1; break; }
                 }
             }
             if (kind < 0) continue;
@@ -247,7 +218,7 @@ final class SystemHooks {
                 || n.equals("removeGnssMeasurementsListener") || n.equals("removeGnssAntennaInfoListener");
     }
 
-    private static final Set<String> TRUSTED_GNSS = Collections.singleton("android");
+    private static final Set<String> TRUSTED_GNSS = Set.of("android");
 
     private static boolean active() {
         return Config.enabled && Config.system && !Config.sysHeartbeat && Config.hasPos();
@@ -261,15 +232,6 @@ final class SystemHooks {
 
     private static void captureReal(Object result) {
         try {
-            if (result instanceof Location) {
-                Location c = new Location((Location) result);
-                String pv = c.getProvider();
-                if (pv != null) {
-                    if (realByProvider.size() > 8) realByProvider.clear();
-                    realByProvider.put(pv, c);
-                }
-                return;
-            }
             if (result == null || resultClass == null || !resultClass.isInstance(result)
                     || resultSize == null || resultGet == null) return;
             if (realByProvider.size() > 8) realByProvider.clear();
@@ -321,10 +283,6 @@ final class SystemHooks {
                         GnssFake.call(listener, "onGnssStopped");
                     }
                 }, null);
-                if (LEGACY) {
-                    GnssFake.feedNmea(key, SystemHooks::active,
-                            (m, ts) -> GnssFake.call(listener, "onNmeaReceived", ts, m), null);
-                }
                 break;
             case K_FEED_NMEA:
                 GnssFake.feedNmea(key, SystemHooks::active,
@@ -363,7 +321,8 @@ final class SystemHooks {
                 } else if (active()) {
                     switch (kind) {
                         case K_LAST: {
-                            String provider = providerOf(frame.accessor().getReference(1));
+                            Object p = frame.accessor().getReference(1);
+                            String provider = p instanceof String ? (String) p : LocationManager.GPS_PROVIDER;
                             if (anyEmergency()) break;
                             handled = true;
                             try {
@@ -414,7 +373,6 @@ final class SystemHooks {
     }
 
     private static Object spoofResult(Object result) throws Throwable {
-        if (result instanceof Location) return spoof((Location) result);
         if (result == null || resultClass == null || !resultClass.isInstance(result)) return null;
         if (resultWrap == null) return null;
         if (resultSize != null && resultGet != null) {
@@ -480,22 +438,7 @@ final class SystemHooks {
         }
     }
 
-    private static String providerOf(Object p) {
-        if (p instanceof String) return (String) p;
-        if (p != null) {
-            try {
-                Method m = findMethod(p.getClass(), "getProvider");
-                Object r = m == null ? null : m.invoke(p);
-                if (r instanceof String) return (String) r;
-            } catch (Throwable ignored) { }
-        }
-        return LEGACY ? LocationManager.FUSED_PROVIDER : LocationManager.GPS_PROVIDER;
-    }
-
     private static boolean providerEnabled(Object lms, String provider) {
-        if (LocationManager.FUSED_PROVIDER.equals(provider)) {
-            return providerEnabled(lms, LocationManager.GPS_PROVIDER) || providerEnabled(lms, LocationManager.NETWORK_PROVIDER);
-        }
         try {
             if (enabledForUser == null || lms == null || lmsClass == null || !lmsClass.isInstance(lms)) return true;
             return (Boolean) enabledForUser.invoke(lms, provider, Binder.getCallingUid() / 100000);
@@ -594,7 +537,6 @@ final class SystemHooks {
     }
 
     private static Object wrap(Location l) throws Throwable {
-        if (LEGACY) return l;
         if (wrapTakesList) return resultWrap.invoke(null, Collections.singletonList(l));
         return resultWrap.invoke(null, (Object) new Location[]{l});
     }

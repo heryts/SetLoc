@@ -43,10 +43,10 @@ build_daemon() {
   [ -z "$SKIP_TESTS" ] && { ( cd daemon && cargo test --release ) || return 1; }
   for t in ${RUST_TARGETS:-aarch64-linux-android}; do
     case "$t" in
-      aarch64-linux-android) abi=arm64-v8a; cc=aarch64-linux-android29-clang ;;
-      armv7-linux-androideabi) abi=armeabi-v7a; cc=armv7a-linux-androideabi29-clang ;;
-      x86_64-linux-android) abi=x86_64; cc=x86_64-linux-android29-clang ;;
-      i686-linux-android) abi=x86; cc=i686-linux-android29-clang ;;
+      aarch64-linux-android) abi=arm64-v8a; cc=aarch64-linux-android31-clang ;;
+      armv7-linux-androideabi) abi=armeabi-v7a; cc=armv7a-linux-androideabi33-clang ;;
+      x86_64-linux-android) abi=x86_64; cc=x86_64-linux-android31-clang ;;
+      i686-linux-android) abi=x86; cc=i686-linux-android31-clang ;;
       *) echo "GAGAL: target Rust tidak dikenal: $t"; return 1 ;;
     esac
     if command -v rustup >/dev/null 2>&1 && ! rustup target list --installed | grep -qx "$t"; then

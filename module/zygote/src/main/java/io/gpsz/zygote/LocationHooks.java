@@ -1,13 +1,13 @@
 package io.gpsz.zygote;
 
 import android.app.AppOpsManager;
+import android.location.GnssAntennaInfo;
 import android.location.GnssMeasurementsEvent;
 import android.location.GnssStatus;
 import android.location.Location;
 import android.location.LocationManager;
 import android.location.OnNmeaMessageListener;
 import android.net.wifi.ScanResult;
-import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -95,7 +95,7 @@ final class LocationHooks {
         hookUnfeed(LocationManager.class, "unregisterGnssStatusCallback", GnssStatus.Callback.class);
         hookUnfeed(LocationManager.class, "removeNmeaListener", OnNmeaMessageListener.class);
         hookUnfeed(LocationManager.class, "unregisterGnssMeasurementsCallback", GnssMeasurementsEvent.Callback.class);
-        hookUnfeed(LocationManager.class, "unregisterAntennaInfoListener", classOrNull("android.location.GnssAntennaInfo$Listener"));
+        hookUnfeed(LocationManager.class, "unregisterAntennaInfoListener", GnssAntennaInfo.Listener.class);
         hookAll(LocationManager.class, "addGpsStatusListener", K_FEED_GPS);
         hookAll(LocationManager.class, "getGpsStatus", K_GPS_STATUS);
         hookUnfeed(LocationManager.class, "removeGpsStatusListener", GPS_LISTENER);
@@ -122,7 +122,6 @@ final class LocationHooks {
         }
         hook(Location.class, "toString", K_TOSTRING);
         hook(Location.class, "set", K_SET, Location.class);
-        hookAll("android.location.LocationManager$ListenerTransport", "onLocationChanged", K_DELIVER);
         hookAll("android.location.LocationManager$LocationListenerTransport", "onLocationChanged", K_DELIVER);
         hookAll("android.location.LocationManager$GetCurrentLocationTransport", "onLocation", K_DELIVER);
     }
@@ -591,7 +590,8 @@ final class LocationHooks {
             Constructor<ScanResult> ctor = ScanResult.class.getDeclaredConstructor();
             ctor.setAccessible(true);
             ScanResult sr = ctor.newInstance();
-            putField(sr, "wifiSsid", makeSsid(ap.ssid.getBytes(StandardCharsets.UTF_8)));
+            Object ws = wifiSsidOf(ap.ssid);
+            if (ws != null) putField(sr, "wifiSsid", ws);
             putField(sr, "SSID", ap.ssid);
             putField(sr, "BSSID", ap.bssid);
             putField(sr, "level", ap.rssi);
@@ -603,16 +603,14 @@ final class LocationHooks {
         }
     }
 
-    private static Object makeSsid(byte[] b) {
+    private static Object wifiSsidOf(String ssid) {
         try {
             Class<?> c = Class.forName("android.net.wifi.WifiSsid");
-            for (String n : new String[]{"fromBytes", "createFromByteArray"}) {
-                try {
-                    return c.getMethod(n, byte[].class).invoke(null, (Object) b);
-                } catch (Throwable ignored) { }
-            }
-        } catch (Throwable ignored) { }
-        return null;
+            Method m = c.getMethod("fromBytes", byte[].class);
+            return m.invoke(null, (Object) ssid.getBytes(StandardCharsets.UTF_8));
+        } catch (Throwable t) {
+            return null;
+        }
     }
 
     private static void putField(Object target, String name, Object value) {
@@ -780,11 +778,6 @@ final class LocationHooks {
         return null;
     }
 
-    private static Handler handlerOf(EmulatedStackFrame frame, int np) {
-        Handler h = argOf(frame, np, Handler.class);
-        return h != null ? h : new Handler(Looper.getMainLooper());
-    }
-
     private static Object fakeGpsStatus(Object arg) {
         try {
             Object st = GnssFake.statusObject(GnssFake.snapshot(true));
@@ -861,7 +854,6 @@ final class LocationHooks {
 
     private static boolean feed(int kind, EmulatedStackFrame frame, int np) {
         final Executor ex = executorOf(frame, np);
-        final Handler hd = handlerOf(frame, np);
         final LocationManager lm = (LocationManager) frame.accessor().getReference(0);
         if (kind == K_FEED_GPS) {
             final Object l = GPS_LISTENER == null ? null : argOf(frame, np, GPS_LISTENER);
@@ -877,9 +869,7 @@ final class LocationHooks {
             final OnNmeaMessageListener l = argOf(frame, np, OnNmeaMessageListener.class);
             if (l == null) return false;
             GnssFake.feedNmea(l, LocationHooks::live, (m, ts) -> ex.execute(() -> l.onNmeaMessage(m, ts)),
-                    () -> {
-                if (Build.VERSION.SDK_INT >= 30) lm.addNmeaListener(ex, l); else lm.addNmeaListener(l, hd);
-            });
+                    () -> lm.addNmeaListener(ex, l));
             return true;
         }
         if (kind == K_FEED_MEAS) {
@@ -887,21 +877,17 @@ final class LocationHooks {
             if (cb == null) return false;
             GnssFake.feedMeasurements(cb, LocationHooks::live,
                     ev -> ex.execute(() -> cb.onGnssMeasurementsReceived((GnssMeasurementsEvent) ev)),
-                    () -> {
-                        if (Build.VERSION.SDK_INT >= 30) lm.registerGnssMeasurementsCallback(ex, cb);
-                        else lm.registerGnssMeasurementsCallback(cb, hd);
-                    });
+                    () -> lm.registerGnssMeasurementsCallback(ex, cb));
             return true;
         }
         if (kind == K_FEED_ANT) {
-            Class<?> lt = classOrNull("android.location.GnssAntennaInfo$Listener");
-            final Object l = lt == null ? null : argOf(frame, np, lt);
+            final GnssAntennaInfo.Listener l = argOf(frame, np, GnssAntennaInfo.Listener.class);
             if (l == null) return false;
-            GnssFake.feedAntenna(l, LocationHooks::live, info -> ex.execute(() -> {
-                try {
-                    GnssFake.call(l, "onGnssAntennaInfoReceived", info);
-                } catch (Throwable ignored) { }
-            }));
+            GnssFake.feedAntenna(l, LocationHooks::live, info -> {
+                final List<GnssAntennaInfo> typed = new ArrayList<>(info.size());
+                for (Object a : info) typed.add((GnssAntennaInfo) a);
+                ex.execute(() -> l.onGnssAntennaInfoReceived(typed));
+            });
             return true;
         }
         return false;
@@ -926,12 +912,8 @@ final class LocationHooks {
                         GnssStatus.Callback cb = argOf(frame, nParams, GnssStatus.Callback.class);
                         if (cb != null) {
                             final Executor ex = executorOf(frame, nParams);
-                            final Handler hd = handlerOf(frame, nParams);
                             final LocationManager lm = (LocationManager) frame.accessor().getReference(0);
-                            feedStatus(cb, ex, () -> {
-                                if (Build.VERSION.SDK_INT >= 30) lm.registerGnssStatusCallback(ex, cb);
-                                else lm.registerGnssStatusCallback(cb, hd);
-                            });
+                            feedStatus(cb, ex, () -> lm.registerGnssStatusCallback(ex, cb));
                         }
                     } catch (Throwable ignored) { }
                 }, Hooks.EntryPointType.DIRECT);
