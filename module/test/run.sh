@@ -536,7 +536,7 @@ echo "[unsafe: SunUnsafe milik sendiri menggantikan SunUnsafeWrapper]"
 if command -v java >/dev/null 2>&1 && { command -v javac >/dev/null 2>&1 || java --list-modules 2>/dev/null | grep -q '^jdk.compiler@'; }; then
   check "SunUnsafe: API identik v1.0.2, nol warning javac, bytecode valid, memori/CAS/fence jalan" 'sh "$TD/unsafe/run.sh" >"$T/unsafe.log" 2>&1 || { cat "$T/unsafe.log"; false; }'
   check "PER_OBJ berbasis identitas: equals/hashCode Location tidak dipanggil, entri di-GC dibersihkan" 'sh "$TD/idmap/run.sh" >"$T/idmap.log" 2>&1 || { cat "$T/idmap.log"; false; }'
-  check "LocationHooks tidak memakai WeakHashMap/Collections.synchronizedMap untuk PER_OBJ" '! grep -q "WeakHashMap" "$TD/../zygote/src/main/java/io/gpsz/zygote/LocationHooks.java" && grep -q "WeakIdentityMap<Snap> PER_OBJ" "$TD/../zygote/src/main/java/io/gpsz/zygote/LocationHooks.java"'
+  check "LocationHooks tidak memakai WeakHashMap/Collections.synchronizedMap untuk PER_OBJ" '! grep -q "WeakHashMap" "$TD/../zygote/src/main/java/io/gpsz/zygote/LocationHooks.java" && grep -q "WeakIdentityMap<Mark> PER_OBJ" "$TD/../zygote/src/main/java/io/gpsz/zygote/LocationHooks.java"'
 else
   bad "tes SunUnsafe dilewati: javac/java tidak ada"
 fi

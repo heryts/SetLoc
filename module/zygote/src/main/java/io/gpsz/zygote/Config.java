@@ -544,8 +544,6 @@ final class Config {
         }
         tkMode = tk;
         cfgEn = en;
-        beatStale = 0;
-        beatArmed = false;
         acc = ac; altVar = av; rr = rad; jitter = jit; playing = pl;
         if (!(tk && track != null)) {
             pos = new Pos(la, lo); spd = sp; brg = br; alt = al;
@@ -635,7 +633,7 @@ final class Config {
                 String sv = orFile(dec(Settings.Global.getString(cr, KEY_SYS)), fileSys, useFile);
                 boolean wasSystem = system, wasHeartbeat = sysHeartbeat;
                 applyFlags(sv, net, bt);
-                boolean tightened = system && (!wasSystem || wasHeartbeat != sysHeartbeat);
+                boolean tightened = system && (!wasSystem || (wasHeartbeat && !sysHeartbeat));
                 if ((!wasOn && enabled && system) || tightened) wake();
                 if (onReady != null && system) {
                     long now = SystemClock.elapsedRealtime();

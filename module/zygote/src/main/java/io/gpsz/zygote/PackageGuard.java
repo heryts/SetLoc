@@ -13,6 +13,7 @@ import com.v7878.unsafe.invoke.Transformers;
 import com.v7878.vmtools.HookTransformer;
 import com.v7878.vmtools.Hooks;
 
+import java.io.File;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
@@ -30,7 +31,7 @@ final class PackageGuard {
             "getApplicationIcon", "getApplicationBanner", "getApplicationLogo",
             "getActivityInfo", "getServiceInfo", "getReceiverInfo", "getProviderInfo",
             "getResourcesForApplication");
-    private static final Set<String> UNKNOWN = Set.of("getInstallerPackageName", "getApplicationEnabledSetting");
+    private static final Set<String> UNKNOWN = Set.of("getInstallerPackageName", "getApplicationEnabledSetting", "getComponentEnabledSetting");
     private static final Set<String> LISTS = Set.of(
             "getInstalledPackages", "getInstalledApplications",
             "getInstalledPackagesAsUser", "getInstalledApplicationsAsUser",
@@ -42,8 +43,14 @@ final class PackageGuard {
             "queryContentProviders",
             "getSharedLibraries");
 
+    private static final String[] FILE_BOOLS = {"exists", "isDirectory", "isFile", "canRead"};
+    private static final String[] FILE_LONGS = {"lastModified", "length"};
+    private static final int SIGNATURE_UNKNOWN_PACKAGE = -4;
+    private static final int PERMISSION_DENIED = -1;
+
     static void install() {
         if (ZygoteEntry.isSelf()) return;
+        hookFiles();
         try {
             for (Method m : Class.forName("android.app.ApplicationPackageManager").getDeclaredMethods()) {
                 int mod = m.getModifiers();
@@ -54,10 +61,14 @@ final class PackageGuard {
                 if (MISSING.contains(n) && (first == String.class || first == ComponentName.class
                         || first == VersionedPackage.class || first == ApplicationInfo.class)) {
                     hookGuard(m, first == String.class || first == ComponentName.class || first == VersionedPackage.class);
-                } else if (UNKNOWN.contains(n) && first == String.class) {
+                } else if (UNKNOWN.contains(n) && (first == String.class || first == ComponentName.class)) {
                     hookGuard(m, false);
                 } else if (LISTS.contains(n) && List.class.isAssignableFrom(m.getReturnType())) {
                     hookFilter(m);
+                } else if (n.equals("checkSignatures") && ps.length == 2 && ps[0] == String.class && ps[1] == String.class) {
+                    hookCheck(m, SIGNATURE_UNKNOWN_PACKAGE);
+                } else if (n.equals("checkPermission") && ps.length == 2 && ps[0] == String.class && ps[1] == String.class) {
+                    hookCheck(m, PERMISSION_DENIED);
                 } else if (n.equals("getPackagesForUid") && m.getReturnType() == String[].class) {
                     hookArray(m);
                 } else if (n.equals("getNameForUid") && m.getReturnType() == String.class) {
@@ -78,6 +89,47 @@ final class PackageGuard {
         } catch (Throwable ignored) { }
     }
 
+    private static void hookCheck(Method m, final int result) {
+        hook(m, (original, frame) -> {
+            try {
+                if (OWN.equals(frame.accessor().getReference(1)) || OWN.equals(frame.accessor().getReference(2))) {
+                    frame.accessor().setValue(RET, result);
+                    return;
+                }
+            } catch (Throwable ignored) { }
+            try {
+                Transformers.invokeExactNoChecks(original, frame);
+            } catch (Throwable t) {
+                ZygoteEntry.<RuntimeException>sneaky(t);
+            }
+        });
+    }
+
+    private static void hookFiles() {
+        for (String n : FILE_BOOLS) hookFile(n, Boolean.FALSE);
+        for (String n : FILE_LONGS) hookFile(n, Long.valueOf(0L));
+    }
+
+    private static void hookFile(String name, final Object hiddenValue) {
+        try {
+            Method m = File.class.getDeclaredMethod(name);
+            hook(m, (original, frame) -> {
+                try {
+                    Object self = frame.accessor().getReference(0);
+                    if (self instanceof File && ((File) self).getPath().contains(OWN)) {
+                        frame.accessor().setValue(RET, hiddenValue);
+                        return;
+                    }
+                } catch (Throwable ignored) { }
+                try {
+                    Transformers.invokeExactNoChecks(original, frame);
+                } catch (Throwable t) {
+                    ZygoteEntry.<RuntimeException>sneaky(t);
+                }
+            });
+        } catch (Throwable ignored) { }
+    }
+
     private static String pkgOf(Object o) {
         if (o instanceof String) return (String) o;
         if (o instanceof ComponentName) return ((ComponentName) o).getPackageName();
@@ -93,7 +145,8 @@ final class PackageGuard {
                 if (OWN.equals(pkgOf(arg))) {
                     ZygoteEntry.<RuntimeException>sneaky(checked
                             ? new PackageManager.NameNotFoundException(String.valueOf(arg))
-                            : new IllegalArgumentException("Unknown package: " + OWN));
+                            : new IllegalArgumentException(arg instanceof ComponentName
+                                    ? "Unknown component: " + arg : "Unknown package: " + OWN));
                     return;
                 }
             } catch (ClassCastException | IndexOutOfBoundsException ignored) { }

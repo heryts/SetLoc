@@ -282,15 +282,15 @@ final class SystemHooks {
                     public void stopped() throws Throwable {
                         GnssFake.call(listener, "onGnssStopped");
                     }
-                });
+                }, null);
                 break;
             case K_FEED_NMEA:
                 GnssFake.feedNmea(key, SystemHooks::active,
-                        (m, ts) -> GnssFake.call(listener, "onNmeaReceived", ts, m));
+                        (m, ts) -> GnssFake.call(listener, "onNmeaReceived", ts, m), null);
                 break;
             case K_FEED_MEAS:
                 GnssFake.feedMeasurements(key, SystemHooks::active,
-                        ev -> GnssFake.call(listener, "onGnssMeasurementsReceived", ev));
+                        ev -> GnssFake.call(listener, "onGnssMeasurementsReceived", ev), null);
                 break;
             case K_FEED_ANT:
                 GnssFake.feedAntenna(key, SystemHooks::active,

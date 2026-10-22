@@ -297,7 +297,7 @@ final class GnssFake {
         double course = fix.hasBearing() ? fix.getBearing() : 0.0;
         double alt = fix.hasAltitude() ? fix.getAltitude() : 0.0;
         int fixQuality = s.usedCount() > 0 ? 1 : 0;
-        int fixType = s.usedCount() >= 4 ? 3 : (s.usedCount() > 0 ? 1 : 1);
+        int fixType = s.usedCount() >= 4 ? 3 : 1;
         List<String> out = new ArrayList<>();
         out.add(sentence(String.format(Locale.US, "GNGGA,%s,%s,%c,%s,%c,%d,%02d,%.1f,%.1f,M,%.1f,M,,",
                 hms, coord(lat, true), ns, coord(lng, false), ew, fixQuality, s.usedCount(), hdop, alt, 0.0)));
@@ -522,13 +522,14 @@ final class GnssFake {
         }
     }
 
-    static void feedStatus(Object target, BooleanSupplier live, StatusSink sink) {
+    static void feedStatus(Object target, BooleanSupplier live, StatusSink sink, Runnable off) {
         final long ttff = 700 + (int) (Config.hashUnit(71, SystemClock.elapsedRealtime() / 60_000L) * 1500);
         final long begin = SystemClock.elapsedRealtime();
         final boolean[] flags = new boolean[2];
         schedule(KIND_STATUS, target, 150 + (int) (Config.hashUnit(72, SystemClock.elapsedRealtime() / 60_000L) * 200), 1000, () -> {
             if (!live.getAsBoolean()) {
                 sink.stopped();
+                if (off != null) off.run();
                 return false;
             }
             if (!flags[0]) {
@@ -546,18 +547,24 @@ final class GnssFake {
         });
     }
 
-    static void feedNmea(Object target, BooleanSupplier live, NmeaSink sink) {
+    static void feedNmea(Object target, BooleanSupplier live, NmeaSink sink, Runnable off) {
         schedule(KIND_NMEA, target, 1000 + (int) (Config.hashUnit(73, SystemClock.elapsedRealtime() / 60_000L) * 200), 1000, () -> {
-            if (!live.getAsBoolean()) return false;
+            if (!live.getAsBoolean()) {
+                if (off != null) off.run();
+                return false;
+            }
             long ts = System.currentTimeMillis();
             for (String m : nmea(snapshot(true))) sink.nmea(m, ts);
             return true;
         });
     }
 
-    static void feedMeasurements(Object target, BooleanSupplier live, MeasSink sink) {
+    static void feedMeasurements(Object target, BooleanSupplier live, MeasSink sink, Runnable off) {
         schedule(KIND_MEAS, target, 1000 + (int) (Config.hashUnit(74, SystemClock.elapsedRealtime() / 60_000L) * 200), 1000, () -> {
-            if (!live.getAsBoolean()) return false;
+            if (!live.getAsBoolean()) {
+                if (off != null) off.run();
+                return false;
+            }
             Object ev = measurementsEvent(snapshot(true));
             if (ev == null) return false;
             sink.event(ev);

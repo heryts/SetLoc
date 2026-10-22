@@ -31,7 +31,7 @@ import java.util.Set;
 
 final class SettingsGuard {
     private static Set<String> KEYS = Collections.emptySet();
-    private static final int K_STR = 0, K_QUERY = 1, K_CALL = 2, K_MAP = 3, K_EXEC = 4, K_OBS = 5, K_REG_OBS = 6, K_SECURE = 7;
+    private static final int K_STR = 0, K_QUERY = 1, K_CALL = 2, K_MAP = 3, K_EXEC = 4, K_OBS = 5, K_REG_OBS = 6;
     private static final int RET = EmulatedStackFrame.RETURN_VALUE_IDX;
     private static final String[] QUERY_STRING_ARGS = {
             ContentResolver.QUERY_ARG_SQL_SELECTION,
