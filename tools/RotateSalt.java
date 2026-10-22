@@ -99,7 +99,8 @@ public final class RotateSalt {
             if (p == BRIDGE) bridge = t; else gpsz = t;
         }
 
-        String web = sub(read(WEB), "^const SK = \\{.*\\};",
+        String web = sub(read(WEB), "^const SALT = '[^']*';", "const SALT = '" + salt + "';", WEB);
+        web = sub(web, "^const SK = \\{.*\\};",
                 "const SK = { cfg: '" + tag(salt, "cfg") + "', sys: '" + tag(salt, "sys") + "', net: '" + tag(salt, "net")
                         + "', bt: '" + tag(salt, "bt") + "', trk: '" + tag(salt, "trk") + "' };", WEB);
 

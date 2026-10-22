@@ -554,6 +554,7 @@ EOJ
     jk=${kn%%:*}; bk=${kn##*:}
     check "kunci WebUI SK.$jk sama dengan $bk di bridge.sh" '[ "$(sed -n "s/^$bk=//p" "$A/bridge.sh")" = "$(sed -n "s/^const SK = .*[{ ,]$jk: '"'"'\([0-9a-f]*\)'"'"'.*/\1/p" "$WJ")" ]'
   done
+  check "SALT WebUI sama dengan SALT di Config.java" 'grep -q "^const SALT = .$SALT.;" "$WJ" && grep -q "SALT = \"$SALT\"" "$TD/../zygote/src/main/java/io/gpsz/zygote/Config.java"'
   check "readCfg: perintah shell membaca cfg, trk, dan uptime hanya saat tk=1" 'grep -q "SK.trk} 2>/dev/null; read U" "$WJ"'
 else
   bad "tes webui dilewati: node tidak ada"
