@@ -16,7 +16,8 @@ cd "$REPO"
 EX="--exclude=local.properties --exclude=keystore.properties --exclude=*.p12 --exclude=*.pem --exclude=*.jks --exclude=*.keystore --exclude=build/ --exclude=.gradle/ --exclude=external/ --exclude=.cxx/"
 rsync -a --delete $EX "$Z/app/" app/
 rsync -a --delete $EX --exclude=apk/ "$Z/module/" module/
-for f in README.md build-all.sh make-keystore.sh .gitignore .gitattributes version.properties; do if [ -f "$Z/$f" ]; then cp "$Z/$f" .; fi; done
+for f in README.md build-all.sh make-keystore.sh .gitignore .gitattributes version.properties .salt; do if [ -f "$Z/$f" ]; then cp "$Z/$f" .; fi; done
+if [ -d "$Z/tools" ]; then mkdir -p tools; rsync -a --delete "$Z/tools/" tools/; fi
 if [ -d "$Z/.github/workflows" ]; then mkdir -p .github/workflows; rsync -a --delete "$Z/.github/workflows/" .github/workflows/; fi
 cp "$Z/update.sh" update.sh.new && mv update.sh.new update.sh
 find . -path ./module/external -prune -o \( -name '*.sh' -o -name gradlew \) -type f -print | xargs dos2unix -q
