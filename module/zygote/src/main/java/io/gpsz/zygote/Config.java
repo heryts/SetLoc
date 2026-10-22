@@ -86,6 +86,7 @@ final class Config {
     static volatile boolean hideBt = false;
     static volatile boolean playing;
     static volatile boolean tkMode;
+
     static final class Pos {
         final double lat, lng;
         Pos(double lat, double lng) { this.lat = lat; this.lng = lng; }
@@ -104,7 +105,6 @@ final class Config {
     static volatile double alt = 0.0;
     static volatile float altVar = 0f;
     static volatile float rr = 8f;
-    private static final double JITTER_TAU_S = 10.0;
     private static final double FLOOR_RADIUS_M = 0.8;
     private static double jitN = 0.0, jitE = 0.0;
     private static final double[] JIT_PERIOD_S = {7.0, 13.0, 23.0, 41.0};
@@ -131,7 +131,7 @@ final class Config {
         }
     }
 
-    private static volatile Pt snap;
+    static volatile Pt snap;
     private static volatile Track track;
     private static Track winTrack, fileTrack;
     private static String fileTrackSig;
@@ -503,6 +503,12 @@ final class Config {
             playing = false;
             tkMode = false;
             cfgEn = false;
+            beatStale = 0;
+            beatArmed = false;
+            system = false;
+            sysHeartbeat = false;
+            hideNet = true;
+            hideBt = false;
             return;
         }
         boolean en = false, jit = false, pl = false, tk = false;
@@ -538,10 +544,11 @@ final class Config {
         }
         tkMode = tk;
         cfgEn = en;
-        if (tk) { beatStale = 0; beatArmed = false; }
+        beatStale = 0;
+        beatArmed = false;
         acc = ac; altVar = av; rr = rad; jitter = jit; playing = pl;
         if (!(tk && track != null)) {
-            pos = new Pos(la, lo); spd = beatStale >= 1 ? 0f : sp; brg = br; alt = al;
+            pos = new Pos(la, lo); spd = sp; brg = br; alt = al;
         }
         enabled = en && beatStale < 2 && (!tk || trkStale < 2);
     }
@@ -555,7 +562,6 @@ final class Config {
             beatStale = 0;
             return;
         }
-
         if (!beatArmed || gap || !Objects.equals(beat, beatSeen)) {
             beatArmed = true;
             beatSeen = beat;
@@ -629,8 +635,8 @@ final class Config {
                 String sv = orFile(dec(Settings.Global.getString(cr, KEY_SYS)), fileSys, useFile);
                 boolean wasSystem = system, wasHeartbeat = sysHeartbeat;
                 applyFlags(sv, net, bt);
-                if (!wasOn && enabled && system) wake();
-                boolean tightened = system && (!wasSystem || (wasHeartbeat && !sysHeartbeat));
+                boolean tightened = system && (!wasSystem || wasHeartbeat != sysHeartbeat);
+                if ((!wasOn && enabled && system) || tightened) wake();
                 if (onReady != null && system) {
                     long now = SystemClock.elapsedRealtime();
                     if (tightened || now - lastTry >= RETRY_MS) {
@@ -700,7 +706,6 @@ final class Config {
     private static void reloadFileFields(long now) {
         if (now - fileCheckAt < (settingsEmpty ? FALLBACK_POLL_MS : FILE_CHECK_MS)) return;
         fileCheckAt = now;
-        boolean failed = false;
         for (String path : FILE_PATHS) {
             try {
                 java.io.File f = new java.io.File(path);
@@ -712,11 +717,9 @@ final class Config {
                 setFileFields(fields);
                 fileSeen = sig;
                 return;
-            } catch (Throwable t) {
-                failed = true;
-            }
+            } catch (Throwable ignored) { }
         }
-        if (!failed) {
+        if (settingsEmpty) {
             fileCfg = null; fileSys = null; fileNet = null; fileBt = null;
             fileSeen = null;
         }
@@ -742,6 +745,7 @@ final class Config {
     }
 
     private static boolean observe(ContentResolver cr, Handler h, final Runnable onChange) {
+        if (observer != null) return true;
         try {
             observer = new ContentObserver(h) {
                 @Override public void onChange(boolean selfChange) { onChange.run(); }
@@ -750,6 +754,8 @@ final class Config {
             cr.registerContentObserver(Settings.Global.getUriFor(KEY_SYS), false, observer);
             cr.registerContentObserver(Settings.Global.getUriFor(KEY_NET), false, observer);
             cr.registerContentObserver(Settings.Global.getUriFor(KEY_BT), false, observer);
+            cr.registerContentObserver(Settings.Global.getUriFor(KEY_BEAT), false, observer);
+            cr.registerContentObserver(Settings.Global.getUriFor(KEY_TRK), false, observer);
             return true;
         } catch (Throwable t) {
             return false;

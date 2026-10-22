@@ -13,6 +13,7 @@ import com.v7878.unsafe.invoke.EmulatedStackFrame;
 import com.v7878.unsafe.invoke.Transformers;
 import com.v7878.vmtools.HookTransformer;
 import com.v7878.vmtools.Hooks;
+
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -29,7 +30,7 @@ import java.util.Set;
 
 final class SettingsGuard {
     private static Set<String> KEYS = Collections.emptySet();
-    private static final int K_STR = 0, K_QUERY = 1, K_CALL = 2, K_MAP = 3, K_EXEC = 4, K_OBS = 5;
+    private static final int K_STR = 0, K_QUERY = 1, K_CALL = 2, K_MAP = 3, K_EXEC = 4, K_OBS = 5, K_REG_OBS = 6, K_SECURE = 7;
     private static final int RET = EmulatedStackFrame.RETURN_VALUE_IDX;
     private static final String[] QUERY_STRING_ARGS = {
             ContentResolver.QUERY_ARG_SQL_SELECTION,
@@ -41,6 +42,7 @@ final class SettingsGuard {
             ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS,
             ContentResolver.QUERY_ARG_SORT_COLUMNS
     };
+    private static final String LOCATION_MODE = "location_mode";
 
     static void install() {
         if (ZygoteEntry.isSelf()) return;
@@ -51,7 +53,44 @@ final class SettingsGuard {
         hookProvider(ContentResolver.class);
         hookProvider(ContentProviderClient.class);
         hookObserver();
+        hookRegisterObserver();
         hookExec();
+        hookLocationMode();
+    }
+
+    private static void hookLocationMode() {
+        try {
+            Class<?> secure = Class.forName("android.provider.Settings$Secure");
+            for (Method m : secure.getDeclaredMethods()) {
+                if (!m.getName().equals("getInt") && !m.getName().equals("getString")) continue;
+                Class<?>[] ps = m.getParameterTypes();
+                if (ps.length < 2 || ps[0] != ContentResolver.class || ps[1] != String.class) continue;
+                final Class<?> ret = m.getReturnType();
+                try {
+                    Hooks.hook(m, Hooks.EntryPointType.DIRECT, (original, frame) -> {
+                        try {
+                            if (Config.READING.get() == null && Config.enabled && Config.hasPos() && !Config.sysHeartbeat) {
+                                Object key = frame.accessor().getReference(2);
+                                if (LOCATION_MODE.equals(key)) {
+                                    if (ret == int.class) {
+                                        frame.accessor().setValue(RET, 3);
+                                        return;
+                                    } else if (ret == String.class) {
+                                        frame.accessor().setValue(RET, "3");
+                                        return;
+                                    }
+                                }
+                            }
+                        } catch (Throwable ignored) { }
+                        try {
+                            Transformers.invokeExactNoChecks(original, frame);
+                        } catch (Throwable t) {
+                            ZygoteEntry.<RuntimeException>sneaky(t);
+                        }
+                    }, Hooks.EntryPointType.DIRECT);
+                } catch (Throwable ignored) { }
+            }
+        } catch (Throwable ignored) { }
     }
 
     private static void hookObserver() {
@@ -61,10 +100,22 @@ final class SettingsGuard {
                 Class<?>[] ps = m.getParameterTypes();
                 for (int i = 0; i < ps.length; i++) {
                     if (ps[i] == Uri.class || Collection.class.isAssignableFrom(ps[i])) {
-                        put(m, K_OBS, 0, i + 1);
+                        put(m, K_OBS, 0, i + 2);
                         break;
                     }
                 }
+            }
+        } catch (Throwable ignored) { }
+    }
+
+    private static void hookRegisterObserver() {
+        try {
+            for (Method m : ContentResolver.class.getDeclaredMethods()) {
+                if (!m.getName().equals("registerContentObserver") || Modifier.isAbstract(m.getModifiers())) continue;
+                Class<?>[] ps = m.getParameterTypes();
+                if (ps.length < 3 || ps[0] != Uri.class) continue;
+                if (!ContentObserver.class.isAssignableFrom(ps[2])) continue;
+                put(m, K_REG_OBS, ps.length, 0);
             }
         } catch (Throwable ignored) { }
     }
@@ -82,6 +133,10 @@ final class SettingsGuard {
         return last != null && KEYS.contains(last);
     }
 
+    private static boolean hiddenAuthority(String a) {
+        return "settings".equals(a);
+    }
+
     private static void hookCache() {
         try {
             Class<?> c = Class.forName("android.provider.Settings$NameValueCache");
@@ -89,9 +144,9 @@ final class SettingsGuard {
                 Class<?>[] ps = m.getParameterTypes();
                 if (ps.length < 2 || ps[0] != ContentResolver.class) continue;
                 if (m.getName().equals("getStringForUser") && ps[1] == String.class && m.getReturnType() == String.class) {
-                    put(m, K_STR, 0, 0);
+                    put(m, K_STR, 0, 2);
                 } else if (m.getName().equals("getStringsForPrefix") && Map.class.isAssignableFrom(m.getReturnType())) {
-                    put(m, K_MAP, 0, 0);
+                    put(m, K_MAP, 0, 2);
                 }
             }
         } catch (Throwable ignored) { }
@@ -105,7 +160,7 @@ final class SettingsGuard {
                 put(m, K_QUERY, ps.length, 0);
             } else if (m.getName().equals("call") && m.getReturnType() == Bundle.class) {
                 List<Integer> s = new ArrayList<>();
-                for (int i = 0; i < ps.length; i++) if (ps[i] == String.class) s.add(i + 1);
+                for (int i = 0; i < ps.length; i++) if (ps[i] == String.class) s.add(i + 2);
                 if (s.size() >= 2) put(m, K_CALL, s.get(s.size() - 2), s.get(s.size() - 1));
             }
         }
@@ -134,6 +189,19 @@ final class SettingsGuard {
         return o instanceof String && KEYS.contains(o);
     }
 
+    private static boolean bundleMentions(Bundle b) {
+        if (b == null) return false;
+        try {
+            for (String k : b.keySet()) {
+                if (KEYS.contains(k)) return true;
+                Object v = b.get(k);
+                if (v instanceof String && isKey(v)) return true;
+                if (v instanceof Bundle && bundleMentions((Bundle) v)) return true;
+            }
+        } catch (Throwable ignored) { }
+        return false;
+    }
+
     private static boolean mentions(Object o) {
         if (o instanceof String) return isKey(o);
         if (o instanceof String[]) {
@@ -149,6 +217,7 @@ final class SettingsGuard {
                 for (String k : QUERY_ARRAY_ARGS) {
                     if (mentions(b.getStringArray(k))) return true;
                 }
+                return bundleMentions(b);
             } catch (Throwable ignored) { }
         }
         return false;
@@ -157,7 +226,7 @@ final class SettingsGuard {
     private static boolean queryHidden(EmulatedStackFrame frame, int argc) {
         Uri uri = null;
         boolean hit = false;
-        for (int i = 1; i <= argc; i++) {
+        for (int i = 2; i <= argc + 1; i++) {
             Object o;
             try { o = frame.accessor().getReference(i); } catch (Throwable t) { continue; }
             if (o instanceof Uri && uri == null) uri = (Uri) o;
@@ -169,7 +238,7 @@ final class SettingsGuard {
     }
 
     private static boolean settingsUri(EmulatedStackFrame frame, int argc) {
-        for (int i = 1; i <= argc; i++) {
+        for (int i = 2; i <= argc + 1; i++) {
             try {
                 Object o = frame.accessor().getReference(i);
                 if (o instanceof Uri) return "settings".equals(((Uri) o).getAuthority());
@@ -186,6 +255,7 @@ final class SettingsGuard {
 
     private static Cursor filterRows(Cursor c) {
         int name = c.getColumnIndex("name");
+        if (name < 0) name = c.getColumnIndex("key");
         if (name < 0) return c;
         boolean any = false;
         c.moveToPosition(-1);
@@ -234,6 +304,12 @@ final class SettingsGuard {
             Map<?, ?> v = b.getSerializable(Settings.NameValueTable.VALUE, HashMap.class);
             if (v != null) stripMap(v);
         } catch (Throwable ignored) { }
+        try {
+            for (String k : b.keySet()) {
+                Object v = b.get(k);
+                if (v instanceof Bundle) stripBundle((Bundle) v);
+            }
+        } catch (Throwable ignored) { }
     }
 
     private static HookTransformer transformer(final int kind, final int a, final int b) {
@@ -241,11 +317,11 @@ final class SettingsGuard {
             if (kind == K_EXEC) {
                 boolean deny = false;
                 try {
-                    Object self = frame.accessor().getReference(0);
+                    Object self = frame.accessor().getReference(1);
                     if (self instanceof ProcessBuilder) {
-                        int idx = 0;
-                        for (String part : ((ProcessBuilder) self).command()) {
-                            if (reveals(part, idx++ == 0)) { deny = true; break; }
+                        List<String> cmd = ((ProcessBuilder) self).command();
+                        for (int i = 0; i < cmd.size(); i++) {
+                            if (reveals(cmd.get(i), i == 0)) { deny = true; break; }
                         }
                     }
                 } catch (Throwable ignored) { }
@@ -253,7 +329,7 @@ final class SettingsGuard {
             } else if (kind == K_OBS) {
                 boolean drop = false;
                 try {
-                    if (!Config.ownObserver(frame.accessor().getReference(0))) {
+                    if (!Config.ownObserver(frame.accessor().getReference(1))) {
                         Object o = frame.accessor().getReference(b);
                         if (o instanceof Uri) {
                             drop = hiddenUri((Uri) o);
@@ -272,8 +348,16 @@ final class SettingsGuard {
                     }
                 } catch (Throwable ignored) { }
                 if (drop) return;
+            } else if (kind == K_REG_OBS) {
+                try {
+                    Object uriObj = frame.accessor().getReference(1);
+                    Object obsObj = frame.accessor().getReference(3);
+                    if (uriObj instanceof Uri && !Config.ownObserver(obsObj) && hiddenUri((Uri) uriObj)) {
+                        return;
+                    }
+                } catch (Throwable ignored) { }
             }
-            if (kind == K_EXEC || kind == K_OBS) {
+            if (kind == K_EXEC || kind == K_OBS || kind == K_REG_OBS) {
                 try {
                     Transformers.invokeExactNoChecks(original, frame);
                 } catch (Throwable t) {
@@ -286,15 +370,33 @@ final class SettingsGuard {
             if (guard) {
                 try {
                     if (kind == K_STR) {
-                        if (isKey(frame.accessor().getReference(2))) {
+                        if (isKey(frame.accessor().getReference(b))) {
                             frame.accessor().setValue(RET, null);
                             return;
                         }
                     } else if (kind == K_CALL) {
                         Object method = frame.accessor().getReference(a);
-                        if (method instanceof String && ((String) method).startsWith("GET_") && isKey(frame.accessor().getReference(b))) {
-                            frame.accessor().setValue(RET, new Bundle());
-                            return;
+                        if (method instanceof String) {
+                            String mn = (String) method;
+                            Object first = frame.accessor().getReference(1);
+                            boolean settings = first instanceof Uri
+                                    ? hiddenAuthority(((Uri) first).getAuthority())
+                                    : first instanceof String && hiddenAuthority((String) first);
+                            if (settings) {
+                                Object keyArg = frame.accessor().getReference(b);
+                                Object extras = null;
+                                for (int i = 2; i <= b + 1; i++) {
+                                    try {
+                                        Object o = frame.accessor().getReference(i);
+                                        if (o instanceof Bundle) { extras = o; break; }
+                                    } catch (Throwable ignored) { }
+                                }
+                                boolean keyHit = isKey(keyArg) || (extras instanceof Bundle && bundleMentions((Bundle) extras));
+                                if ((mn.startsWith("GET_") || mn.startsWith("PUT_") || mn.startsWith("DELETE_")) && keyHit) {
+                                    frame.accessor().setValue(RET, new Bundle());
+                                    return;
+                                }
+                            }
                         }
                     } else if (kind == K_QUERY) {
                         sUri = settingsUri(frame, a);

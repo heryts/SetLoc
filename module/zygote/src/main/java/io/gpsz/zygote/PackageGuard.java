@@ -1,6 +1,7 @@
 package io.gpsz.zygote;
 
 import android.content.ComponentName;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageItemInfo;
 import android.content.pm.PackageManager;
@@ -27,8 +28,8 @@ final class PackageGuard {
             "getPackageUid", "getPackageUidAsUser",
             "getPackageGids", "getInstallSourceInfo",
             "getApplicationIcon", "getApplicationBanner", "getApplicationLogo",
-            "getResourcesForApplication",
-            "getActivityInfo", "getServiceInfo", "getReceiverInfo", "getProviderInfo");
+            "getActivityInfo", "getServiceInfo", "getReceiverInfo", "getProviderInfo",
+            "getResourcesForApplication");
     private static final Set<String> UNKNOWN = Set.of("getInstallerPackageName", "getApplicationEnabledSetting");
     private static final Set<String> LISTS = Set.of(
             "getInstalledPackages", "getInstalledApplications",
@@ -38,7 +39,8 @@ final class PackageGuard {
             "queryIntentServices", "queryIntentServicesAsUser",
             "queryBroadcastReceivers", "queryBroadcastReceiversAsUser",
             "queryIntentContentProviders", "queryIntentContentProvidersAsUser",
-            "queryContentProviders");
+            "queryContentProviders",
+            "getSharedLibraries");
 
     static void install() {
         if (ZygoteEntry.isSelf()) return;
@@ -50,8 +52,8 @@ final class PackageGuard {
                 Class<?>[] ps = m.getParameterTypes();
                 Class<?> first = ps.length > 0 ? ps[0] : null;
                 if (MISSING.contains(n) && (first == String.class || first == ComponentName.class
-                        || first == VersionedPackage.class)) {
-                    hookGuard(m, true);
+                        || first == VersionedPackage.class || first == ApplicationInfo.class)) {
+                    hookGuard(m, first == String.class || first == ComponentName.class || first == VersionedPackage.class);
                 } else if (UNKNOWN.contains(n) && first == String.class) {
                     hookGuard(m, false);
                 } else if (LISTS.contains(n) && List.class.isAssignableFrom(m.getReturnType())) {
@@ -60,6 +62,11 @@ final class PackageGuard {
                     hookArray(m);
                 } else if (n.equals("getNameForUid") && m.getReturnType() == String.class) {
                     hookNameForUid(m);
+                } else if (n.equals("getNamesForUids") && m.getReturnType() == String[].class) {
+                    hookNamesForUids(m);
+                } else if ((n.equals("resolveActivity") || n.equals("resolveService")
+                        || n.equals("resolveContentProvider")) && ResolveInfo.class.isAssignableFrom(m.getReturnType())) {
+                    hookResolve(m);
                 }
             }
         } catch (Throwable ignored) { }
@@ -75,6 +82,7 @@ final class PackageGuard {
         if (o instanceof String) return (String) o;
         if (o instanceof ComponentName) return ((ComponentName) o).getPackageName();
         if (o instanceof VersionedPackage) return ((VersionedPackage) o).getPackageName();
+        if (o instanceof ApplicationInfo) return ((ApplicationInfo) o).packageName;
         return null;
     }
 
@@ -94,6 +102,20 @@ final class PackageGuard {
             } catch (Throwable t) {
                 ZygoteEntry.<RuntimeException>sneaky(t);
             }
+        });
+    }
+
+    private static void hookResolve(Method m) {
+        hook(m, (original, frame) -> {
+            try {
+                Transformers.invokeExactNoChecks(original, frame);
+            } catch (Throwable t) {
+                ZygoteEntry.<RuntimeException>sneaky(t);
+            }
+            try {
+                Object r = frame.accessor().getReference(RET);
+                if (r != null && owns(r)) frame.accessor().setValue(RET, null);
+            } catch (Throwable ignored) { }
         });
     }
 
@@ -137,6 +159,28 @@ final class PackageGuard {
         });
     }
 
+    private static void hookNamesForUids(Method m) {
+        hook(m, (original, frame) -> {
+            try {
+                Transformers.invokeExactNoChecks(original, frame);
+            } catch (Throwable t) {
+                ZygoteEntry.<RuntimeException>sneaky(t);
+            }
+            try {
+                Object r = frame.accessor().getReference(RET);
+                if (!(r instanceof String[])) return;
+                String[] src = (String[]) r;
+                boolean changed = false;
+                String[] dst = new String[src.length];
+                for (int i = 0; i < src.length; i++) {
+                    if (OWN.equals(src[i])) { dst[i] = null; changed = true; }
+                    else dst[i] = src[i];
+                }
+                if (changed) frame.accessor().setValue(RET, dst);
+            } catch (Throwable ignored) { }
+        });
+    }
+
     private static void hookNameForUid(Method m) {
         hook(m, (original, frame) -> {
             try {
@@ -157,6 +201,7 @@ final class PackageGuard {
         }
         if (item instanceof PackageItemInfo) return OWN.equals(((PackageItemInfo) item).packageName);
         if (item instanceof PackageInfo) return OWN.equals(((PackageInfo) item).packageName);
+        if (item instanceof ApplicationInfo) return OWN.equals(((ApplicationInfo) item).packageName);
         return false;
     }
 

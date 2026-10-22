@@ -37,6 +37,7 @@ final class SystemHooks {
     private static boolean installed = false;
     private static boolean generatorStarted = false;
     private static int lpmHooks = 0, lmsHooks = 0, lmsTries = 0;
+    private static int scanFailures = 0;
     private static Class<?> resultClass;
     private static Method resultMap, resultSize, resultGet, resultWrap;
     private static boolean wrapTakesList = true;
@@ -47,7 +48,9 @@ final class SystemHooks {
     private static final Map<String, Object> managers = new ConcurrentHashMap<>();
     private static final Map<Object, String> managerNames = new ConcurrentHashMap<>();
     private static volatile long lastGpsReport = 0;
+    private static volatile long lastNetReport = 0;
     private static final long IDLE_WAIT_MS = 10_000;
+    private static final long NET_INTERVAL_MS = 30_000;
 
     static synchronized boolean install() {
         boolean first = !installed;
@@ -215,8 +218,7 @@ final class SystemHooks {
                 || n.equals("removeGnssMeasurementsListener") || n.equals("removeGnssAntennaInfoListener");
     }
 
-    private static final Set<String> TRUSTED_GNSS = Set.of(
-            "android", "com.google.android.gms", "com.google.android.gsf", "com.android.location.fused");
+    private static final Set<String> TRUSTED_GNSS = Set.of("android");
 
     private static boolean active() {
         return Config.enabled && Config.system && !Config.sysHeartbeat && Config.hasPos();
@@ -232,6 +234,7 @@ final class SystemHooks {
         try {
             if (result == null || resultClass == null || !resultClass.isInstance(result)
                     || resultSize == null || resultGet == null) return;
+            if (realByProvider.size() > 8) realByProvider.clear();
             int n = (Integer) resultSize.invoke(result);
             for (int i = 0; i < n; i++) {
                 Object o = resultGet.invoke(result, i);
@@ -371,13 +374,17 @@ final class SystemHooks {
 
     private static Object spoofResult(Object result) throws Throwable {
         if (result == null || resultClass == null || !resultClass.isInstance(result)) return null;
+        if (resultWrap == null) return null;
         if (resultSize != null && resultGet != null) {
             int n = (Integer) resultSize.invoke(result);
+            List<Location> copies = new ArrayList<>(n);
             for (int i = 0; i < n; i++) {
                 Object o = resultGet.invoke(result, i);
-                if (o instanceof Location) apply((Location) o);
+                if (o instanceof Location) copies.add(spoof((Location) o));
             }
-            return result;
+            if (copies.isEmpty()) return null;
+            if (wrapTakesList) return resultWrap.invoke(null, copies);
+            return resultWrap.invoke(null, (Object) copies.toArray(new Location[0]));
         }
         if (resultMap != null) {
             Function<Location, Location> f = SystemHooks::spoof;
@@ -443,12 +450,11 @@ final class SystemHooks {
     private static volatile long lastLazyScan = 0;
 
     private static boolean anyEmergency() {
-        if (managers.isEmpty()) {
-            long now = SystemClock.elapsedRealtime();
-            if (now - lastLazyScan > 5000) {
-                lastLazyScan = now;
-                scanForManagers();
-            }
+        long now = SystemClock.elapsedRealtime();
+        if (scanFailures < 3 && (managers.isEmpty() || now - lastLazyScan > 5000)) {
+            lastLazyScan = now;
+            if (scanForManagers()) scanFailures = 0;
+            else scanFailures++;
         }
         for (Object m : managers.values()) if (inEmergency(m)) return true;
         return false;
@@ -474,9 +480,10 @@ final class SystemHooks {
                     long since = now - lastGpsReport;
                     if (since < period - 100) { wait = Math.max(20, period - since); continue; }
                     period = 990 + RND.nextInt(21);
-                    if (!managers.containsKey(LocationManager.GPS_PROVIDER) && now - lastScan > 5000) {
+                    if (!managers.containsKey(LocationManager.GPS_PROVIDER) && now - lastScan > 5000 && scanFailures < 3) {
                         lastScan = now;
-                        scanForManagers();
+                        if (scanForManagers()) scanFailures = 0;
+                        else scanFailures++;
                     }
                     if (anyEmergency()) { wait = period; continue; }
                     boolean anySent = false;
@@ -484,7 +491,26 @@ final class SystemHooks {
                         Object mgr = managers.get(name);
                         if (mgr == null) continue;
                         try {
-                            Location fix = full ? Fix.fresh(name) : realBeat(name);
+                            Location fix;
+                            if (full) {
+                                if (LocationManager.NETWORK_PROVIDER.equals(name)) {
+                                    if (now - lastNetReport < NET_INTERVAL_MS) continue;
+                                    fix = Fix.fresh(name);
+                                    if (fix == null) continue;
+                                    lastNetReport = now;
+                                } else {
+                                    fix = Fix.fresh(name);
+                                }
+                            } else {
+                                if (LocationManager.NETWORK_PROVIDER.equals(name)) {
+                                    if (now - lastNetReport < NET_INTERVAL_MS) continue;
+                                    fix = realBeat(name);
+                                    if (fix == null) continue;
+                                    lastNetReport = now;
+                                } else {
+                                    fix = realBeat(name);
+                                }
+                            }
                             if (fix == null) continue;
                             Object res = wrap(fix);
                             if (res != null) {
@@ -493,8 +519,12 @@ final class SystemHooks {
                             }
                         } catch (Throwable ignored) { }
                     }
-                    if (anySent) lastGpsReport = now;
-                    wait = period;
+                    if (anySent) {
+                        lastGpsReport = now;
+                        wait = period;
+                    } else {
+                        wait = Math.min(period * 4, 5000);
+                    }
                 } catch (InterruptedException e) {
                     return;
                 } catch (Throwable ignored) {
@@ -511,13 +541,13 @@ final class SystemHooks {
         return resultWrap.invoke(null, (Object) new Location[]{l});
     }
 
-    private static void scanForManagers() {
+    private static boolean scanForManagers() {
         try {
             Class<?> sm = Class.forName("android.os.ServiceManager");
             Method getService = findMethod(sm, "getService", String.class);
-            if (getService == null || lmsClass == null) return;
+            if (getService == null || lmsClass == null) return false;
             Object lms = getService.invoke(null, "location");
-            if (lms == null || !lmsClass.isInstance(lms)) return;
+            if (lms == null || !lmsClass.isInstance(lms)) return false;
             Method getLpm = findMethod(lmsClass, "getLocationProviderManager", String.class);
             if (getLpm != null) {
                 for (String n : PROVIDERS) {
@@ -535,7 +565,9 @@ final class SystemHooks {
                     for (Object o : copy) register(o);
                 } catch (Throwable ignored) { }
             }
+            return !managers.isEmpty();
         } catch (Throwable ignored) { }
+        return false;
     }
 
     private static void apply(Location l) {

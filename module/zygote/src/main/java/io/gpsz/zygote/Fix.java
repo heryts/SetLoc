@@ -8,14 +8,14 @@ import android.os.SystemClock;
 import com.v7878.unsafe.Reflection;
 
 import java.lang.reflect.Method;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
+import java.util.concurrent.ConcurrentHashMap;
 
 final class Fix {
     private static final Random RND = new Random();
-    private static final long PHASE_NS = (long) (RND.nextDouble() * 1e9);
-    private static final Map<String, Long> LAST_NS = new HashMap<>();
+    private static final long PHASE_NS = (long) (Config.hashUnit(901, SystemClock.elapsedRealtimeNanos() / 1_000_000_000L) * 1e9);
+    private static final Map<String, Long> LAST_NS = new ConcurrentHashMap<>();
     private static boolean resolved = false;
     private static Method setMock, removeMsl, removeMslAcc;
 
@@ -91,7 +91,11 @@ final class Fix {
     private static void putExtras(Location l) {
         int[] g = Config.gnssExtras();
         Bundle b = l.getExtras();
-        if (b == null) b = new Bundle();
+        if (b == null) {
+            b = new Bundle();
+        } else {
+            b.clear();
+        }
         b.putInt("satellites", g[0]);
         b.putInt("meanCn0", g[1]);
         b.putInt("maxCn0", g[2]);
@@ -111,7 +115,8 @@ final class Fix {
             l.setLongitude(p.lng);
             l.setAccuracy(Config.accNow(p));
             applyMotion(l, p);
-            if (LocationManager.GPS_PROVIDER.equals(provider)) putExtras(l);
+            if (LocationManager.GPS_PROVIDER.equals(provider)
+                    || LocationManager.FUSED_PROVIDER.equals(provider)) putExtras(l);
         }
         clearMock(l);
     }
@@ -123,12 +128,14 @@ final class Fix {
             Long last = LAST_NS.get(provider);
             if (last != null) {
                 if (!isNetwork(provider)) {
-                    long snapped = last + 1_000_000_000L + RND.nextInt(3) * 1_000_000L - 1_000_000L;
+                    long jitter = (RND.nextInt(101) - 50) * 1_000_000L;
+                    long snapped = last + 1_000_000_000L + jitter;
                     long age = nowNs - snapped;
                     if (Math.abs(snapped - fixNs) < 100_000_000L && age >= 20_000_000L && age <= 160_000_000L) fixNs = snapped;
                 }
                 if (fixNs <= last) fixNs = Math.min(last + 1_000_000L, nowNs);
             }
+            if (fixNs > nowNs) fixNs = nowNs;
             LAST_NS.put(provider, fixNs);
         }
         long ageMs = (nowNs - fixNs) / 1_000_000L;
@@ -152,10 +159,12 @@ final class Fix {
         Location l = at(provider);
         long nowNs = SystemClock.elapsedRealtimeNanos();
         long fixNs;
-        synchronized (LAST_NS) {
-            Long last = LAST_NS.get(provider);
-            fixNs = last != null && nowNs - last < 5_000_000_000L
-                    ? last : nowNs - Math.floorMod(nowNs - PHASE_NS, 1_000_000_000L);
+        Long last = LAST_NS.get(provider);
+        if (last != null && nowNs - last < 5_000_000_000L) {
+            fixNs = last;
+        } else {
+            fixNs = nowNs - Math.floorMod(nowNs - PHASE_NS, 1_000_000_000L);
+            if (fixNs > nowNs) fixNs = nowNs;
         }
         l.setElapsedRealtimeNanos(fixNs);
         l.setTime(System.currentTimeMillis() - (nowNs - fixNs) / 1_000_000L);

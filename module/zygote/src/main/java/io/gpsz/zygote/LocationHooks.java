@@ -1,6 +1,7 @@
 package io.gpsz.zygote;
 
 import android.app.AppOpsManager;
+import android.location.Criteria;
 import android.location.GnssAntennaInfo;
 import android.location.GnssMeasurementsEvent;
 import android.location.GnssStatus;
@@ -9,6 +10,7 @@ import android.location.LocationManager;
 import android.location.OnNmeaMessageListener;
 import android.net.wifi.ScanResult;
 import android.net.wifi.WifiSsid;
+import android.os.CancellationSignal;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -26,28 +28,35 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.function.Consumer;
 
 final class LocationHooks {
     private static final int K_LAT = 0, K_LNG = 1, K_ACC = 2, K_MOCK = 3, K_LAST_KNOWN = 4;
     private static final int K_DIST = 11, K_BEARING_TO = 12;
     private static final int K_VACC = 13, K_SACC = 14, K_BACC = 15, K_HAS_VACC = 16, K_HAS_SACC = 17, K_HAS_BACC = 18;
     private static final int K_MSL = 19, K_MSL_ACC = 20, K_HAS_MSL = 21, K_HAS_MSL_ACC = 22;
-    private static final int K_EXT = 30, K_NO_BOOL = 30, K_BSSID = 32, K_NULL = 33, K_CELL_UPDATE = 34, K_CELL_LIST_ARG = 35, K_DROP = 36;
+    private static final int K_EXT = 30, K_NO_BOOL = 31, K_BSSID = 32, K_NULL = 33, K_CELL_UPDATE = 34, K_CELL_LIST_ARG = 35, K_DROP = 36;
     private static final int K_BT_DROP = 37, K_BT_INT = 38, K_BT_TRUE = 39, K_CREATE = 41, K_GNSS_TRUE = 42, K_TOSTRING = 43, K_DELIVER = 44;
     private static final int K_WIFI_SCAN = 45, K_WIFI_SSID = 47, K_CELL_ALL = 48, K_CELL_LOC = 49;
     private static final int K_FEED_NMEA = 50, K_FEED_MEAS = 51, K_FEED_ANT = 52, K_UNFEED = 53, K_SET = 54;
+    private static final int K_PROVIDER_ENABLED = 55, K_GET_PROVIDERS = 56, K_LOCATION_ENABLED = 57;
     private static final Object VOID_RESULT = new Object();
     private static final Object NULL_RESULT = new Object();
     private static final int K_SPD = 5, K_BRG = 6, K_ALT = 7, K_HAS_SPD = 8, K_HAS_BRG = 9, K_HAS_ALT = 10;
     private static final long MAX_CLOCK_SKEW_MS = 5_000L;
     private static final int OP_MOCK_LOCATION = 58;
     private static final int MODE_IGNORED = 1;
+    private static final List<String> SPOOF_PROVIDERS = Arrays.asList(
+            LocationManager.GPS_PROVIDER,
+            LocationManager.NETWORK_PROVIDER,
+            LocationManager.FUSED_PROVIDER);
     private static boolean crashed = false;
     private static final ThreadLocal<Boolean> PARSING = new ThreadLocal<>();
 
@@ -76,18 +85,23 @@ final class LocationHooks {
         hook(Location.class, "distanceTo", K_DIST, Location.class);
         hook(Location.class, "bearingTo", K_BEARING_TO, Location.class);
         hook(LocationManager.class, "getLastKnownLocation", K_LAST_KNOWN, String.class);
+        hook(LocationManager.class, "isProviderEnabled", K_PROVIDER_ENABLED, String.class);
+        hook(LocationManager.class, "isLocationEnabled", K_LOCATION_ENABLED);
+        hookExact(LocationManager.class, "getProviders", K_GET_PROVIDERS, boolean.class);
+        hookExact(LocationManager.class, "getAllProviders", K_GET_PROVIDERS);
         hookAll(LocationManager.class, "addNmeaListener", K_FEED_NMEA);
         hookAll(LocationManager.class, "registerGnssMeasurementsCallback", K_FEED_MEAS);
         hookAll(LocationManager.class, "registerGnssNavigationMessageCallback", K_NO_BOOL);
         hookAll(LocationManager.class, "registerAntennaInfoListener", K_FEED_ANT);
         hookGnssCallback();
-        hookAll(LocationManager.class, "unregisterGnssStatusCallback", K_UNFEED);
-        hookAll(LocationManager.class, "removeNmeaListener", K_UNFEED);
-        hookAll(LocationManager.class, "unregisterGnssMeasurementsCallback", K_UNFEED);
-        hookAll(LocationManager.class, "unregisterAntennaInfoListener", K_UNFEED);
+        hookUnfeed(LocationManager.class, "unregisterGnssStatusCallback", GnssStatus.Callback.class);
+        hookUnfeed(LocationManager.class, "removeNmeaListener", OnNmeaMessageListener.class);
+        hookUnfeed(LocationManager.class, "unregisterGnssMeasurementsCallback", GnssMeasurementsEvent.Callback.class);
+        hookUnfeed(LocationManager.class, "unregisterAntennaInfoListener", GnssAntennaInfo.Listener.class);
         hookAll(LocationManager.class, "addGpsStatusListener", K_GNSS_TRUE);
         hookCreator();
         installAppOps();
+        hookGetCurrentLocation();
         SettingsGuard.install();
         PackageGuard.install();
         hookAll("android.net.wifi.WifiManager", "getScanResults", K_WIFI_SCAN);
@@ -110,6 +124,54 @@ final class LocationHooks {
         hook(Location.class, "set", K_SET, Location.class);
         hookAll("android.location.LocationManager$LocationListenerTransport", "onLocationChanged", K_DELIVER);
         hookAll("android.location.LocationManager$GetCurrentLocationTransport", "onLocation", K_DELIVER);
+    }
+
+    private static void hookGetCurrentLocation() {
+        for (Method m : LocationManager.class.getDeclaredMethods()) {
+            if (!m.getName().equals("getCurrentLocation")) continue;
+            final int nParams = m.getParameterCount();
+            try {
+                Hooks.hook(m, Hooks.EntryPointType.DIRECT, (original, frame) -> {
+                    if (!Config.enabled || !Config.hasPos() || Config.sysHeartbeat || PARSING.get() != null) {
+                        try { Transformers.invokeExactNoChecks(original, frame); }
+                        catch (Throwable t) { ZygoteEntry.<RuntimeException>sneaky(t); }
+                        return;
+                    }
+                    String provider = LocationManager.GPS_PROVIDER;
+                    Executor executor = null;
+                    Consumer<Location> consumer = null;
+                    for (int i = 1; i <= nParams; i++) {
+                        try {
+                            Object o = frame.accessor().getReference(i);
+                            if (o instanceof String) provider = (String) o;
+                            else if (o instanceof Executor) executor = (Executor) o;
+                            else if (o instanceof Consumer) consumer = castConsumer(o);
+                        } catch (Throwable ignored) { }
+                    }
+                    if (consumer == null) {
+                        try { Transformers.invokeExactNoChecks(original, frame); }
+                        catch (Throwable t) { ZygoteEntry.<RuntimeException>sneaky(t); }
+                        return;
+                    }
+                    Location fake = Fix.fresh(provider);
+                    final Consumer<Location> c = consumer;
+                    if (executor != null) {
+                        try { executor.execute(() -> c.accept(fake)); }
+                        catch (Throwable ignored) { try { c.accept(fake); } catch (Throwable ignored2) { } }
+                    } else {
+                        try { c.accept(fake); } catch (Throwable ignored) { }
+                    }
+                    if (m.getReturnType() == boolean.class) {
+                        frame.accessor().setValue(EmulatedStackFrame.RETURN_VALUE_IDX, Boolean.TRUE);
+                    }
+                }, Hooks.EntryPointType.DIRECT);
+            } catch (Throwable ignored) { }
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Consumer<Location> castConsumer(Object o) {
+        try { return (Consumer<Location>) o; } catch (Throwable t) { return null; }
     }
 
     private static void installAppOps() {
@@ -154,7 +216,9 @@ final class LocationHooks {
             Object creator = Location.class.getField("CREATOR").get(null);
             for (Method m : creator.getClass().getDeclaredMethods()) {
                 if (!m.getName().equals("createFromParcel") || m.isBridge() || m.getReturnType() != Location.class) continue;
-                Hooks.hook(m, Hooks.EntryPointType.DIRECT, transformer(K_CREATE, m.getParameterCount()), Hooks.EntryPointType.DIRECT);
+                try {
+                    Hooks.hook(m, Hooks.EntryPointType.DIRECT, transformer(K_CREATE, m.getParameterCount()), Hooks.EntryPointType.DIRECT);
+                } catch (Throwable ignored) { }
             }
         } catch (Throwable ignored) { }
     }
@@ -166,7 +230,6 @@ final class LocationHooks {
     }
 
     private static void hookAll(Class<?> c, String name, int kind) {
-        if (crashed) return;
         for (Method m : c.getDeclaredMethods()) {
             if (!m.getName().equals(name)) continue;
             int k = kind;
@@ -176,10 +239,44 @@ final class LocationHooks {
             }
             try {
                 Hooks.hook(m, Hooks.EntryPointType.DIRECT, transformer(k, m.getParameterCount()), Hooks.EntryPointType.DIRECT);
-            } catch (Throwable t) {
-                crashed = true;
-                return;
+            } catch (Throwable ignored) { }
+        }
+    }
+
+    private static void hookExact(Class<?> c, String name, int kind, Class<?>... params) {
+        if (crashed) return;
+        try {
+            Method m = c.getDeclaredMethod(name, params);
+            Hooks.hook(m, Hooks.EntryPointType.DIRECT, transformer(kind, m.getParameterCount()), Hooks.EntryPointType.DIRECT);
+        } catch (NoSuchMethodException ignored) {
+        } catch (Throwable t) {
+            crashed = true;
+        }
+    }
+
+    private static void hookUnfeed(Class<?> c, String name, Class<?> listenerType) {
+        for (Method m : c.getDeclaredMethods()) {
+            if (!m.getName().equals(name)) continue;
+            Class<?>[] ps = m.getParameterTypes();
+            int idx = -1;
+            for (int i = 0; i < ps.length; i++) {
+                if (listenerType.isAssignableFrom(ps[i])) { idx = i + 1; break; }
             }
+            if (idx < 0) continue;
+            final int target = idx;
+            try {
+                Hooks.hook(m, Hooks.EntryPointType.DIRECT, (original, frame) -> {
+                    try {
+                        Object l = frame.accessor().getReference(target);
+                        if (l != null) GnssFake.stop(GnssFake.keyOf(l));
+                    } catch (Throwable ignored) { }
+                    try {
+                        Transformers.invokeExactNoChecks(original, frame);
+                    } catch (Throwable t) {
+                        ZygoteEntry.<RuntimeException>sneaky(t);
+                    }
+                }, Hooks.EntryPointType.DIRECT);
+            } catch (Throwable ignored) { }
         }
     }
 
@@ -226,16 +323,37 @@ final class LocationHooks {
                 }
                 return;
             }
-            if (kind == K_UNFEED) {
-                try {
-                    GnssFake.stop(frame.accessor().getReference(1));
-                } catch (Throwable ignored) { }
-                try {
-                    Transformers.invokeExactNoChecks(original, frame);
-                } catch (Throwable t) {
-                    ZygoteEntry.<RuntimeException>sneaky(t);
+            if (kind == K_LOCATION_ENABLED) {
+                if (PARSING.get() == null && Config.enabled && Config.hasPos() && !Config.sysHeartbeat) {
+                    frame.accessor().setValue(EmulatedStackFrame.RETURN_VALUE_IDX, Boolean.TRUE);
+                    return;
                 }
-                return;
+            }
+            if (kind == K_PROVIDER_ENABLED) {
+                if (PARSING.get() == null && Config.enabled && Config.hasPos() && !Config.sysHeartbeat) {
+                    try {
+                        Object p = frame.accessor().getReference(1);
+                        if (p instanceof String && SPOOF_PROVIDERS.contains(p)) {
+                            frame.accessor().setValue(EmulatedStackFrame.RETURN_VALUE_IDX, Boolean.TRUE);
+                            return;
+                        }
+                    } catch (Throwable ignored) { }
+                }
+            }
+            if (kind == K_GET_PROVIDERS) {
+                if (PARSING.get() == null && Config.enabled && Config.hasPos() && !Config.sysHeartbeat) {
+                    try {
+                        Object r = frame.accessor().getReference(EmulatedStackFrame.RETURN_VALUE_IDX);
+                        if (r instanceof List) {
+                            @SuppressWarnings("unchecked")
+                            List<String> src = (List<String>) r;
+                            List<String> dst = new ArrayList<>(src);
+                            for (String p : SPOOF_PROVIDERS) if (!dst.contains(p)) dst.add(p);
+                            frame.accessor().setValue(EmulatedStackFrame.RETURN_VALUE_IDX, dst);
+                            return;
+                        }
+                    } catch (Throwable ignored) { }
+                }
             }
             if (PARSING.get() != null) {
                 try {
@@ -398,8 +516,16 @@ final class LocationHooks {
         if (ns == 0 || ms <= 0 || p == null || p.isEmpty()) return null;
         Snap e = PER_OBJ.get(l);
         if (e != null && e.ns == ns && e.ms == ms) return e;
+        boolean parsing = PARSING.get() != null;
+        Config.Pt pt;
+        if (parsing) {
+            pt = Config.snap;
+            if (pt == null) return null;
+        } else {
+            pt = Config.snapshot();
+        }
         Location fix = new Location(p);
-        Fix.apply(fix, p, Config.snapshot());
+        Fix.apply(fix, p, pt);
         long now = System.currentTimeMillis();
         if (ms > now + MAX_CLOCK_SKEW_MS) ms = now;
         e = read(fix, ns, ms);
@@ -588,7 +714,7 @@ final class LocationHooks {
     private static final class EnvSim {
         private static final ConcurrentHashMap<String, List<Object[]>> CACHE = new ConcurrentHashMap<>();
         private static final ConcurrentHashMap<String, Long> STAMP = new ConcurrentHashMap<>();
-        private static final long TTL_MS = 60_000L;
+        private static final long TTL_MS = 30_000L;
 
         static final class Ap {
             final String ssid, bssid;
@@ -600,16 +726,19 @@ final class LocationHooks {
 
         static List<Ap> wifiFor(Location fix) {
             if (fix == null) return Collections.emptyList();
-            String k = String.format(Locale.US, "%.3f,%.3f", fix.getLatitude(), fix.getLongitude());
+            long bucket = SystemClock.elapsedRealtime() / TTL_MS;
+            String k = String.format(Locale.US, "%.3f,%.3f,%d", fix.getLatitude(), fix.getLongitude(), bucket);
             Long ts = STAMP.get(k);
-            long now = System.currentTimeMillis();
+            long now = SystemClock.elapsedRealtime();
             List<Object[]> cached = CACHE.get(k);
             if (cached != null && ts != null && now - ts < TTL_MS) {
-                List<Ap> o = new ArrayList<>(cached.size());
-                for (Object[] a : cached) o.add(new Ap((String) a[0], (String) a[1], (Integer) a[2], (Integer) a[3]));
-                return o;
+                return jitter(cached);
             }
-            long seed = 1125899906842597L;
+            if (CACHE.size() > 32) {
+                CACHE.clear();
+                STAMP.clear();
+            }
+            long seed = Config.seed() ^ bucket;
             for (byte b : ("wifi:" + k).getBytes(StandardCharsets.UTF_8)) seed = 31 * seed + b;
             Random r = new Random(seed);
             int n = 4 + r.nextInt(5);
@@ -636,6 +765,18 @@ final class LocationHooks {
             CACHE.put(k, enc);
             STAMP.put(k, now);
             return out;
+        }
+
+        private static List<Ap> jitter(List<Object[]> src) {
+            Random jr = new Random();
+            List<Ap> o = new ArrayList<>(src.size());
+            for (Object[] a : src) {
+                int rssi = (Integer) a[2] + jr.nextInt(5) - 2;
+                if (rssi > -30) rssi = -30;
+                if (rssi < -95) rssi = -95;
+                o.add(new Ap((String) a[0], (String) a[1], rssi, (Integer) a[3]));
+            }
+            return o;
         }
     }
 

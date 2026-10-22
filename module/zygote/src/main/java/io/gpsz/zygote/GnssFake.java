@@ -19,7 +19,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -36,7 +35,6 @@ final class GnssFake {
     private static final int LEAP_S = 18;
     private static final long WEEK_NS = 604_800L * 1_000_000_000L;
     private static final double LIGHT = 299_792_458.0;
-    private static final Random RND = new Random();
 
     interface Body {
         boolean run() throws Throwable;
@@ -117,7 +115,7 @@ final class GnssFake {
     private static final Sat[] POOL = buildPool();
 
     private static Sat[] buildPool() {
-        Random r = new Random(Config.seed());
+        java.util.Random r = new java.util.Random(Config.seed());
         int[][] plan = {{T_GPS, 32, 11}, {T_GLO, 24, 6}, {T_GAL, 36, 6}, {T_BDS, 37, 6}};
         List<Sat> out = new ArrayList<>();
         for (int[] p : plan) {
@@ -145,17 +143,37 @@ final class GnssFake {
         int[] g = Config.gnssExtras();
         int total = POOL.length;
         int want = Math.min(total, g[0] + 3 + (g[0] & 1));
-        double t = SystemClock.elapsedRealtime() / 1000.0;
+        long nowSec = SystemClock.elapsedRealtime() / 1000;
+        double t = nowSec;
         final double[] el = new double[total];
+        final double[] score = new double[total];
         Integer[] order = new Integer[total];
         for (int i = 0; i < total; i++) {
             Sat s = POOL[i];
             el[i] = 8.0 + 77.0 * (0.5 + 0.5 * Math.sin(s.phase + t / s.period));
+            score[i] = el[i] + (Config.hashUnit(s.type * 1000L + s.svid, nowSec / 5) - 0.5) * 20.0;
             order[i] = i;
         }
-        Arrays.sort(order, (a, b) -> Double.compare(el[b], el[a]));
+        Arrays.sort(order, (a, b) -> Double.compare(score[b], score[a]));
         Snapshot out = new Snapshot(want);
         int usedLeft = fixed ? g[0] : 0;
+        Integer[] usedOrder = null;
+        if (usedLeft > 0 && want > 0) {
+            usedOrder = new Integer[want];
+            for (int k = 0; k < want; k++) usedOrder[k] = k;
+            final long us = nowSec;
+            Arrays.sort(usedOrder, (a, b) -> {
+                Sat sa = POOL[order[a]];
+                Sat sb = POOL[order[b]];
+                double wa = el[order[a]] + (Config.hashUnit(sa.type * 100L + sa.svid, us) - 0.5) * 15.0;
+                double wb = el[order[b]] + (Config.hashUnit(sb.type * 100L + sb.svid, us) - 0.5) * 15.0;
+                return Double.compare(wb, wa);
+            });
+        }
+        boolean[] usedFlag = new boolean[want];
+        if (usedOrder != null) {
+            for (int k = 0; k < usedLeft && k < want; k++) usedFlag[usedOrder[k]] = true;
+        }
         for (int k = 0; k < want; k++) {
             int i = order[k];
             Sat s = POOL[i];
@@ -167,10 +185,7 @@ final class GnssFake {
             out.elev[k] = (float) el[i];
             out.az[k] = (float) (((s.az0 + s.rate * t) % 360.0 + 360.0) % 360.0);
             out.carrier[k] = carrier(s.type, s.svid);
-            if (usedLeft > 0) {
-                out.used[k] = true;
-                usedLeft--;
-            }
+            out.used[k] = usedFlag[k];
         }
         return out;
     }
@@ -265,8 +280,9 @@ final class GnssFake {
     }
 
     static List<String> nmea(Snapshot s) {
+        Config.Pt pt = Config.snapshot();
         Location fix = new Location(LocationManager.GPS_PROVIDER);
-        Fix.apply(fix, LocationManager.GPS_PROVIDER, Config.snapshot());
+        Fix.apply(fix, LocationManager.GPS_PROVIDER, pt);
         long ms = System.currentTimeMillis();
         ms -= ms % 1000L;
         ZonedDateTime z = ZonedDateTime.ofInstant(Instant.ofEpochMilli(ms), ZoneOffset.UTC);
@@ -280,9 +296,11 @@ final class GnssFake {
         double knots = fix.hasSpeed() ? fix.getSpeed() * 1.943844 : 0.0;
         double course = fix.hasBearing() ? fix.getBearing() : 0.0;
         double alt = fix.hasAltitude() ? fix.getAltitude() : 0.0;
+        int fixQuality = s.usedCount() > 0 ? 1 : 0;
+        int fixType = s.usedCount() >= 4 ? 3 : (s.usedCount() > 0 ? 1 : 1);
         List<String> out = new ArrayList<>();
-        out.add(sentence(String.format(Locale.US, "GNGGA,%s,%s,%c,%s,%c,1,%02d,%.1f,%.1f,M,%.1f,M,,",
-                hms, coord(lat, true), ns, coord(lng, false), ew, s.usedCount(), hdop, alt, 0.0)));
+        out.add(sentence(String.format(Locale.US, "GNGGA,%s,%s,%c,%s,%c,%d,%02d,%.1f,%.1f,M,%.1f,M,,",
+                hms, coord(lat, true), ns, coord(lng, false), ew, fixQuality, s.usedCount(), hdop, alt, 0.0)));
         int[] groups = {T_GPS, T_GLO, T_GAL, T_BDS};
         for (int type : groups) {
             List<Integer> ids = new ArrayList<>();
@@ -293,8 +311,8 @@ final class GnssFake {
                 if (i > 0) slots.append(',');
                 if (i < ids.size()) slots.append(String.format(Locale.US, "%02d", ids.get(i)));
             }
-            out.add(sentence(String.format(Locale.US, "GNGSA,A,3,%s,%.1f,%.1f,%.1f,%d",
-                    slots, pdop, hdop, vdop, systemId(type))));
+            out.add(sentence(String.format(Locale.US, "GNGSA,A,%d,%s,%.1f,%.1f,%.1f,%d",
+                    fixType, slots, pdop, hdop, vdop, systemId(type))));
         }
         for (int type : groups) {
             List<Integer> idx = new ArrayList<>();
@@ -313,8 +331,8 @@ final class GnssFake {
                 out.add(sentence(sb.toString()));
             }
         }
-        out.add(sentence(String.format(Locale.US, "GNRMC,%s,A,%s,%c,%s,%c,%.2f,%.2f,%s,,,A",
-                hms, coord(lat, true), ns, coord(lng, false), ew, knots, course, dmy)));
+        out.add(sentence(String.format(Locale.US, "GNRMC,%s,%c,%s,%c,%s,%c,%.2f,%.2f,%s,,,A",
+                hms, s.usedCount() > 0 ? 'A' : 'V', coord(lat, true), ns, coord(lng, false), ew, knots, course, dmy)));
         return out;
     }
 
@@ -333,17 +351,22 @@ final class GnssFake {
             long tow = gpsNs % WEEK_NS;
             Class<?> mc = Class.forName("android.location.GnssMeasurement");
             List<Object> list = new ArrayList<>(s.n);
+            long bucket = timeNs / 1_000_000_000L;
             for (int i = 0; i < s.n; i++) {
                 double norm = (s.elev[i] - 8.0) / 77.0;
                 long travelNs = (long) ((20_200_000.0 + (1.0 - norm) * 5_000_000.0) / LIGHT * 1e9);
-                double rate = ((s.svid[i] * 37 % 1600) - 800) * 0.9 + Math.sin(SystemClock.elapsedRealtime() / 60000.0 + i) * 3.0;
+                double base = ((s.svid[i] * 37 % 1600) - 800) * 0.9;
+                double jitter = (Config.hashUnit(s.type[i] * 100L + s.svid[i], bucket) - 0.5) * 6.0;
+                double rate = base + jitter;
                 Object m = construct(mc);
-                trySet(m, "setSvid", s.svid[i]);
-                trySet(m, "setConstellationType", s.type[i]);
-                trySet(m, "setCn0DbHz", (double) s.cn0[i]);
+                boolean ok = true;
+                ok &= trySetOk(m, "setSvid", s.svid[i]);
+                ok &= trySetOk(m, "setConstellationType", s.type[i]);
+                ok &= trySetOk(m, "setCn0DbHz", (double) s.cn0[i]);
+                ok &= trySetOk(m, "setState", 15);
+                ok &= trySetOk(m, "setReceivedSvTimeNanos", tow - travelNs);
+                if (!ok) continue;
                 trySet(m, "setTimeOffsetNanos", 0.0);
-                trySet(m, "setState", 15);
-                trySet(m, "setReceivedSvTimeNanos", tow - travelNs);
                 trySet(m, "setReceivedSvTimeUncertaintyNanos", 30L);
                 trySet(m, "setPseudorangeRateMetersPerSecond", rate);
                 trySet(m, "setPseudorangeRateUncertaintyMetersPerSecond", 0.2);
@@ -352,6 +375,7 @@ final class GnssFake {
                 trySet(m, "setMultipathIndicator", 2);
                 list.add(m);
             }
+            if (list.isEmpty()) return null;
             return buildEvent(clock, list);
         } catch (Throwable t) {
             return null;
@@ -499,10 +523,10 @@ final class GnssFake {
     }
 
     static void feedStatus(Object target, BooleanSupplier live, StatusSink sink) {
-        final long ttff = 700 + RND.nextInt(1500);
+        final long ttff = 700 + (int) (Config.hashUnit(71, SystemClock.elapsedRealtime() / 60_000L) * 1500);
         final long begin = SystemClock.elapsedRealtime();
         final boolean[] flags = new boolean[2];
-        schedule(KIND_STATUS, target, 150 + RND.nextInt(200), 1000, () -> {
+        schedule(KIND_STATUS, target, 150 + (int) (Config.hashUnit(72, SystemClock.elapsedRealtime() / 60_000L) * 200), 1000, () -> {
             if (!live.getAsBoolean()) {
                 sink.stopped();
                 return false;
@@ -523,7 +547,7 @@ final class GnssFake {
     }
 
     static void feedNmea(Object target, BooleanSupplier live, NmeaSink sink) {
-        schedule(KIND_NMEA, target, 1000 + RND.nextInt(200), 1000, () -> {
+        schedule(KIND_NMEA, target, 1000 + (int) (Config.hashUnit(73, SystemClock.elapsedRealtime() / 60_000L) * 200), 1000, () -> {
             if (!live.getAsBoolean()) return false;
             long ts = System.currentTimeMillis();
             for (String m : nmea(snapshot(true))) sink.nmea(m, ts);
@@ -532,7 +556,7 @@ final class GnssFake {
     }
 
     static void feedMeasurements(Object target, BooleanSupplier live, MeasSink sink) {
-        schedule(KIND_MEAS, target, 1000 + RND.nextInt(200), 1000, () -> {
+        schedule(KIND_MEAS, target, 1000 + (int) (Config.hashUnit(74, SystemClock.elapsedRealtime() / 60_000L) * 200), 1000, () -> {
             if (!live.getAsBoolean()) return false;
             Object ev = measurementsEvent(snapshot(true));
             if (ev == null) return false;
@@ -542,7 +566,7 @@ final class GnssFake {
     }
 
     static void feedAntenna(Object target, BooleanSupplier live, AntSink sink) {
-        schedule(KIND_ANT, target, 200 + RND.nextInt(200), 1000, () -> {
+        schedule(KIND_ANT, target, 200 + (int) (Config.hashUnit(75, SystemClock.elapsedRealtime() / 60_000L) * 200), 1000, () -> {
             if (!live.getAsBoolean()) return false;
             List<Object> info = antennaList();
             if (info != null) sink.antenna(info);
@@ -563,6 +587,15 @@ final class GnssFake {
         try {
             call(target, name, value);
         } catch (Throwable ignored) { }
+    }
+
+    private static boolean trySetOk(Object target, String name, Object value) {
+        try {
+            call(target, name, value);
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     private static boolean fits(Class<?> p, Object a) {
