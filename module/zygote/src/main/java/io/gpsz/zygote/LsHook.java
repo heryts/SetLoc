@@ -16,7 +16,7 @@ final class LsHook {
 
     private static final long BACKUP_WAIT_NS = 2_000_000_000L;
 
-    static final class Hooker {
+    public static final class Hooker {
         private final Handler handler;
         private final boolean isStatic;
         private volatile Method backup;
