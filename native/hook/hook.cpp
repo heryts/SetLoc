@@ -83,6 +83,13 @@ void *resolve(std::string_view name) {
     if (p == nullptr) {
         p = shadowhook_dlsym_symtab(art, n.c_str());
     }
+    if (p == nullptr && name == "_ZN3art3jit12JitCodeCache19GarbageCollectCacheEPNS_6ThreadE") {
+        const char *alt = "_ZN3art3jit12JitCodeCache12DoCollectionEPNS_6ThreadE";
+        p = shadowhook_dlsym(art, alt);
+        if (p != nullptr) {
+            return p;
+        }
+    }
     if (p == nullptr) {
         p = fixup_stub(name);
         if (p != nullptr) {
