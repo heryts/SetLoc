@@ -17,3 +17,4 @@ daemon/target/
 tools/rotate-salt/target/
 tools/xtask/target/
 native/*/target/
+module/zygote/src/main/jniLibs/

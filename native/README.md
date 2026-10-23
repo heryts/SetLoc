@@ -1,6 +1,6 @@
 # native/
 
-Status: `configcore` dan `lochooks` sudah dikompilasi dan diuji di host (cargo test, paritas Java vs Rust, dan JNI lewat JVM). `hook/` (Fase 4) lolos cek sintaks terhadap header asli LSPlant dan ShadowHook, dan logika Java-nya diuji di JVM dengan mesin hook palsu. Fase 5 dan 6 memindahkan `LocationHooks` dan `SettingsGuard` ke jalur LSPlant, dan Fase 7 `SystemHooks` (opt-in, di `system_server`); semuanya diuji di JVM dengan mesin hook palsu yang sama. Belum ada yang dikompilasi untuk target Android atau diuji di perangkat.
+Status: `configcore` dan `lochooks` sudah dikompilasi dan diuji di host (cargo test, paritas Java vs Rust, dan JNI lewat JVM). `hook/` (Fase 4) lolos cek sintaks terhadap header asli LSPlant dan ShadowHook, dan logika Java-nya diuji di JVM dengan mesin hook palsu. Fase 5 dan 6 memindahkan `LocationHooks` dan `SettingsGuard` ke jalur LSPlant, dan Fase 7 `SystemHooks` (opt-in, di `system_server`); semuanya diuji di JVM dengan mesin hook palsu yang sama. Fase 8 menyambungkan `ConfigNative` dan `LocationNative` ke `Config` dan `Fix`, dengan cadangan ke Java. Belum ada yang dikompilasi untuk target Android atau diuji di perangkat.
 
 ## hook (Fase 4)
 Target: pendaftaran hook ART lewat LSPlant, dipakai pertama untuk `PackageGuard`.
@@ -85,13 +85,49 @@ Ketiganya dipanggil dari `module/test/run.sh` (dua pertama) dan `cargo xtask bui
 - `System.loadLibrary("gpsz_hook")` dari `premain()` di `system_server` bergantung pada jalur library dan namespace linker, sama dengan fase 4 tetapi untuk proses lain.
 - Overhead per panggilan `onReportLocation` naik (alokasi `Object[]` dan `Method.invoke`); belum diukur.
 
+## Java memanggil Rust (Fase 8)
+Target: `Config` dan `Fix` memakai `ConfigNative` dan `LocationNative` bila library Rust termuat, dan jalur Java lama tetap ada sebagai cadangan. Tidak ada perubahan perilaku yang diharapkan.
+
+Yang disambungkan (satu panggilan JNI per pekerjaan yang cukup besar):
+- `Fix.apply` -> `nativeApply` (gantinya `networkOffset`, `networkAccuracy`, `accNow`, `vAcc`, `sAcc`, `bAcc`, `gnssExtras` sekaligus). Hasil `double[13]` dibaca di `Fix.applyNative` dengan tata letak yang tertulis di bagian lochooks.
+- `Fix.stamp` -> `nativeStamp`, `Fix.lastKnown` -> `nativeLastKnown`, `PHASE_NS` -> `nativePhaseNs`. Keadaan `Stamper` (stempel terakhir per provider) hidup di Rust bila jalur native dipakai, dan di `LAST_NS` Java bila tidak. Pilihan jalur ditetapkan sekali saat `Config` dimuat, jadi keduanya tidak tercampur.
+- `Config.renewSnapshot` -> `nativeSnapshot` (jitter, altitude, clamp kutub, wrap bujur).
+- `Config.tag/enc/dec` -> `nativeTag/nativeEnc/nativeDec`.
+
+Sengaja TIDAK disambungkan: `nativeRoute`, `nativeIsSnapKind`, `nativeExtValue`, `nativeActive`, `nativeIsSpoofProvider`, `nativeMergeProviders`, `nativeSnapDecide`, `nativeIsFix`, `nativeSnapFresh`, `ConfigNative.nativeNetworkAccuracy` dan `nativeAccNow`. Isinya perbandingan integer atau satu baris aritmetika; satu panggilan JNI lebih mahal daripada pekerjaannya, dan `transformer` di `LocationHooks` dipanggil di jalur panas. `nativeNetworkAccuracy` dan `nativeAccNow` sudah tercakup `nativeApply`. Fungsinya tetap ada di Rust (diuji paritas), hanya tidak dipanggil dari Java.
+
+### Pengaman
+- Pemuatan: `ZygoteEntry.premain()` memanggil `loadRust()` (sebelum specialize, sama seperti `libgpsz_hook.so`). Di `system_server` hanya bila `enable_ls_system` aktif dan `SysGuard` memberi `ARMED`; tanpa itu `system_server` berjalan persis seperti sebelumnya. File `disable_rs` di folder modul mematikan pemuatan library Rust (`disable_ls` tidak memengaruhinya, dan sebaliknya).
+- Verifikasi saat `Config` dimuat: `CODEC_NATIVE` hanya aktif bila `nativeTag("cfg")`, `nativeEnc`, dan `nativeDec` memberi hasil yang sama dengan Java; `LOC_NATIVE` hanya aktif bila `nativePhaseNs` sama dengan hitungan Java (membuktikan seed turunan salt sama). Library yang dibangun sebelum salt diputar gagal di sini dan jalur Java dipakai, tanpa crash dan tanpa perubahan hasil.
+- Setiap panggilan dibungkus `try/catch Throwable`; hasil `null` atau array pendek jatuh ke Java. `UnsatisfiedLinkError` (misalnya nama method diubah R8) ikut tertangkap, jadi gejalanya hanya Rust tidak pernah dipakai. Karena itu `proguard-rules.pro` sekarang menjaga method `native` di `ConfigNative` dan `LocationNative`.
+- `dec`: Rust menolak hex ganjil atau bertanda (`+f`) dan memakai UTF-8 lossy untuk byte di atas 0x7F, sedangkan Java menerimanya. Hasil Rust hanya dipakai bila bukan null dan ASCII; selain itu Java yang menghitung, sehingga perilaku lama untuk input rusak tidak berubah. `enc` memakai Rust hanya untuk input ASCII.
+
+### Build
+`cargo xtask build` sekarang punya langkah `2b/4`: `cargo test` untuk `configcore` dan `lochooks` (kecuali `SKIP_TESTS`), lalu `cargo build --release --target` per `RUST_TARGETS` dan menyalin `lib<crate>.so` ke `module/zygote/src/main/jniLibs/<abi>/` (di-ignore git). Langkah ini sesudah `rotate-salt`, karena `build.rs` `configcore` menanam isi `.salt`.
+
+### Pengujian
+`sh module/test/rswire/run.sh` (tanpa cargo): membangun dua pohon dari `Config.java` dan `Fix.java` asli. Pohon pertama memakai `ConfigNative`/`LocationNative` asli (library tidak termuat, jalur Java). Pohon kedua memakai kelas pengganti di `rswire/fake/` yang meniru kontrak Rust (port Java dari `codec.rs`, `fix.rs`, `snapshot.rs`, termasuk penolakan hex ganjil). Dibandingkan:
+1. `WireDump`: 31 baris codec (enc/dec/tag, hex ganjil, bertanda, non-ASCII, null) harus identik, juga bila fake dijalankan dengan salt yang sengaja salah.
+2. `ParityDump`: 108 baris `Fix.apply` (4 provider x 3 waktu x 5 variasi) dan snapshot (4 config x 12 waktu), toleransi 2e-5 relatif; selisih terbesar 3.8e-6.
+3. `WireCheck` dalam mode `java`, `native`, dan `badseed`: pemilihan jalur, jumlah panggilan native, `stamp` (monoton, umur, waktu dinding), `lastKnown` (memakai stempel terakhir < 5 dtk, sesudahnya tepat di grid fase).
+Uji mutasi (13 kasus: argumen tertukar, bit flag salah, indeks array salah, `Config.acc` tidak diteruskan, `PHASE_NS` tidak diteruskan, verifikasi salt/seed dibuang, guard ASCII dibuang) membuat tes gagal semua. Tes lama (`lochook`, `setguard`, `syshook`, `sysguard`, `lshook`) tetap lulus; `beat` punya 4 kegagalan yang sudah ada sebelum Fase 8 (`bridge.sh` di assets tinggal stub, jadi `enc()` yang dicari tes tidak ada).
+
+### Batas dan risiko yang belum teruji
+- Library Rust belum dikompilasi dan tidak ada yang menjalankan `liblochooks.so`/`libconfigcore.so` asli terhadap kode Java baru; yang diuji adalah sisi Java terhadap kontrak lewat fake. `module/test/parity/run.sh` (butuh cargo) tetap perlu dijalankan di mesin kamu, dan sekarang juga menyalin `ConfigNative.java`.
+- Penyalinan ke `jniLibs/` dan pengemasannya oleh plugin ZygoteLoader ke zip modul belum dibuktikan. Cek dengan `unzip -l SetLocZygisk-release.zip | grep -E 'configcore|lochooks'` sebelum flash.
+- `System.loadLibrary("configcore")` dan `("lochooks")` dari `premain()` bergantung pada jalur library dan namespace linker, sama seperti `gpsz_hook`. Kalau gagal, hasilnya jalur Java (aman).
+- Profil rilis Rust memakai `panic = "abort"`: panic di dalam fungsi JNI mematikan proses aplikasi target, tidak bisa ditangkap `try/catch` Java. Kalau ada gejala crash di aplikasi, buat `disable_rs` dulu.
+- Biaya per panggilan: `nativeApply` mengalokasikan `double[13]` dan `nativeStamp` `long[2]` per pemanggilan. Belum diukur; Java lama tanpa alokasi JNI.
+- Kalau `nativeStamp`/`nativeLastKnown` mengembalikan `null` di tengah jalan (gagal alokasi array), pemanggilan itu jatuh ke jalur Java yang keadaan stempelnya terpisah; satu stempel bisa tidak monoton terhadap stempel Rust sebelumnya. Sangat jarang, dan tidak ada yang bergantung pada monoton lintas dua jalur.
+- RNG berbeda: Rust memakai xorshift yang diinisialisasi dari waktu, Java `java.util.Random`. Distribusinya sama, urutannya tidak.
+
 ## configcore (Fase 2)
 Target: bagian `Config.java` yang murni perhitungan, tanpa hook ART dan tanpa LSPlant.
 - `src/codec.rs`: `tag`/`enc`/`dec`, algoritma sama dengan `Config.java` (FNV 32-bit).
 - `src/jitter.rs`: `hashUnit`/`mix`/`gauss`/`wave`/`stepJitter`, `networkOffset`/`networkAccuracy`, `altitudeNow`, `gnssExtras`, `accNow`/`vAcc`/`sAcc`/`bAcc`.
 - `src/track.rs`: `parseTrack`, interpolasi `applyTrack` + `lerpAngle`, klasifikasi stale (`0/1/2`).
 - `src/parse.rs`: decode string config dan staleness heartbeat (`checkBeat`).
-- `ConfigNative.java`: deklarasi `native` untuk sebagian fungsi (tag/enc/dec, networkAccuracy, accNow). Belum dipanggil dari `Config.java`; `Config.java` lama tetap aktif dan tidak tersentuh.
+- `ConfigNative.java`: deklarasi `native` untuk sebagian fungsi (tag/enc/dec, networkAccuracy, accNow). Tag/enc/dec dipanggil dari `Config.java` sejak Fase 8; dua yang lain tidak (lihat Fase 8).
 
 Perbaikan di Fase 3 untuk kode Fase 2:
 - Dua unit test gagal saat akhirnya dijalankan. `acc_helpers_floor` mengharapkan `v_acc(0,0)=1.0` padahal Java menghasilkan 1.3, dan `beat_freezes_then_stops` melompat 50 detik sehingga memicu reset karena jeda. Logika Rust sudah sama dengan Java; testnya yang salah dan sudah dibetulkan, ditambah test `beat_gap_rearms`.
@@ -109,7 +145,7 @@ Target: logika murni dari `LocationHooks.java`, `Fix.java`, dan `Config.renewSna
 - `src/snap.rs`: `is_fix` dan `decide` (lewati bila `Mark` sama, clamp waktu masa depan lebih dari 5 detik).
 - `src/snapshot.rs`: `renew` (posisi + jitter, clamp kutub, wrap bujur, `accJit`).
 - `src/providers.rs`: `active`, `is_spoof`, `merge` daftar provider.
-- `src/lib.rs`: ekspor JNI untuk `io.gpsz.zygote.LocationNative` (`LocationNative.java`, belum dipanggil dari `LocationHooks`).
+- `src/lib.rs`: ekspor JNI untuk `io.gpsz.zygote.LocationNative` (`LocationNative.java`; sebagian dipanggil dari `Config` dan `Fix` sejak Fase 8).
 
 Kode `Route` (`nativeRoute`): Create 0, Set 1, Providers 2, LastKnown 3, Deliver 4, Snap 5, SnapPair 6, CellUpdate 7, CellListArg 8, Drop 9, WifiScan 10, WifiSsid 11, CellAll 12, CellLoc 13, Feed 14, GpsStatus 15, Ext 16, MockFalse 17.
 Kode `ExtValue` (`nativeExtValue`): PassThrough 0, Bssid 1, Null 2, Void 3, Int0 4, True 5, False 6.
@@ -140,5 +176,5 @@ Kesimpulan: tidak ada pemindahan yang berarti di sini tanpa membawa sebagian bes
 ## Langkah di sisi kamu
 1. Jalankan `sh module/test/run.sh` dan `sh module/test/parity/run.sh` di mesin build kamu (butuh cargo dan java).
 2. Untuk Android: `cargo build --release --target aarch64-linux-android` di `native/lochooks` dan `native/configcore`, taruh `.so` di `jniLibs`, lalu uji `LocationNative.ensureLoaded()` di perangkat cadangan sebelum menyambungkan ke `LocationHooks`, `Fix`, atau `Config`.
-3. Bangun modul lewat `cargo xtask build` (Gradle mengunduh LSPlant dan ShadowHook, NDK membangun `libgpsz_hook.so`), flash di perangkat cadangan, lalu cek `logcat` dan `gpsz.sh doctor`. Untuk mematikan jalur LSPlant tanpa membangun ulang, buat file `disable_ls` di folder modul (atau `disable_ls_loc` untuk `LocationHooks` saja).
+3. Bangun modul lewat `cargo xtask build` (sekarang juga membangun `configcore` dan `lochooks` untuk Android; lihat Fase 8) (Gradle mengunduh LSPlant dan ShadowHook, NDK membangun `libgpsz_hook.so`), flash di perangkat cadangan, lalu cek `logcat` dan `gpsz.sh doctor`. Untuk mematikan library Rust tanpa membangun ulang, buat file `disable_rs` di folder modul. Untuk mematikan jalur LSPlant tanpa membangun ulang, buat file `disable_ls` di folder modul (atau `disable_ls_loc` untuk `LocationHooks` saja).
 4. Untuk mencoba Fase 7 (hanya setelah fase 5 dan 6 terbukti stabil): `gpsz.sh ls-system on`, reboot, lalu `gpsz.sh ls-system status` (harus `on` setelah sekitar 60 detik, bukan `pending` atau `blocked`) dan `logcat -s GpsZ`. Kalau boot gagal, reboot sekali lagi: percobaan kedua otomatis diblokir dan jalur lama dipakai.

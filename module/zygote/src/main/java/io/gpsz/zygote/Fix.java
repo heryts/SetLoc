@@ -14,7 +14,18 @@ import java.util.concurrent.ConcurrentHashMap;
 
 final class Fix {
     private static final Random RND = new Random();
-    private static final long PHASE_NS = (long) (Config.hashUnit(901, SystemClock.elapsedRealtimeNanos() / 1_000_000_000L) * 1e9);
+    private static final long PHASE_NS = initPhase();
+
+    private static long initPhase() {
+        long boot = SystemClock.elapsedRealtimeNanos();
+        if (Config.locNative()) {
+            try {
+                return LocationNative.nativePhaseNs(boot);
+            } catch (Throwable ignored) { }
+        }
+        return (long) (Config.hashUnit(901, boot / 1_000_000_000L) * 1e9);
+    }
+
     private static final Map<String, Long> LAST_NS = new ConcurrentHashMap<>();
     private static boolean resolved = false;
     private static Method setMock, removeMsl, removeMslAcc;
@@ -90,20 +101,62 @@ final class Fix {
 
     private static void putExtras(Location l) {
         int[] g = Config.gnssExtras();
+        putExtras(l, g[0], g[1], g[2]);
+    }
+
+    private static void putExtras(Location l, int sat, int mean, int maxCn0) {
         Bundle b = l.getExtras();
         if (b == null) {
             b = new Bundle();
         } else {
             b.clear();
         }
-        b.putInt("satellites", g[0]);
-        b.putInt("meanCn0", g[1]);
-        b.putInt("maxCn0", g[2]);
+        b.putInt("satellites", sat);
+        b.putInt("meanCn0", mean);
+        b.putInt("maxCn0", maxCn0);
         l.setExtras(b);
+    }
+
+    /** Tata letak double[13] dari LocationNative.nativeApply: lihat native/README.md. */
+    private static boolean applyNative(Location l, String provider, Config.Pt p) {
+        double[] a;
+        try {
+            a = LocationNative.nativeApply(provider, p.lat, p.lng, p.spd, p.brg, p.alt, p.accJit, Config.acc,
+                    SystemClock.elapsedRealtime());
+        } catch (Throwable t) {
+            return false;
+        }
+        if (a == null || a.length < 13) return false;
+        int flags = (int) a[3];
+        l.setLatitude(a[0]);
+        l.setLongitude(a[1]);
+        l.setAccuracy((float) a[2]);
+        if ((flags & 1) != 0) {
+            l.setAltitude(a[4]);
+            l.setSpeed((float) a[5]);
+            l.setVerticalAccuracyMeters((float) a[6]);
+            l.setSpeedAccuracyMetersPerSecond((float) a[7]);
+            if ((flags & 2) != 0) {
+                l.setBearing((float) a[8]);
+                l.setBearingAccuracyDegrees((float) a[9]);
+            } else {
+                l.removeBearing();
+                l.removeBearingAccuracy();
+            }
+            clearHidden(l);
+        } else {
+            clearMotion(l);
+        }
+        if ((flags & 4) != 0) putExtras(l, (int) a[10], (int) a[11], (int) a[12]);
+        return true;
     }
 
     static void apply(Location l, String provider, Config.Pt p) {
         resolve();
+        if (Config.locNative() && applyNative(l, provider, p)) {
+            clearMock(l);
+            return;
+        }
         if (isNetwork(provider)) {
             double[] off = Config.networkOffset(p.lat);
             l.setLatitude(p.lat + off[0]);
@@ -123,6 +176,16 @@ final class Fix {
 
     static void stamp(Location l, String provider) {
         long nowNs = SystemClock.elapsedRealtimeNanos();
+        if (Config.locNative()) {
+            try {
+                long[] r = LocationNative.nativeStamp(provider, nowNs, System.currentTimeMillis());
+                if (r != null && r.length >= 2) {
+                    l.setElapsedRealtimeNanos(r[0]);
+                    l.setTime(r[1]);
+                    return;
+                }
+            } catch (Throwable ignored) { }
+        }
         long fixNs = nowNs - (30L + RND.nextInt(90)) * 1_000_000L;
         synchronized (LAST_NS) {
             Long last = LAST_NS.get(provider);
@@ -158,6 +221,16 @@ final class Fix {
     static Location lastKnown(String provider) {
         Location l = at(provider);
         long nowNs = SystemClock.elapsedRealtimeNanos();
+        if (Config.locNative()) {
+            try {
+                long[] r = LocationNative.nativeLastKnown(provider, nowNs, System.currentTimeMillis(), PHASE_NS);
+                if (r != null && r.length >= 2) {
+                    l.setElapsedRealtimeNanos(r[0]);
+                    l.setTime(r[1]);
+                    return l;
+                }
+            } catch (Throwable ignored) { }
+        }
         long fixNs;
         Long last = LAST_NS.get(provider);
         if (last != null && nowNs - last < 5_000_000_000L) {

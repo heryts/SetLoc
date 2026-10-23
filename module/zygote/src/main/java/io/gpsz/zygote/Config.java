@@ -21,7 +21,36 @@ import java.util.function.BooleanSupplier;
 final class Config {
     private static final String SALT = "Vzvwk4Rxj7Ps";
 
+    /**
+     * true bila configcore termuat DAN salt-nya sama dengan salt Java (library lama yang dibangun
+     * sebelum salt diputar akan gagal di sini dan jatuh ke jalur Java).
+     */
+    private static final boolean CODEC_NATIVE = verifyCodec();
+
+    private static boolean verifyCodec() {
+        if (!ConfigNative.ready()) return false;
+        try {
+            String probe = "cfg:1;ab";
+            String e = encJava(probe);
+            return tagJava("cfg").equals(ConfigNative.nativeTag("cfg"))
+                    && e.equals(ConfigNative.nativeEnc(probe))
+                    && probe.equals(ConfigNative.nativeDec(e));
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     static String tag(String logical) {
+        if (CODEC_NATIVE) {
+            try {
+                String r = ConfigNative.nativeTag(logical);
+                if (r != null) return r;
+            } catch (Throwable ignored) { }
+        }
+        return tagJava(logical);
+    }
+
+    private static String tagJava(String logical) {
         String s = SALT + logical;
         int h = 0x811C9DC5;
         for (int i = 0; i < s.length(); i++) {
@@ -33,6 +62,16 @@ final class Config {
 
     static String enc(String plain) {
         if (plain == null) return null;
+        if (CODEC_NATIVE && isAscii(plain)) {
+            try {
+                String r = ConfigNative.nativeEnc(plain);
+                if (r != null) return r;
+            } catch (Throwable ignored) { }
+        }
+        return encJava(plain);
+    }
+
+    private static String encJava(String plain) {
         StringBuilder out = new StringBuilder();
         for (int i = 0; i < plain.length(); i++) {
             int cv = plain.charAt(i) & 0xFF;
@@ -44,6 +83,25 @@ final class Config {
 
     static String dec(String hex) {
         if (hex == null) return null;
+        if (CODEC_NATIVE) {
+            try {
+                // Rust menolak hex ganjil/bertanda dan memakai UTF-8 lossy untuk byte > 0x7F;
+                // Java menerimanya (prefiks / Latin-1). Hanya hasil ASCII yang pasti sama, sisanya Java.
+                String r = ConfigNative.nativeDec(hex);
+                if (r != null && isAscii(r)) return r;
+            } catch (Throwable ignored) { }
+        }
+        return decJava(hex);
+    }
+
+    private static boolean isAscii(String s) {
+        for (int i = 0; i < s.length(); i++) {
+            if (s.charAt(i) > 0x7F) return false;
+        }
+        return true;
+    }
+
+    private static String decJava(String hex) {
         StringBuilder out = new StringBuilder();
         try {
             for (int i = 0; i + 1 < hex.length(); i += 2) {
@@ -167,6 +225,16 @@ final class Config {
         Pt p = snap;
         if (p != null && now - p.at < SNAP_MS) return p;
         Pos q = pos;
+        if (LOC_NATIVE) {
+            try {
+                double[] r = LocationNative.nativeSnapshot(q.lat, q.lng, spd, brg, alt, altVar, jitter, rr, now);
+                if (r != null && r.length >= 7) {
+                    p = new Pt(r[0], r[1], (long) r[2], (float) r[3], (float) r[4], r[5], (float) r[6]);
+                    snap = p;
+                    return p;
+                }
+            } catch (Throwable ignored) { }
+        }
         double la = q.lat, lo = q.lng;
         float sSpd = spd, sBrg = brg;
         double sAlt = altitudeNow();
@@ -225,6 +293,24 @@ final class Config {
 
     static long seed() {
         return SEED;
+    }
+
+    /** true bila lochooks termuat dan seed-nya (turunan salt) sama dengan seed Java. */
+    private static final boolean LOC_NATIVE = verifyLoc();
+
+    static boolean locNative() {
+        return LOC_NATIVE;
+    }
+
+    private static boolean verifyLoc() {
+        if (!LocationNative.ready()) return false;
+        try {
+            long boot = 123_456_789_012L;
+            long want = (long) (hashUnit(901, boot / 1_000_000_000L) * 1e9);
+            return LocationNative.nativePhaseNs(boot) == want;
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     private static long mix(long z) {

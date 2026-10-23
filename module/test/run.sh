@@ -336,6 +336,7 @@ if command -v java >/dev/null 2>&1 && { command -v javac >/dev/null 2>&1 || java
   check "LocationHooks lewat mesin hook palsu (LSPlant, cadangan jalur lama, disable_ls_loc)" 'sh "$TD/lochook/run.sh" >"$T/lochook.log" 2>&1 || { cat "$T/lochook.log"; false; }'
   check "SettingsGuard lewat mesin hook palsu (LSPlant, cadangan jalur lama, disable_ls_set)" 'sh "$TD/setguard/run.sh" >"$T/setguard.log" 2>&1 || { cat "$T/setguard.log"; false; }'
   check "SystemHooks lewat mesin hook palsu (LSPlant, jalur lama saat mati/belum siap, cadangan per method)" 'sh "$TD/syshook/run.sh" >"$T/syshook.log" 2>&1 || { cat "$T/syshook.log"; false; }'
+  check "Penyambungan Java ke Rust (Fase 8): jalur Java vs native palsu, verifikasi salt/seed, cadangan" 'sh "$TD/rswire/run.sh" >"$T/rswire.log" 2>&1 || { cat "$T/rswire.log"; false; }'
   check "SysGuard: penanda boot opt-in, blokir percobaan kedua, gagal tertutup" 'sh "$TD/sysguard/run.sh" >"$T/sysguard.log" 2>&1 || { cat "$T/sysguard.log"; false; }'
 else
   bad "tes hook dilewati: javac/java tidak ada"

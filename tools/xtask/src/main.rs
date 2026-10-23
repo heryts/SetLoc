@@ -199,7 +199,8 @@ fn build_daemon(skip_tests: bool) -> R<()> {
     let host = if cfg!(target_os = "macos") { "darwin-x86_64" } else { "linux-x86_64" };
     let bin = ndk.join("toolchains/llvm/prebuilt").join(host).join("bin");
     if !skip_tests {
-        status(Command::new("cargo").args(["test", "--release"]).current_dir("daemon"), "cargo test daemon")?;
+        status(Command::new("cargo").args(["test", "--release"]).env_remove("CARGO_TARGET_DIR")
+                .current_dir("daemon"), "cargo test daemon")?;
     }
     let mut targets = words("RUST_TARGETS");
     if targets.is_empty() {
@@ -218,12 +219,60 @@ fn build_daemon(skip_tests: bool) -> R<()> {
             Command::new("cargo")
                 .args(["build", "--release", "--target", t.as_str()])
                 .env(format!("CARGO_TARGET_{}_LINKER", up), bin.join(cc))
+                .env_remove("CARGO_TARGET_DIR")
                 .current_dir("daemon"),
             &format!("cargo build {}", t),
         )?;
         let dest = PathBuf::from(format!("module/zygote/src/main/assets/bin/{}", abi));
         fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
         fs::copy(format!("daemon/target/{}/release/setlocd", t), dest.join("setlocd")).map_err(|e| format!("salin setlocd: {}", e))?;
+    }
+    Ok(())
+}
+
+const NATIVE_CRATES: [&str; 2] = ["configcore", "lochooks"];
+
+/// Membangun libconfigcore.so dan liblochooks.so (Rust) dan menaruhnya di jniLibs modul. Harus berjalan
+/// sesudah rotate-salt: build.rs configcore membaca .salt dan menanamkannya ke library.
+fn build_native(skip_tests: bool) -> R<()> {
+    if which("cargo").is_none() {
+        return Err("butuh cargo (https://rustup.rs)".into());
+    }
+    let ndk = find_ndk()?;
+    let host = if cfg!(target_os = "macos") { "darwin-x86_64" } else { "linux-x86_64" };
+    let bin = ndk.join("toolchains/llvm/prebuilt").join(host).join("bin");
+    let mut targets = words("RUST_TARGETS");
+    if targets.is_empty() {
+        targets.push("aarch64-linux-android".into());
+    }
+    for krate in NATIVE_CRATES {
+        let dir = format!("native/{}", krate);
+        if !skip_tests {
+            status(Command::new("cargo").args(["test", "--release"]).env_remove("CARGO_TARGET_DIR")
+                    .current_dir(&dir), &format!("cargo test {}", krate))?;
+        }
+        for t in &targets {
+            let (abi, cc) = target_info(t)?;
+            if which("rustup").is_some() {
+                let have = out_of(Command::new("rustup").args(["target", "list", "--installed"])).unwrap_or_default();
+                if !have.lines().any(|l| l.trim() == t.as_str()) {
+                    status(Command::new("rustup").args(["target", "add", t.as_str()]), "rustup target add")?;
+                }
+            }
+            let up = t.to_uppercase().replace('-', "_");
+            status(
+                Command::new("cargo")
+                    .args(["build", "--release", "--target", t.as_str()])
+                    .env(format!("CARGO_TARGET_{}_LINKER", up), bin.join(cc))
+                    .env_remove("CARGO_TARGET_DIR")
+                    .current_dir(&dir),
+                &format!("cargo build {} {}", krate, t),
+            )?;
+            let dest = PathBuf::from(format!("module/zygote/src/main/jniLibs/{}", abi));
+            fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
+            let lib = format!("lib{}.so", krate);
+            fs::copy(format!("{}/target/{}/release/{}", dir, t, lib), dest.join(&lib)).map_err(|e| format!("salin {}: {}", lib, e))?;
+        }
     }
     Ok(())
 }
@@ -280,6 +329,9 @@ fn build() -> R<()> {
 
     println!("== 2/4 build daemon Rust ==");
     build_daemon(skip_tests).map_err(|e| format!("daemon Rust: {}", e))?;
+
+    println!("== 2b/4 build native Rust (configcore, lochooks) ==");
+    build_native(skip_tests).map_err(|e| format!("native Rust: {}", e))?;
 
     println!("== 3/4 siapkan AndroidVMTools ==");
     let msg = setup.join().map_err(|_| "thread setup panik".to_string())??;

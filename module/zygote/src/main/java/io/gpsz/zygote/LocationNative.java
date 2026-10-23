@@ -14,6 +14,11 @@ final class LocationNative {
         return loaded;
     }
 
+    /** Baca saja, tanpa kunci: dipanggil dari static initializer Config. */
+    static boolean ready() {
+        return loaded;
+    }
+
     static native int nativeRoute(int kind);
 
     static native boolean nativeIsSnapKind(int kind);

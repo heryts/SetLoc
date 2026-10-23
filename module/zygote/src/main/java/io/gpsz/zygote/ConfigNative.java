@@ -14,6 +14,11 @@ final class ConfigNative {
         return loaded;
     }
 
+    /** Baca saja, tanpa kunci: dipanggil dari static initializer Config. */
+    static boolean ready() {
+        return loaded;
+    }
+
     static native String nativeTag(String logical);
 
     static native String nativeEnc(String plain);

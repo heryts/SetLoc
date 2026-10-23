@@ -53,6 +53,21 @@ public final class ZygoteEntry {
         }
     }
 
+    private static boolean rsDisabled() {
+        try {
+            return new File(ZygoteLoader.getModuleDir(), "disable_rs").exists();
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
+    /** Memuat libconfigcore.so dan liblochooks.so (Rust). Gagal memuat berarti jalur Java lama dipakai. */
+    private static void loadRust() {
+        if (rsDisabled()) return;
+        ConfigNative.ensureLoaded();
+        LocationNative.ensureLoaded();
+    }
+
     private static boolean systemArmed() {
         try {
             return SysGuard.arm(
@@ -67,17 +82,22 @@ public final class ZygoteEntry {
     @DoNotObfuscate
     @DoNotShrink
     public static void premain() {
-        if (isSelf() || lsDisabled()) return;
+        if (isSelf()) return;
+        boolean ls = !lsDisabled();
         if (isSystemServer()) {
-            if (systemArmed()) {
+            if (ls && systemArmed()) {
                 LsNative.setSysEnabled(true);
                 LsNative.ensureLoaded();
+                loadRust();
             }
             return;
         }
-        LsNative.setLocEnabled(!locDisabled());
-        LsNative.setSetEnabled(!setDisabled());
-        LsNative.ensureLoaded();
+        if (ls) {
+            LsNative.setLocEnabled(!locDisabled());
+            LsNative.setSetEnabled(!setDisabled());
+            LsNative.ensureLoaded();
+        }
+        loadRust();
     }
 
     @DoNotObfuscate
