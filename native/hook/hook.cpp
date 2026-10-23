@@ -1,6 +1,10 @@
+#include <android/log.h>
 #include <jni.h>
 #include <lsplant.hpp>
 #include <shadowhook.h>
+
+#include <android/api-level.h>
+#include <cstdio>
 
 #include <atomic>
 #include <mutex>
@@ -15,10 +19,18 @@ std::unordered_map<void *, void *> stubs;
 std::atomic<bool> ready{false};
 void *art = nullptr;
 
+void note(const char *what, const std::string &name, int err) {
+    __android_log_print(ANDROID_LOG_ERROR, "gpsz_hook", "%s %s errno=%d %s", what, name.c_str(), err,
+                        shadowhook_to_errmsg(err));
+}
+
 void *inline_hook(void *target, void *hooker) {
     void *backup = nullptr;
     void *stub = shadowhook_hook_func_addr(target, hooker, &backup);
     if (stub == nullptr) {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%p", target);
+        note("inline_hook gagal", buf, shadowhook_get_errno());
         return nullptr;
     }
     std::lock_guard<std::mutex> guard(stubs_lock);
@@ -41,10 +53,15 @@ bool inline_unhook(void *target) {
 }
 
 void *resolve(std::string_view name) {
-    return shadowhook_dlsym(art, std::string(name).c_str());
+    void *p = shadowhook_dlsym(art, std::string(name).c_str());
+    if (p == nullptr) {
+        __android_log_print(ANDROID_LOG_ERROR, "gpsz_hook", "simbol tidak ada %s", std::string(name).c_str());
+    }
+    return p;
 }
 
-void *resolve_prefix(std::string_view) {
+void *resolve_prefix(std::string_view prefix) {
+    __android_log_print(ANDROID_LOG_ERROR, "gpsz_hook", "prefix diminta %s", std::string(prefix).c_str());
     return nullptr;
 }
 
@@ -54,6 +71,7 @@ bool start(JNIEnv *env) {
     }
     art = shadowhook_dlopen("libart.so");
     if (art == nullptr) {
+        __android_log_print(ANDROID_LOG_ERROR, "gpsz_hook", "dlopen libart gagal");
         return false;
     }
     lsplant::InitInfo info;
@@ -61,7 +79,9 @@ bool start(JNIEnv *env) {
     info.inline_unhooker = inline_unhook;
     info.art_symbol_resolver = resolve;
     info.art_symbol_prefix_resolver = resolve_prefix;
-    return lsplant::Init(env, info);
+    bool ok = lsplant::Init(env, info);
+    __android_log_print(ANDROID_LOG_ERROR, "gpsz_hook", "lsplant::Init=%d sdk=%d", ok ? 1 : 0, android_get_device_api_level());
+    return ok;
 }
 
 }
