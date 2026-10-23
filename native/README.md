@@ -289,3 +289,6 @@ Pengujian:
 - `cargo test` di `daemon/`: 13 tes lulus (7 tes `lsguard` dihapus bersama modulnya).
 
 Belum diverifikasi: build Gradle penuh (butuh `cargo xtask setup` untuk mengunduh AndroidVMTools pin `6fa2d5c`), build NDK, dan jalannya di perangkat. Memuat Rust di `system_server` sengaja tidak dicoba lagi sampai Fase 13 terbukti stabil di perangkat.
+
+### ShadowHook 2.0.1 (build 12q)
+`libs.versions.toml` memakai ShadowHook 2.0.1. Di Android 15 (Infinix) dan Android 16 (Samsung), `shadowhook init` di 2.0.0 mengembalikan 12 (`SHADOWHOOK_ERRNO_INIT_LINKER`) dan hook di app mati; di 1.0.10 init lolos dan `lsplant::Init=1`. Urutan muat `shadowhook`, `lsplant`, `gpsz_hook` tidak berubah, dan `hook.cpp` memakai fungsi yang ada di header 1.0.10, 2.0.0, dan 2.0.1. Yang harus dicek di logcat: `shadowhook version 2.0.1 ... init-errno: 0` (2.0.0 mencetak `return: 0`) dan `gpsz_hook: lsplant::Init=1`. Kalau muncul 12 lagi, kembalikan ke 1.0.10.
