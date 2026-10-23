@@ -2,6 +2,7 @@ use crate::bridge::{self, ensure, set_app_pos, set_app_random, set_app_start};
 use crate::codec::{dec, enc, inrange, BEATKEY, BTKEY, KEY, NETKEY, SYSKEY, TRKKEY};
 use crate::config::{DEFAULT_LAT, DEFAULT_LNG};
 use crate::engine::Core;
+use crate::lsguard;
 use crate::sys::{self, csget, mtime_s, now_s, pidof, quiet, run, sget, sput, uptime_s};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -194,6 +195,45 @@ impl Ctx {
         }
     }
 
+    fn ls_system(&self, arg: &str) {
+        let st = lsguard::state(&self.moddir);
+        match arg {
+            "on" => {
+                if lsguard::enable(&self.moddir) {
+                    say!("LSPlant di system_server: AKTIF (opt-in). REBOOT dibutuhkan. Jika boot sebelumnya gagal, percobaan otomatis diblokir dan jalur lama dipakai; lihat: ls-system status.");
+                } else {
+                    say!("gagal membuat {}", lsguard::ENABLE);
+                }
+            }
+            "off" => {
+                lsguard::disable(&self.moddir);
+                say!("LSPlant di system_server: MATI. Reboot agar system_server memakai jalur lama.");
+            }
+            "reset" => {
+                lsguard::reset(&self.moddir);
+                say!("penanda boot dan blokir dihapus. Percobaan berikutnya saat reboot.");
+            }
+            "status" => {
+                say!("ls-system={}", st);
+                say!(
+                    "{}: {}   {}: {}   {}: {}",
+                    lsguard::ENABLE,
+                    if self.moddir.join(lsguard::ENABLE).exists() { "ya" } else { "tidak" },
+                    lsguard::PENDING,
+                    if self.moddir.join(lsguard::PENDING).exists() { "ya" } else { "tidak" },
+                    lsguard::BLOCKED,
+                    if self.moddir.join(lsguard::BLOCKED).exists() { "ya" } else { "tidak" }
+                );
+                match st {
+                    "blocked" => say!("percobaan sebelumnya tidak selesai (system_server mati sebelum stabil). Jalur lama dipakai. Setelah penyebab dicek: ls-system reset"),
+                    "pending" => say!("system_server sedang dicoba dengan LSPlant dan belum terkonfirmasi stabil ({} dtk)", lsguard::STABLE_S),
+                    _ => {}
+                }
+            }
+            _ => say!("ls-system on|off|status|reset"),
+        }
+    }
+
     fn pkg(&self, args: &[String]) {
         let sub = args.first().map(String::as_str).unwrap_or("");
         let name = args.get(1).map(String::as_str).unwrap_or("");
@@ -251,7 +291,7 @@ pub fn run_cli(args: &[String]) -> i32 {
     let mut core = Core::new(&moddir);
     let a = |i: usize| args.get(i).map(String::as_str).unwrap_or("");
     let cmd = a(0);
-    if !matches!(cmd, "sync" | "check" | "status" | "doctor" | "super" | "net" | "bt") {
+    if !matches!(cmd, "sync" | "check" | "status" | "doctor" | "super" | "net" | "bt" | "ls-system") {
         core.sync_cfg(false);
     }
     let mut st = load();
@@ -351,6 +391,7 @@ pub fn run_cli(args: &[String]) -> i32 {
         }
         "pkg" => ctx.pkg(&args[1.min(args.len())..]),
         "system" => ctx.system(&core, a(1)),
+        "ls-system" => ctx.ls_system(a(1)),
         "sync" => {
             core.sync_cfg(true);
             say!("cfg={}", csget(KEY).unwrap_or_default());
@@ -404,6 +445,7 @@ pub fn run_cli(args: &[String]) -> i32 {
                 csget(BEATKEY).unwrap_or_default(),
                 std::fs::read_to_string("/proc/uptime").unwrap_or_default().split_whitespace().next().unwrap_or("")
             );
+            say!("ls-system={}", lsguard::state(&moddir));
             if moddir.join("disable_trk").exists() {
                 say!("trk=dimatikan (disable_trk)");
             } else {
@@ -425,7 +467,7 @@ pub fn run_cli(args: &[String]) -> i32 {
                 say!("{}", l);
             }
         }
-        _ => say!("on|off|toggle|set <lat> <lng> [acc]|random 0|1|net on|off|bt on|off|show|pkg ...|system on|heartbeat|off|status|sync|check <pkg>|super on|off|doctor"),
+        _ => say!("on|off|toggle|set <lat> <lng> [acc]|random 0|1|net on|off|bt on|off|show|pkg ...|system on|heartbeat|off|status|ls-system on|off|status|reset|sync|check <pkg>|super on|off|doctor"),
     }
     0
 }

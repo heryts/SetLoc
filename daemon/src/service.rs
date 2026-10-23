@@ -1,4 +1,5 @@
 use crate::daemon::sysdefault;
+use crate::lsguard;
 use crate::sys::{self, sleep_ms, spawn_detached};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -19,6 +20,9 @@ pub fn run() -> i32 {
     if !marker.exists() {
         sysdefault();
         let _ = fs::write(&marker, "");
+    }
+    if moddir.join(lsguard::ENABLE).exists() {
+        lsguard::watch(&moddir);
     }
     0
 }
