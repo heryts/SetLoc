@@ -117,7 +117,7 @@ impl Core {
     }
 
     pub fn trk_on(&self) -> bool {
-        self.route.as_ref().map_or(false, |r| r.trk)
+        self.route.as_ref().is_some_and(|r| r.trk)
     }
 
     fn apply_route(&mut self) {
@@ -222,7 +222,7 @@ impl Core {
             return false;
         }
         let want = format!("cfg:{}", cur);
-        !fs::read_to_string(self.cfgs()).map_or(false, |t| t.lines().any(|l| l == want))
+        !fs::read_to_string(self.cfgs()).is_ok_and(|t| t.lines().any(|l| l == want))
     }
 
     fn mirror_trk(&mut self, rt: &Route) -> bool {
@@ -285,10 +285,15 @@ impl Core {
     }
 
     pub fn trk_pump(&mut self) -> bool {
-        let rt = match &self.route {
-            Some(r) => r.clone(),
-            None => return false,
+        let Some(rt) = self.route.take() else {
+            return false;
         };
+        let ok = self.pump(&rt);
+        self.route = Some(rt);
+        ok
+    }
+
+    fn pump(&mut self, rt: &Route) -> bool {
         self.pc = uptime_cs().unwrap_or(0);
         let el = (self.pc - rt.t0) * 10;
         let mut ix = if el < 0 { 1 } else { el / rt.tk + 1 };
@@ -305,7 +310,7 @@ impl Core {
             ix >= rt.nn && self.pc - self.hold_at >= 1000
         };
         if need {
-            return self.trk_win(&rt, ix);
+            return self.trk_win(rt, ix);
         }
         true
     }
@@ -350,8 +355,7 @@ impl Core {
             return false;
         }
         let _ = fs::write(self.lastf(), format!("{}\n", self.new));
-        let n = self.new.clone();
-        self.mirror_cfg(&n);
+        self.mirror_cfg(&self.new);
         true
     }
 

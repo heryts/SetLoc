@@ -91,21 +91,19 @@ public final class Check {
         System.out.println("[pemasangan: " + mode + "]");
         boolean live = SystemHooks.install();
         int ls = LsNative.HOOKS.size();
-        int legacy = LegacyFrame.HOOKED.size();
-        expect("install() melaporkan hidup", live);
+        boolean wantLive = mode.equals("ls");
+        expect("install() melaporkan " + (wantLive ? "hidup" : "tidak hidup (tanpa hook, tanpa jalur cadangan)"), live == wantLive);
         switch (mode) {
             case "ls":
                 expect("10 method terpasang lewat LSPlant (" + ls + ")", ls == 10);
-                expect("jalur lama tidak dipakai", legacy == 0);
                 break;
             case "off":
             case "notready":
-                expect("tidak ada hook LSPlant", ls == 0);
-                expect("10 method jatuh ke jalur lama (" + legacy + ")", legacy == 10);
+                expect("tidak ada hook (tanpa jalur cadangan)", ls == 0);
                 break;
             case "partial":
                 expect("9 method lewat LSPlant (" + ls + ")", ls == 9);
-                expect("hanya onReportLocation jatuh ke jalur lama", legacy == 1 && LegacyFrame.HOOKED.get(0).equals(REPORT));
+                expect("onReportLocation tidak dihook, sehingga hook LPM tidak hidup (tanpa jalur cadangan)", !LsNative.HOOKS.containsKey(REPORT));
                 break;
             default:
                 throw new IllegalArgumentException(mode);

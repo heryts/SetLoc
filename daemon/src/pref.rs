@@ -31,10 +31,10 @@ fn walk(dir: &Path, depth: usize, name: &str) -> Option<PathBuf> {
     let mut subdirs = Vec::new();
     for e in rd.flatten() {
         let p = e.path();
-        if p.file_name().map_or(false, |n| n == name) {
+        if p.file_name().is_some_and(|n| n == name) {
             return Some(p);
         }
-        if e.file_type().map_or(false, |t| t.is_dir()) {
+        if e.file_type().is_ok_and(|t| t.is_dir()) {
             subdirs.push(p);
         }
     }
@@ -61,7 +61,7 @@ pub fn find_pref(current: &str, deep: bool) -> String {
             found.push((t, p));
         }
     }
-    found.sort_by(|a, b| b.0.cmp(&a.0));
+    found.sort_by_key(|f| std::cmp::Reverse(f.0));
     if let Some((_, p)) = found.first() {
         return p.to_string_lossy().into_owned();
     }

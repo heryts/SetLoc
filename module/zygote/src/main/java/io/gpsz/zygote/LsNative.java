@@ -8,6 +8,8 @@ final class LsNative {
     static synchronized boolean ensureLoaded() {
         if (ready) return true;
         try {
+            System.loadLibrary("shadowhook");
+            System.loadLibrary("lsplant");
             System.loadLibrary("gpsz_hook");
             ready = nativeReady();
         } catch (Throwable ignored) {
@@ -22,7 +24,6 @@ final class LsNative {
 
     private static volatile boolean loc = true;
 
-    /** false bila file disable_ls_loc ada: LocationHooks tetap memakai jalur lama, PackageGuard tetap LSPlant. */
     static boolean locEnabled() {
         return loc;
     }
@@ -33,7 +34,6 @@ final class LsNative {
 
     private static volatile boolean set = true;
 
-    /** false bila file disable_ls_set ada: SettingsGuard tetap memakai jalur lama. */
     static boolean setEnabled() {
         return set;
     }

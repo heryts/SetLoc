@@ -112,7 +112,7 @@ fn m_web_salt(line: &str) -> Option<usize> {
 fn m_web_sk(line: &str) -> Option<usize> {
     let p = "const SK = {";
     let rest = line.strip_prefix(p)?;
-    let body = rest.trim_end_matches(|c: char| c == '\n' || c == '\r');
+    let body = rest.trim_end_matches(['\n', '\r']);
     let n = body.rfind("};")?;
     Some(p.len() + n + 2)
 }
@@ -179,7 +179,7 @@ fn run(fresh: bool) -> Result<String, String> {
 }
 
 fn main() {
-    let fresh = std::env::args().nth(1).map_or(false, |a| a == "--new");
+    let fresh = std::env::args().nth(1).is_some_and(|a| a == "--new");
     match run(fresh) {
         Ok(m) => println!("{}", m),
         Err(e) => {

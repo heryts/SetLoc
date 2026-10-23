@@ -1,7 +1,9 @@
 use configcore::jitter;
 use std::collections::HashMap;
 
-use crate::providers::{FUSED, GPS, NETWORK};
+const GPS: &str = "gps";
+const NETWORK: &str = "network";
+const FUSED: &str = "fused";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Pt {

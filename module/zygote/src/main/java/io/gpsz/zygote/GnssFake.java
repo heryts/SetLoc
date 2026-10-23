@@ -439,11 +439,12 @@ final class GnssFake {
         double knots = hasSpd ? spd * 1.943844 : 0.0;
         double course = hasBrg ? brg : 0.0;
         double alt = hasAlt ? alt0 : 0.0;
-        int fixQuality = s.usedCount() > 0 ? 1 : 0;
-        int fixType = s.usedCount() >= 4 ? 3 : 1;
+        int used = s.usedCount();
+        int fixQuality = used > 0 ? 1 : 0;
+        int fixType = used >= 4 ? 3 : 1;
         List<String> out = new ArrayList<>();
         out.add(sentence(String.format(Locale.US, "GNGGA,%s,%s,%c,%s,%c,%d,%02d,%.1f,%.1f,M,%.1f,M,,",
-                hms, coord(lat, true), ns, coord(lng, false), ew, fixQuality, s.usedCount(), hdop, alt, 0.0)));
+                hms, coord(lat, true), ns, coord(lng, false), ew, fixQuality, used, hdop, alt, 0.0)));
         int[] groups = {T_GPS, T_GLO, T_GAL, T_BDS};
         for (int type : groups) {
             List<Integer> ids = new ArrayList<>();
@@ -475,7 +476,7 @@ final class GnssFake {
             }
         }
         out.add(sentence(String.format(Locale.US, "GNRMC,%s,%c,%s,%c,%s,%c,%.2f,%.2f,%s,,,A",
-                hms, s.usedCount() > 0 ? 'A' : 'V', coord(lat, true), ns, coord(lng, false), ew, knots, course, dmy)));
+                hms, used > 0 ? 'A' : 'V', coord(lat, true), ns, coord(lng, false), ew, knots, course, dmy)));
         return out;
     }
 

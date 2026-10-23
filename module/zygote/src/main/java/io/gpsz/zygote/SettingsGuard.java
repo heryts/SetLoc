@@ -9,7 +9,6 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Settings;
 
-
 import java.io.IOException;
 import java.io.Serializable;
 import java.lang.reflect.Method;
@@ -20,7 +19,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -155,10 +153,6 @@ final class SettingsGuard {
         return last != null && KEYS.contains(last);
     }
 
-    private static boolean hiddenAuthority(String a) {
-        return "settings".equals(a);
-    }
-
     private static void hookCache() {
         try {
             Class<?> c = Class.forName("android.provider.Settings$NameValueCache");
@@ -247,7 +241,7 @@ final class SettingsGuard {
             for (String k : b.keySet()) {
                 if (KEYS.contains(k)) return true;
                 Object v = valueOf(b, k);
-                if (v instanceof String && isKey(v)) return true;
+                if (isKey(v)) return true;
                 if (v instanceof Bundle && bundleMentions((Bundle) v)) return true;
             }
         } catch (Throwable ignored) { }
@@ -339,11 +333,7 @@ final class SettingsGuard {
     }
 
     private static void stripMap(Map<?, ?> m) {
-        Iterator<?> it = m.keySet().iterator();
-        while (it.hasNext()) {
-            Object k = it.next();
-            if (isKey(k)) it.remove();
-        }
+        m.keySet().removeIf(SettingsGuard::isKey);
     }
 
     private static void stripBundle(Bundle b) {
@@ -430,8 +420,8 @@ final class SettingsGuard {
                             String mn = (String) method;
                             Object first = frame.get(kind == K_PCALL ? a - 1 : 1);
                             boolean settings = first instanceof Uri
-                                    ? hiddenAuthority(((Uri) first).getAuthority())
-                                    : first instanceof String && hiddenAuthority((String) first);
+                                    ? "settings".equals(((Uri) first).getAuthority())
+                                    : "settings".equals(first);
                             if (settings) {
                                 Object keyArg = frame.get(b);
                                 Object extras = null;
