@@ -1,36 +1,50 @@
-use crate::parse::{self, BeatState, Prev};
-use crate::track::{self, Track};
-use jni::objects::{JClass, JDoubleArray, JFloatArray, JLongArray, JString};
-use jni::sys::{jboolean, jdouble, jdoubleArray, jfloat, jint, jlong, jstring, JNI_FALSE, JNI_TRUE};
+use jni::objects::{JClass, JString};
+use jni::sys::{jdouble, jfloat, jstring};
 use jni::JNIEnv;
-use std::ptr::null_mut;
-use std::sync::Mutex;
-fn out_string(env: &mut JNIEnv, v: Option<String>) -> jstring {
-    v.and_then(|v| env.new_string(v).ok()).map_or(null_mut(), |s| s.into_raw())
-}
-
-fn in_string(env: &mut JNIEnv, s: &JString) -> String {
-    env.get_string(s).map(Into::into).unwrap_or_default()
-}
 
 #[no_mangle]
 pub extern "system" fn Java_io_gpsz_zygote_ConfigNative_nativeTag(mut env: JNIEnv, _c: JClass, logical: JString) -> jstring {
-    let l = in_string(&mut env, &logical);
-    out_string(&mut env, Some(crate::codec::tag(&l)))
+    let l: String = env.get_string(&logical).map(Into::into).unwrap_or_default();
+    env.new_string(crate::codec::tag(&l)).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
 }
 
 #[no_mangle]
 pub extern "system" fn Java_io_gpsz_zygote_ConfigNative_nativeEnc(mut env: JNIEnv, _c: JClass, plain: JString) -> jstring {
-    let p = in_string(&mut env, &plain);
-    out_string(&mut env, Some(crate::codec::enc(&p)))
+    let p: String = env.get_string(&plain).map(Into::into).unwrap_or_default();
+    env.new_string(crate::codec::enc(&p)).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
 }
 
 #[no_mangle]
 pub extern "system" fn Java_io_gpsz_zygote_ConfigNative_nativeDec(mut env: JNIEnv, _c: JClass, hex: JString) -> jstring {
-    let h = in_string(&mut env, &hex);
-    out_string(&mut env, crate::codec::dec(&h))
+    let h: String = env.get_string(&hex).map(Into::into).unwrap_or_default();
+    match crate::codec::dec(&h) {
+        Some(v) => env.new_string(v).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut()),
+        None => std::ptr::null_mut(),
+    }
 }
 
+#[no_mangle]
+pub extern "system" fn Java_io_gpsz_zygote_ConfigNative_nativeNetworkAccuracy(
+    _env: JNIEnv,
+    _c: JClass,
+    seed: jni::sys::jlong,
+    now_ms: jni::sys::jlong,
+    gps_acc: jdouble,
+) -> jdouble {
+    crate::jitter::network_accuracy(seed as u64, now_ms, gps_acc)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_io_gpsz_zygote_ConfigNative_nativeAccNow(_env: JNIEnv, _c: JClass, acc: jfloat, acc_jit: jfloat) -> jfloat {
+    crate::jitter::acc_now(acc, acc_jit)
+}
+
+use crate::parse::{self, BeatState, Prev};
+use crate::track::{self, Track};
+use jni::objects::{JDoubleArray, JFloatArray, JLongArray};
+use jni::sys::{jboolean, jdoubleArray, jint, jlong, JNI_FALSE, JNI_TRUE};
+use std::ptr::null_mut;
+use std::sync::Mutex;
 
 static BEAT: Mutex<BeatState> = Mutex::new(BeatState { seen: None, changed_at: 0, armed: false, last_poll_at: 0 });
 static TRACK: Mutex<Option<(i64, Track)>> = Mutex::new(None);
@@ -111,7 +125,11 @@ pub extern "system" fn Java_io_gpsz_zygote_ConfigNative_nativeParseTrack(mut env
     }
     let mut flat = Vec::with_capacity(n * 5);
     for i in 0..n {
-        flat.extend_from_slice(&[tr.la[i], tr.lo[i], tr.al[i], tr.sp[i] as f64, tr.br[i] as f64]);
+        flat.push(tr.la[i]);
+        flat.push(tr.lo[i]);
+        flat.push(tr.al[i]);
+        flat.push(tr.sp[i] as f64);
+        flat.push(tr.br[i] as f64);
     }
     let h = [tr.t0, tr.wrote, tr.tk, n as i64];
     if env.set_long_array_region(&hdr, 0, &h).is_err() {
@@ -135,7 +153,7 @@ pub extern "system" fn Java_io_gpsz_zygote_ConfigNative_nativeTrackSet(
     sp: JFloatArray,
     br: JFloatArray,
 ) -> jboolean {
-    if !(1..=4_000_000).contains(&n) || tk <= 0 {
+    if n < 1 || n > 4_000_000 || tk <= 0 {
         return JNI_FALSE;
     }
     let n = n as usize;

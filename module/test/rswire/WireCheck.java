@@ -3,6 +3,7 @@ package io.gpsz.zygote;
 import android.location.Location;
 import android.os.SystemClock;
 
+/** args[0] = native | java | badseed: apa yang diharapkan dari pemilihan jalur. */
 public class WireCheck {
     static int pass, fail;
 
@@ -68,7 +69,7 @@ public class WireCheck {
         Location lk2 = Fix.lastKnown("gps");
         ok("lastKnown: sesudah 5 dtk jatuh ke grid fase, tidak di masa depan, umur < 1 dtk",
                 lk2.ns <= nowNs && nowNs - lk2.ns < 1_000_000_000L);
-        long phase = (long) (Config.hashUnit(901, 700) * 1e9);
+        long phase = (long) (Config.hashUnit(901, 700) * 1e9); // Fix pertama dipakai saat jam palsu = 700000 ms
         ok("lastKnown: jatuh tepat di grid fase (PHASE_NS diteruskan)", Math.floorMod(lk2.ns, 1_000_000_000L) == phase);
         ok("lastKnown: waktu dinding konsisten", Math.abs(lk2.ms - (System.currentTimeMillis() - (nowNs - lk2.ns) / 1_000_000L)) <= 100);
 

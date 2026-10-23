@@ -3,6 +3,11 @@ package io.gpsz.zygote;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * Pengganti uji untuk LocationNative: port Java dari native/lochooks (fix.rs, snapshot.rs) dengan kontrak
+ * array yang sama seperti ekspor JNI. Bukan salinan dari Fix.java/Config.java, supaya tes membandingkan
+ * dua implementasi yang ditulis terpisah.
+ */
 final class LocationNative {
     static int calls;
     static final boolean BAD = System.getProperty("fake.badseed") != null;

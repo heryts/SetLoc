@@ -1,5 +1,6 @@
 package io.gpsz.zygote;
 
+/** Mencetak hasil codec Config. Dijalankan di pohon Java-murni dan pohon native-palsu; keluaran harus identik. */
 public class WireDump {
     public static void main(String[] x) {
         String[] plain = {"", "a", "enabled=1;lat=-7.7;lng=110.4;acc=10", "0123456789abcdefghij", "x\u00e9y", "\u20ac"};

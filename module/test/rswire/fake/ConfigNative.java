@@ -1,5 +1,6 @@
 package io.gpsz.zygote;
 
+/** Pengganti uji untuk ConfigNative: port Java dari native/configcore/src/codec.rs (semantik Rust, termasuk penolakan hex ganjil). */
 final class ConfigNative {
     static int calls;
     static final String SALT = System.getProperty("fake.salt");
@@ -37,6 +38,10 @@ final class ConfigNative {
         }
         return new String(out, java.nio.charset.StandardCharsets.UTF_8);
     }
+
+    static double nativeNetworkAccuracy(long seed, long nowMs, double gpsAcc) { throw new UnsupportedOperationException(); }
+
+    static float nativeAccNow(float acc, float accJit) { throw new UnsupportedOperationException(); }
 
     static double[] nativeParse(String s, double prevLat, double prevLng, float prevAcc) { throw new UnsupportedOperationException(); }
 

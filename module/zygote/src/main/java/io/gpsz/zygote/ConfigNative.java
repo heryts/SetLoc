@@ -14,6 +14,7 @@ final class ConfigNative {
         return loaded;
     }
 
+    /** Baca saja, tanpa kunci: dipanggil dari static initializer Config. */
     static boolean ready() {
         return loaded;
     }
@@ -23,6 +24,10 @@ final class ConfigNative {
     static native String nativeEnc(String plain);
 
     static native String nativeDec(String hex);
+
+    static native double nativeNetworkAccuracy(long seed, long nowMs, double gpsAcc);
+
+    static native float nativeAccNow(float acc, float accJit);
 
     static native double[] nativeParse(String s, double prevLat, double prevLng, float prevAcc);
 

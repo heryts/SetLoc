@@ -25,7 +25,9 @@ pub fn javac_cmd() -> Option<Vec<String>> {
     if which("javac").is_some() {
         return Some(vec!["javac".to_string()]);
     }
-    which("java")?;
+    if which("java").is_none() {
+        return None;
+    }
     let o = Command::new("java").arg("--list-modules").output().ok()?;
     if String::from_utf8_lossy(&o.stdout).lines().any(|l| l.starts_with("jdk.compiler@")) {
         return Some(vec![
@@ -112,7 +114,7 @@ fn java_files(dir: &Path, out: &mut Vec<PathBuf>) {
             let p = e.path();
             if p.is_dir() {
                 java_files(&p, out);
-            } else if p.extension().is_some_and(|x| x == "java") {
+            } else if p.extension().map_or(false, |x| x == "java") {
                 out.push(p);
             }
         }
@@ -186,6 +188,7 @@ pub fn run_suite(name: &str, e: &Env) -> (bool, String) {
     let mut log = String::new();
     let r = match name {
         "beat" => beat(e, &mut log),
+        "unsafe" => unsafe_suite(e, &mut log),
         "idmap" => idmap(e, &mut log),
         "lshook" => hook(
             e,
@@ -263,7 +266,7 @@ fn syshook(e: &Env, log: &mut String) -> R<()> {
     fs::create_dir_all(&pk).map_err(|x| x.to_string())?;
     copy_tree(&e.t().join("beat/stubs"), &w)?;
     copy_tree(&e.t().join("lochook/stubs"), &w)?;
-    for f in ["LsNative.java", "ZygoteEntry.java", "PackageGuardLs.java", "SettingsGuard.java"] {
+    for f in ["LegacyFrame.java", "LsNative.java", "ZygoteEntry.java", "PackageGuard.java", "SettingsGuard.java"] {
         let _ = fs::remove_file(pk.join(f));
     }
     copy_tree(&e.t().join("syshook/stubs"), &w)?;
@@ -334,6 +337,61 @@ fn beat(e: &Env, log: &mut String) -> R<()> {
         }
     }
     Ok(())
+}
+
+fn unsafe_suite(e: &Env, log: &mut String) -> R<()> {
+    let td = tempdir("junsafe")?;
+    let w = td.0.clone();
+    for d in ["stub", "out", "test"] {
+        fs::create_dir_all(w.join(d)).map_err(|x| x.to_string())?;
+    }
+    let m = e.root.join("module");
+    let lint = ["-Xlint:all", "-Werror", "--limit-modules", "java.base"];
+
+    let mut files: Vec<PathBuf> = Vec::new();
+    java_files(&m.join("stub/src"), &mut files);
+    files.sort();
+    let mut a = sv(&lint);
+    a.push("-d".to_string());
+    a.push(ps(&w.join("stub")));
+    for f in &files {
+        a.push(ps(f));
+    }
+    javac_raw(e, a, None, log)?;
+
+    let mut files: Vec<PathBuf> = Vec::new();
+    java_files(&m.join("unsafe/src"), &mut files);
+    files.sort();
+    let mut a = sv(&lint);
+    a.push("-cp".to_string());
+    a.push(ps(&w.join("stub")));
+    a.push("-d".to_string());
+    a.push(ps(&w.join("out")));
+    for f in &files {
+        a.push(ps(f));
+    }
+    javac_raw(e, a, None, log)?;
+
+    let mut a = sv(&lint);
+    a.push("-cp".to_string());
+    a.push(ps(&w.join("out")));
+    a.push("-d".to_string());
+    a.push(ps(&w.join("test")));
+    a.push(ps(&e.t().join("unsafe/UnsafeTest.java")));
+    javac_raw(e, a, None, log)?;
+
+    let cp_arg = format!("{}:{}", ps(&w.join("out")), ps(&w.join("test")));
+    let args = vec![
+        "-cp".to_string(),
+        cp_arg,
+        "com.v7878.sun.unsafe.UnsafeTest".to_string(),
+        ps(&e.t().join("unsafe/api.txt")),
+    ];
+    if jrun(&args, &[], log) {
+        Ok(())
+    } else {
+        Err("UnsafeTest gagal".to_string())
+    }
 }
 
 fn parity(e: &Env, log: &mut String) -> R<()> {

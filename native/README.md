@@ -1,7 +1,5 @@
 # native/
 
-> Catatan: Fase 1-11 di bawah menggambarkan keadaan saat fase itu dikerjakan. Penyebutan "jalur lama", `Hooks.hook`, dan AndroidVMTools sudah usang sejak Fase 12 (lihat bagian terakhir).
-
 Status: `configcore` dan `lochooks` sudah dikompilasi dan diuji di host (cargo test, paritas Java vs Rust, dan JNI lewat JVM). `hook/` (Fase 4) lolos cek sintaks terhadap header asli LSPlant dan ShadowHook, dan logika Java-nya diuji di JVM dengan mesin hook palsu. Fase 5 dan 6 memindahkan `LocationHooks` dan `SettingsGuard` ke jalur LSPlant, dan Fase 7 `SystemHooks` (opt-in, di `system_server`); semuanya diuji di JVM dengan mesin hook palsu yang sama. Fase 8 menyambungkan `ConfigNative` dan `LocationNative` ke `Config` dan `Fix`, dengan cadangan ke Java. Fase 9 menambah ekspor JNI `parse`, `parseTrack`, `applyTrack`, dan beat di `configcore` dan menyambungkannya ke `Config`, dengan cadangan ke Java. Fase 11 memindahkan bagian murni `GnssFake` (kumpulan satelit, snapshot, kalimat NMEA, angka measurements) ke `lochooks`, dengan cadangan ke Java. Belum ada yang dikompilasi untuk target Android atau diuji di perangkat.
 
 ## hook (Fase 4)
@@ -10,7 +8,7 @@ Target: pendaftaran hook ART lewat LSPlant, dipakai pertama untuk `PackageGuard`
 - `hook/CMakeLists.txt`: dibangun Gradle (`externalNativeBuild` di `module/zygote`), dengan `org.lsposed.lsplant:lsplant-standalone` dan `com.bytedance.android:shadowhook` lewat prefab.
 - `LsNative.java`: `ensureLoaded()` memuat `gpsz_hook`. `ZygoteEntry.premain()` memanggilnya, karena folder modul hanya bisa dibaca sebelum proses di-specialize. Dilewati di app SetLoc sendiri, di `system_server`, dan kalau ada file `disable_ls` di folder modul. `premain()` juga membaca `disable_ls_loc` (lihat Fase 5).
 - `LsHook.java`: membungkus `Hook` LSPlant. Callback menerima `Object[]` (indeks 0 = `this`, sama seperti indeks `EmulatedStackFrame` di kode lama) dan memanggil method asli lewat backup. Nilai kembali primitif harus dikotak (`Boolean`, `Integer`, `Long`).
-- `PackageGuardLs.java`: perilaku `PackageGuard` yang sama (daftar method, pesan exception, nilai tolak) di atas `LsHook`. `LocationHooks.install()` memanggilnya langsung. Kalau `LsNative` tidak siap, tidak ada hook (jalur lama sudah dibuang di Fase 12).
+- `PackageGuardLs.java`: perilaku `PackageGuard` yang sama (daftar method, pesan exception, nilai tolak) di atas `LsHook`. `PackageGuard.install()` memakainya dulu. Kalau `LsNative` tidak siap, jalur lama (`Hooks.hook`) dipakai seperti sebelumnya.
 - Crate `pkgguard` dan `shim/` dihapus. LSPlant hanya punya API C++, jadi lapisan hook memang harus C++. Dua fungsi Rust-nya (`nativeIsOwn`, `nativeFilterStrings`) tidak pernah dipanggil dari Java dan lebih mahal lewat JNI daripada `String.equals`.
 
 ### Pengujian
@@ -27,9 +25,9 @@ Target: pendaftaran hook ART lewat LSPlant, dipakai pertama untuk `PackageGuard`
 ## LocationHooks di LSPlant (Fase 5)
 Target: hook di `LocationHooks` (Location, LocationManager, AppOps, Wi-Fi, seluler, Bluetooth, `CREATOR`, `getCurrentLocation`) berjalan di LSPlant, tanpa mengubah logikanya.
 - `Frames.java`: adaptor tipis. `Fr` (indeks 0 = `this`, 1.. = argumen, `Frames.RET` = nilai kembali), `Orig` (panggil method asli), `Tx` (transformer). `Frames.hook(Method, Tx)` mencoba LSPlant dulu (`LsHook`), lalu jatuh ke jalur lama per method kalau gagal. Nilai kembali dipaksa ke tipe method (`coerce`): `void` jadi null, primitif yang null atau salah tipe jadi nol/false, supaya unboxing di sisi native tidak melempar.
-- `LegacyFrame.java`: (dihapus di Fase 12) dulu jalur lama `Hooks.hook` + `EmulatedStackFrame` di balik adaptor yang sama.
+- `LegacyFrame.java`: jalur lama (`Hooks.hook` + `EmulatedStackFrame`) di balik adaptor yang sama. Hanya dimuat bila dipakai. Kalau `Hooks.hook` melempar, `Frames.legacyBroken` diset dan pemasangan jalur lama berhenti (menggantikan flag `crashed` lama); hook LSPlant tetap jalan.
 - `LocationHooks.java`: perubahannya mekanis. `frame.accessor().getReference(i)` jadi `frame.get(i)`, `setValue` jadi `set`, `Transformers.invokeExactNoChecks(original, frame)` jadi `original.invoke()`, `Hooks.hook(...)` jadi `Frames.hook(...)`. Isi transformer, urutan cabang, dan `PER_OBJ`/`PARSING` tidak berubah.
-- `disable_ls_loc` di folder modul: `LocationHooks` tidak dipasang sama sekali (sejak Fase 12 tanpa jalur lama), `PackageGuardLs` tetap LSPlant. `disable_ls` mematikan keduanya.
+- `disable_ls_loc` di folder modul: `LocationHooks` memakai jalur lama sementara `PackageGuard` tetap LSPlant. Berguna untuk mencari penyebab masalah di perangkat tanpa membangun ulang. `disable_ls` mematikan keduanya.
 - `LsHook`: dua perbaikan dari Fase 4. `backup` sekarang diisi sebelum `setAccessible` (sebelumnya kalau `setAccessible` melempar, hook sudah terpasang tetapi callback menunggu selamanya), dan penantian `backup` dibatasi 2 detik lalu melempar `IllegalStateException`, bukan spin tanpa batas.
 
 ### Pengujian
@@ -44,7 +42,7 @@ Target: hook di `LocationHooks` (Location, LocationManager, AppOps, Wi-Fi, selul
 
 ## SettingsGuard di LSPlant (Fase 6)
 Target: 14 hook di `SettingsGuard` (kunci modul di `Settings.NameValueCache`, `ContentResolver`/`ContentProviderClient`/`ContentProviderProxy` query dan call, `ContentObserver.dispatchChange`, `registerContentObserver`, `ProcessBuilder.start`, `Settings.Secure.location_mode`) memakai adaptor `Frames` yang sama seperti Fase 5. Perubahan di `SettingsGuard.java` mekanis (`frame.accessor().getReference(i)` jadi `frame.get(i)`, dan seterusnya); logika dan urutan cabang tidak berubah.
-- `disable_ls_set` di folder modul: `SettingsGuard` tidak dipasang sama sekali (sejak Fase 12 tanpa jalur lama); `disable_ls_loc` tidak memengaruhinya.
+- `disable_ls_set` di folder modul: `SettingsGuard` memakai jalur lama; `disable_ls_loc` tidak memengaruhinya. `Frames.hook(m, ls, tx)` menerima flag per grup.
 - Method statis (`Settings.Secure.getInt/getString`): LSPlant tidak mengirim `this`, jadi `args[0]` adalah parameter pertama. Indeks di `SettingsGuard` (`1` = kunci) sudah cocok dengan itu, sama seperti pada `EmulatedStackFrame`.
 - Setelah Fase 5 dan 6, `LocationHooks` dan `SettingsGuard` tidak lagi memakai AndroidVMTools kalau LSPlant siap. `SystemHooks` (di `system_server`) dan `GnssFake` tidak memakai hook ART. Jalur lama baru dimuat bila LSPlant tidak siap atau salah satu flag `disable_*` ada.
 
@@ -95,6 +93,8 @@ Yang disambungkan (satu panggilan JNI per pekerjaan yang cukup besar):
 - `Fix.stamp` -> `nativeStamp`, `Fix.lastKnown` -> `nativeLastKnown`, `PHASE_NS` -> `nativePhaseNs`. Keadaan `Stamper` (stempel terakhir per provider) hidup di Rust bila jalur native dipakai, dan di `LAST_NS` Java bila tidak. Pilihan jalur ditetapkan sekali saat `Config` dimuat, jadi keduanya tidak tercampur.
 - `Config.renewSnapshot` -> `nativeSnapshot` (jitter, altitude, clamp kutub, wrap bujur).
 - `Config.tag/enc/dec` -> `nativeTag/nativeEnc/nativeDec`.
+
+Sengaja TIDAK disambungkan: `nativeRoute`, `nativeIsSnapKind`, `nativeExtValue`, `nativeActive`, `nativeIsSpoofProvider`, `nativeMergeProviders`, `nativeSnapDecide`, `nativeIsFix`, `nativeSnapFresh`, `ConfigNative.nativeNetworkAccuracy` dan `nativeAccNow`. Isinya perbandingan integer atau satu baris aritmetika; satu panggilan JNI lebih mahal daripada pekerjaannya, dan `transformer` di `LocationHooks` dipanggil di jalur panas. `nativeNetworkAccuracy` dan `nativeAccNow` sudah tercakup `nativeApply`. Fungsinya tetap ada di Rust (diuji paritas), hanya tidak dipanggil dari Java.
 
 ### Pengaman
 - Pemuatan: `ZygoteEntry.premain()` memanggil `loadRust()` (sebelum specialize, sama seperti `libgpsz_hook.so`). Di `system_server` hanya bila `enable_ls_system` aktif dan `SysGuard` memberi `ARMED`; tanpa itu `system_server` berjalan persis seperti sebelumnya. File `disable_rs` di folder modul mematikan pemuatan library Rust (`disable_ls` tidak memengaruhinya, dan sebaliknya).
@@ -175,17 +175,22 @@ Perbaikan di Fase 3 untuk kode Fase 2:
 
 ## lochooks (Fase 3)
 Target: logika murni dari `LocationHooks.java`, `Fix.java`, dan `Config.renewSnapshot`, tanpa LSPlant dan tanpa objek Android.
+- `src/kind.rs`: konstanta `K_*`, `is_snap_kind`, `route(kind)` (urutan cabang sama dengan rantai `if` di `transformer`), `ext_value(kind, hideNet, hideBt)`.
 - `src/fix.rs`: `apply` (hasil `Fix.apply` sebagai nilai, bukan menulis ke `Location`), `Stamper` (`stamp` dan `last_known`, RNG disuntik), `phase_ns`.
+- `src/snap.rs`: `is_fix` dan `decide` (lewati bila `Mark` sama, clamp waktu masa depan lebih dari 5 detik).
 - `src/snapshot.rs`: `renew` (posisi + jitter, clamp kutub, wrap bujur, `accJit`).
+- `src/providers.rs`: `active`, `is_spoof`, `merge` daftar provider.
 - `src/lib.rs`: ekspor JNI untuk `io.gpsz.zygote.LocationNative` (`LocationNative.java`; sebagian dipanggil dari `Config` dan `Fix` sejak Fase 8).
 
+Kode `Route` (`nativeRoute`): Create 0, Set 1, Providers 2, LastKnown 3, Deliver 4, Snap 5, SnapPair 6, CellUpdate 7, CellListArg 8, Drop 9, WifiScan 10, WifiSsid 11, CellAll 12, CellLoc 13, Feed 14, GpsStatus 15, Ext 16, MockFalse 17.
+Kode `ExtValue` (`nativeExtValue`): PassThrough 0, Bssid 1, Null 2, Void 3, Int0 4, True 5, False 6.
 `nativeApply` mengembalikan double[13]: 0 lat, 1 lng, 2 acc, 3 flags (bit0 motion, bit1 bearing, bit2 extras), 4 alt, 5 spd, 6 vAcc, 7 sAcc, 8 brg, 9 bAcc, 10 satelit, 11 meanCn0, 12 maxCn0.
 `nativeSnapshot` mengembalikan double[7]: lat, lng, at, spd, brg, alt, accJit.
 
 ### Pengujian
 `cargo xtask test parity`:
 1. `ParityDump.java` menjalankan `Config` dan `Fix` Java asli (dengan stub Android) dan mencetak 263 baris nilai. `examples/parity.rs` menghitung hal yang sama di Rust lalu membandingkan dengan toleransi 1e-12 (nilai turunan float: 2e-6). Hasil: 0 beda.
-2. `JniCheck.java` memuat `liblochooks.so` hasil build host lewat `System.load` dan memeriksa `nativeApply`, `nativeSnapshot`, `nativeStamp`, dan lainnya terhadap Java.
+2. `JniCheck.java` memuat `liblochooks.so` hasil build host lewat `System.load` dan memeriksa `nativeApply`, `nativeSnapshot`, `nativeStamp`, `nativeMergeProviders`, dan lainnya terhadap Java.
 Keduanya juga dipanggil dari `cargo xtask test`.
 
 ### Yang sengaja TIDAK dipindah di Fase 3
@@ -242,31 +247,8 @@ Perubahan kecil di Java agar bisa diuji: `Config.gnssExtras()` sekarang memanggi
 ## Fase 10: skrip dipindah ke xtask
 `make-keystore.sh`, `setup.sh`, `update.sh`, dan harness tes shell (`module/test/run.sh` serta `run.sh` di tiap subfolder) diganti perintah `cargo xtask` (Rust, tanpa dependensi):
 - `cargo xtask keystore <key.pem> <cert.pem> [out.p12]` membuat PKCS12 dan `app/keystore.properties`; password dibaca dari terminal tanpa echo dan diteruskan ke `openssl` lewat env.
-- `cargo xtask setup` sudah dihapus di Fase 12 (AndroidVMTools tidak dipakai lagi).
+- `cargo xtask setup` menyiapkan AndroidVMTools (sudah ada sebelumnya).
 - `cargo xtask update [zip-atau-folder]` seperti sebelumnya; kalau `tools/xtask` di source baru berbeda dari yang sedang berjalan, xtask baru dibangun dari source baru dulu (sama seperti shim `update.sh` lama). `make-keystore.sh`, `setup.sh`, dan `update.sh` yang masih ada di repo dihapus.
-- `cargo xtask test [bagian...]` menjalankan harness: `sintaks`, `daemon`, `supervisor`, `keystore`, `install`, `service`, `kunci`, `struktur`, `webui`, `native` (cargo test configcore dan lochooks), serta suite Java `beat`, `idmap`, `lshook`, `lochook`, `setguard`, `syshook`, `sysguard`, `rswire`, `parity`, `cfgwire`. Grup `java` dan `native` menjalankan semua suite di grupnya. Binary daemon dari `SETLOCD_BIN` atau dibangun dengan `cargo build --release` di `daemon/`; `CONFIGCORE_SO` menunjuk ke `libconfigcore.so` host untuk `cfgwire`.
+- `cargo xtask test [bagian...]` menjalankan harness: `sintaks`, `daemon`, `supervisor`, `keystore`, `install`, `service`, `kunci`, `struktur`, `webui`, `native` (cargo test configcore dan lochooks), serta suite Java `beat`, `unsafe`, `idmap`, `lshook`, `lochook`, `setguard`, `syshook`, `sysguard`, `rswire`, `parity`, `cfgwire`. Grup `java` dan `native` menjalankan semua suite di grupnya. Binary daemon dari `SETLOCD_BIN` atau dibangun dengan `cargo build --release` di `daemon/`; `CONFIGCORE_SO` menunjuk ke `libconfigcore.so` host untuk `cfgwire`.
 - Salt dan tag kunci dibaca dari `.salt` (bukan lagi ditulis ulang ke `run.sh`), jadi `rotate-salt` tidak menyentuh file tes lagi. Kunci `Config` untuk `beat` dihitung dari salt, bukan dibaca dari `bridge.sh`/`gpsz.sh` yang kini hanya stub.
 - Kode xtask belum pernah dikompilasi atau dijalankan di lingkungan tempat ini ditulis (tidak ada cargo); jalankan `cargo test --manifest-path tools/xtask/Cargo.toml` dan `cargo xtask test` di mesin build.
-
-## Fase 12: jalur Java cadangan dan AndroidVMTools dibuang
-Dikerjakan setelah Rust dan LSPlant terbukti jalan di perangkat. Sejak fase ini LSPlant adalah satu-satunya mesin hook ART.
-
-Dihapus:
-- `PackageGuard.java` (hook `ApplicationPackageManager` versi AndroidVMTools) dan `LegacyFrame.java` (adaptor `Hooks.hook`/`EmulatedStackFrame`).
-- Semua pemakaian `com.v7878.unsafe.Reflection` di `Fix`, `LocationHooks`, `SystemHooks`, `Config`; refleksi biasa dipakai, gagal berarti `null` seperti sebelumnya.
-- Modul Gradle `module/unsafe` (SunUnsafe) dan `module/stub` (stub `sun.misc.Unsafe`), version catalog `androidvmtools`, dependensi `panama.*` dan `sun.cleaner`, serta source set `external/AndroidVMTools` di `module/zygote/build.gradle.kts`.
-- `setup_vmtools()`, konstanta `PIN`/`VMTOOLS_*`, subperintah `cargo xtask setup`, dan step "siapkan AndroidVMTools" di `cargo xtask build` (kini 3 langkah).
-- Suite `unsafe` di harness dan `module/test/unsafe`.
-
-Perilaku baru:
-- `Frames.hook()` hanya memakai LSPlant. Engine belum siap, flag `disable_ls*` aktif, atau satu method gagal dipasang: method itu tidak dihook, tanpa fallback. `Frames.legacyBroken` tidak ada lagi.
-- `PackageGuardLs.install()` memegang guard `ZygoteEntry.isSelf()` yang dulu ada di `PackageGuard.java`, supaya app SetLoc sendiri tidak menyembunyikan paketnya dari dirinya sendiri.
-- `disable_ls` mematikan semua hook LSPlant; `disable_ls_loc` mematikan `LocationHooks` (penyembunyian paket tetap jalan); `disable_ls_set` mematikan `SettingsGuard`. Tidak ada yang beralih ke jalur lama.
-- `SystemHooks.install()` melaporkan hidup hanya bila hook `LocationProviderManager` terpasang; tanpa LSPlant ia melaporkan tidak hidup.
-
-Pengujian:
-- `Check.java` di `lochook`, `setguard`, `syshook` ditulis ulang untuk perilaku tanpa fallback (bagian "tanpa jalur cadangan"; `syshook` mode `off`, `notready`, `partial` kini mengharapkan nol hook untuk method yang gagal). Stub `lochook` memakai `PackageGuardLs.java`; stub `LegacyFrame` dihapus; stub `ZygoteEntry` punya `isSelf()`.
-- `cargo xtask test struktur` kini memeriksa bahwa `module/unsafe`, `module/stub`, `module/external` tidak ada, gradle bebas AndroidVMTools, dan sumber zygote tidak lagi merujuk `com.v7878.unsafe`, `LegacyFrame`, atau `Hooks.hook`.
-- Suite Java `lochook`, `setguard`, `syshook` (4 mode), `lshook`, `sysguard` dijalankan manual dengan javac JDK dan lolos; `beat`/`parity` dikompilasi tanpa error.
-
-Belum diverifikasi di lingkungan ini: kode `tools/xtask` yang diedit (tidak ada cargo di sini; hanya diedit hati-hati, belum dikompilasi) dan build Gradle penuh. Jalankan `cargo xtask test` lalu `cargo xtask build` di mesin build.

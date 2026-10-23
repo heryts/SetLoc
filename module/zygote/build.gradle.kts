@@ -1,4 +1,5 @@
 import com.v7878.zygisk.gradle.ZygoteLoader
+import kotlin.io.path.Path
 import java.util.Properties
 
 plugins {
@@ -40,6 +41,14 @@ android {
         }
     }
 
+    sourceSets {
+        getByName("main") {
+            java {
+                directories.add(Path(rootDir.path, "external", "AndroidVMTools", "src", "main", "java").toString())
+            }
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
@@ -48,6 +57,8 @@ android {
     packaging {
         jniLibs {
             keepDebugSymbols += "**/libzygisk_loader.so"
+            // libshadowhook.so datang dua kali: salinan CMake (prefab, obj/) dan dari AAR (jni/).
+            // Keduanya sama (shadowhook 2.0.0), ambil satu supaya tidak ada peringatan AGP.
             pickFirsts += "**/libshadowhook.so"
         }
     }
@@ -82,8 +93,18 @@ zygisk {
     isAddVariantToArchiveName = true
 }
 
+configurations.configureEach {
+    exclude(group = "io.github.vova7878", module = "SunUnsafeWrapper")
+}
+
 dependencies {
+    implementation(project(":unsafe"))
     implementation(libs.r8annotations)
     implementation(libs.lsplant)
     implementation(libs.shadowhook)
+
+    api(androidvmtools.panama.core)
+    api(androidvmtools.panama.unsafe)
+    api(androidvmtools.panama.llvm)
+    implementation(androidvmtools.sun.cleaner)
 }

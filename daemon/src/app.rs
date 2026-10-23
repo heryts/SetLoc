@@ -6,7 +6,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 pub fn app_installed() -> bool {
-    run("pm", &["path", APP]).is_some_and(|r| r.1.lines().any(|l| l.starts_with("package:")))
+    run("pm", &["path", APP]).map_or(false, |r| r.1.lines().any(|l| l.starts_with("package:")))
 }
 
 pub fn grant_secure() -> bool {
@@ -36,15 +36,14 @@ pub fn install_app(apk: &Path) -> bool {
 }
 
 pub fn keepalive(full: bool) {
+    let mut cmds: Vec<Vec<String>> = Vec::new();
     let mk = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<String>>();
-    let mut cmds = vec![
-        mk(&["pm", "grant", APP, "android.permission.WRITE_SECURE_SETTINGS"]),
-        mk(&["cmd", "deviceidle", "whitelist", &format!("+{}", APP)]),
-    ];
+    cmds.push(mk(&["pm", "grant", APP, "android.permission.WRITE_SECURE_SETTINGS"]));
+    cmds.push(mk(&["cmd", "deviceidle", "whitelist", &format!("+{}", APP)]));
     if full {
-        for op in ["RUN_ANY_IN_BACKGROUND", "RUN_IN_BACKGROUND", "SYSTEM_ALERT_WINDOW"] {
-            cmds.push(mk(&["cmd", "appops", "set", APP, op, "allow"]));
-        }
+        cmds.push(mk(&["cmd", "appops", "set", APP, "RUN_ANY_IN_BACKGROUND", "allow"]));
+        cmds.push(mk(&["cmd", "appops", "set", APP, "RUN_IN_BACKGROUND", "allow"]));
+        cmds.push(mk(&["cmd", "appops", "set", APP, "SYSTEM_ALERT_WINDOW", "allow"]));
     }
     cmds.push(mk(&["cmd", "activity", "set-standby-bucket", APP, "active"]));
     cmds.push(mk(&["am", "set-inactive", APP, "false"]));

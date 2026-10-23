@@ -15,6 +15,8 @@ import android.os.SystemClock;
 import android.telephony.CellInfo;
 import android.telephony.TelephonyManager;
 
+import com.v7878.unsafe.Reflection;
+
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -79,8 +81,8 @@ final class LocationHooks {
         hook(LocationManager.class, "getLastKnownLocation", K_LAST_KNOWN, String.class);
         hook(LocationManager.class, "isProviderEnabled", K_PROVIDER_ENABLED, String.class);
         hook(LocationManager.class, "isLocationEnabled", K_LOCATION_ENABLED);
-        hook(LocationManager.class, "getProviders", K_GET_PROVIDERS, boolean.class);
-        hook(LocationManager.class, "getAllProviders", K_GET_PROVIDERS);
+        hookExact(LocationManager.class, "getProviders", K_GET_PROVIDERS, boolean.class);
+        hookExact(LocationManager.class, "getAllProviders", K_GET_PROVIDERS);
         hookAll(LocationManager.class, "addNmeaListener", K_FEED_NMEA);
         hookAll(LocationManager.class, "registerGnssMeasurementsCallback", K_FEED_MEAS);
         hookAll(LocationManager.class, "registerGnssNavigationMessageCallback", K_NO_BOOL);
@@ -97,7 +99,7 @@ final class LocationHooks {
         installAppOps();
         hookGetCurrentLocation();
         SettingsGuard.install();
-        PackageGuardLs.install();
+        PackageGuard.install();
         hookAll("android.net.wifi.WifiManager", "getScanResults", K_WIFI_SCAN);
         hookAll("android.net.wifi.WifiInfo", "getBSSID", K_BSSID);
         hookAll("android.net.wifi.WifiInfo", "getSSID", K_WIFI_SSID);
@@ -236,6 +238,14 @@ final class LocationHooks {
         }
     }
 
+    private static void hookExact(Class<?> c, String name, int kind, Class<?>... params) {
+        try {
+            Method m = c.getDeclaredMethod(name, params);
+            Frames.hook(m, transformer(kind, m.getParameterCount()));
+        } catch (NoSuchMethodException ignored) {
+        } catch (Throwable ignored) { }
+    }
+
     private static final int GPS_EVENT_STARTED = 1, GPS_EVENT_STOPPED = 2, GPS_EVENT_FIRST_FIX = 3, GPS_EVENT_SATELLITE_STATUS = 4;
     private static final Class<?> GPS_STATUS = classOrNull("android.location.GpsStatus");
     private static final Class<?> GPS_LISTENER = classOrNull("android.location.GpsStatus$Listener");
@@ -279,6 +289,7 @@ final class LocationHooks {
         try {
             Method m = c.getDeclaredMethod(name, params);
             Frames.hook(m, transformer(kind, m.getParameterCount()));
+        } catch (NoSuchMethodException ignored) {
         } catch (Throwable ignored) { }
     }
 
@@ -598,10 +609,9 @@ final class LocationHooks {
     }
 
     private static final class EnvSim {
-        private static final ConcurrentHashMap<String, List<Ap>> CACHE = new ConcurrentHashMap<>();
+        private static final ConcurrentHashMap<String, List<Object[]>> CACHE = new ConcurrentHashMap<>();
+        private static final ConcurrentHashMap<String, Long> STAMP = new ConcurrentHashMap<>();
         private static final long TTL_MS = 30_000L;
-        private static final String[] PREFIXES = {"HOME-", "TP-LINK_", "IndiHome-", "MyRepublic-", "Biznet-", "AndroidAP_", "WARP-", "Xiaomi_", "Redmi_", "OPPO-", "vivo-", "realme-", "HUAWEI-", "Tenda_", "MERCURY_", "Cisco-", "DIRECT-"};
-        private static final String HEX = "0123456789ABCDEF";
 
         static final class Ap {
             final String ssid, bssid;
@@ -615,35 +625,53 @@ final class LocationHooks {
             if (fix == null) return Collections.emptyList();
             long bucket = SystemClock.elapsedRealtime() / TTL_MS;
             String k = String.format(Locale.US, "%.3f,%.3f,%d", fix.getLatitude(), fix.getLongitude(), bucket);
-            List<Ap> cached = CACHE.get(k);
-            if (cached != null) return jitter(cached);
-            if (CACHE.size() > 32) CACHE.clear();
+            Long ts = STAMP.get(k);
+            long now = SystemClock.elapsedRealtime();
+            List<Object[]> cached = CACHE.get(k);
+            if (cached != null && ts != null && now - ts < TTL_MS) {
+                return jitter(cached);
+            }
+            if (CACHE.size() > 32) {
+                CACHE.clear();
+                STAMP.clear();
+            }
             long seed = Config.seed() ^ bucket;
             for (byte b : ("wifi:" + k).getBytes(StandardCharsets.UTF_8)) seed = 31 * seed + b;
             Random r = new Random(seed);
             int n = 4 + r.nextInt(5);
             List<Ap> out = new ArrayList<>(n);
             for (int i = 0; i < n; i++) {
-                StringBuilder ssid = new StringBuilder(PREFIXES[r.nextInt(PREFIXES.length)]);
+                String[] pref = {"HOME-", "TP-LINK_", "IndiHome-", "MyRepublic-", "Biznet-", "AndroidAP_", "WARP-", "Xiaomi_", "Redmi_", "OPPO-", "vivo-", "realme-", "HUAWEI-", "Tenda_", "MERCURY_", "Cisco-", "DIRECT-"};
+                StringBuilder ssid = new StringBuilder(pref[r.nextInt(pref.length)]);
+                String cs = "0123456789ABCDEF";
                 int len = 4 + r.nextInt(6);
-                for (int j = 0; j < len; j++) ssid.append(HEX.charAt(r.nextInt(HEX.length())));
+                for (int j = 0; j < len; j++) ssid.append(cs.charAt(r.nextInt(cs.length())));
                 StringBuilder bssid = new StringBuilder(17);
-                bssid.append(String.format(Locale.US, "%02X", (r.nextInt(256) | 0x02) & 0xFE));
-                for (int j = 1; j < 6; j++) bssid.append(':').append(String.format(Locale.US, "%02X", r.nextInt(256)));
+                int first = (r.nextInt(256) | 0x02) & 0xFE;
+                bssid.append(String.format(Locale.US, "%02X", first)).append(':');
+                for (int j = 1; j < 6; j++) {
+                    bssid.append(String.format(Locale.US, "%02X", r.nextInt(256)));
+                    if (j < 5) bssid.append(':');
+                }
                 int rssi = -40 - r.nextInt(40);
                 int freq = r.nextBoolean() ? 2412 + 5 * r.nextInt(13) : 5180 + 5 * r.nextInt(8);
                 out.add(new Ap(ssid.toString(), bssid.toString(), rssi, freq));
             }
-            CACHE.put(k, out);
+            List<Object[]> enc = new ArrayList<>(out.size());
+            for (Ap a : out) enc.add(new Object[]{a.ssid, a.bssid, a.rssi, a.freq});
+            CACHE.put(k, enc);
+            STAMP.put(k, now);
             return out;
         }
 
-        private static List<Ap> jitter(List<Ap> src) {
+        private static List<Ap> jitter(List<Object[]> src) {
             Random jr = new Random();
             List<Ap> o = new ArrayList<>(src.size());
-            for (Ap a : src) {
-                int rssi = Math.max(-95, Math.min(-30, a.rssi + jr.nextInt(5) - 2));
-                o.add(new Ap(a.ssid, a.bssid, rssi, a.freq));
+            for (Object[] a : src) {
+                int rssi = (Integer) a[2] + jr.nextInt(5) - 2;
+                if (rssi > -30) rssi = -30;
+                if (rssi < -95) rssi = -95;
+                o.add(new Ap((String) a[0], (String) a[1], rssi, (Integer) a[3]));
             }
             return o;
         }
@@ -718,6 +746,11 @@ final class LocationHooks {
         try {
             Method m = c.getDeclaredMethod(name, ps);
             m.setAccessible(true);
+            return m;
+        } catch (Throwable ignored) { }
+        try {
+            Method m = Reflection.getDeclaredMethod(c, name, ps);
+            if (m != null) m.setAccessible(true);
             return m;
         } catch (Throwable ignored) { }
         return null;

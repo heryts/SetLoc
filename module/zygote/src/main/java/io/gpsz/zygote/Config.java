@@ -8,9 +8,9 @@ import android.os.HandlerThread;
 import android.os.SystemClock;
 import android.provider.Settings;
 
-import java.io.File;
+import com.v7878.unsafe.Reflection;
+
 import java.io.FileInputStream;
-import java.io.IOException;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.NoSuchElementException;
@@ -21,8 +21,11 @@ import java.util.function.BooleanSupplier;
 
 final class Config {
     private static final String SALT = "Vzvwk4Rxj7Ps";
-    private static final String HEX = "0123456789abcdef";
 
+    /**
+     * true bila configcore termuat DAN salt-nya sama dengan salt Java (library lama yang dibangun
+     * sebelum salt diputar akan gagal di sini dan jatuh ke jalur Java).
+     */
     private static final boolean CODEC_NATIVE = verifyCodec();
 
     private static boolean verifyCodec() {
@@ -107,10 +110,11 @@ final class Config {
     }
 
     private static String encJava(String plain) {
-        StringBuilder out = new StringBuilder(plain.length() * 2);
+        StringBuilder out = new StringBuilder();
         for (int i = 0; i < plain.length(); i++) {
-            int v = ((plain.charAt(i) & 0xFF) + (SALT.charAt(i % SALT.length()) & 0xFF)) & 0xFF;
-            out.append(HEX.charAt(v >>> 4)).append(HEX.charAt(v & 15));
+            int cv = plain.charAt(i) & 0xFF;
+            int kv = SALT.charAt(i % SALT.length()) & 0xFF;
+            out.append(String.format("%02x", (cv + kv) % 256));
         }
         return out.toString();
     }
@@ -119,6 +123,8 @@ final class Config {
         if (hex == null) return null;
         if (CODEC_NATIVE) {
             try {
+                // Rust menolak hex ganjil/bertanda dan memakai UTF-8 lossy untuk byte > 0x7F;
+                // Java menerimanya (prefiks / Latin-1). Hanya hasil ASCII yang pasti sama, sisanya Java.
                 String r = ConfigNative.nativeDec(hex);
                 if (r != null && isAscii(r)) return r;
             } catch (Throwable ignored) { }
@@ -134,7 +140,7 @@ final class Config {
     }
 
     private static String decJava(String hex) {
-        StringBuilder out = new StringBuilder(hex.length() / 2);
+        StringBuilder out = new StringBuilder();
         try {
             for (int i = 0; i + 1 < hex.length(); i += 2) {
                 int xv = Integer.parseInt(hex.substring(i, i + 2), 16);
@@ -173,7 +179,7 @@ final class Config {
     static volatile boolean system;
     static volatile boolean sysHeartbeat;
     static volatile boolean hideNet = true;
-    static volatile boolean hideBt;
+    static volatile boolean hideBt = false;
     static volatile boolean playing;
     static volatile boolean tkMode;
 
@@ -231,13 +237,13 @@ final class Config {
     private static volatile long resumeAt;
     private static String trkSeen;
     private static volatile boolean cfgEn;
-    private static volatile int trkStale;
-    private static volatile long trkMissAt;
-    private static volatile long tickAt;
-    private static String beatSeen;
-    private static long beatChangedAt;
-    private static long lastPollAt;
-    private static boolean beatArmed;
+    private static volatile int trkStale = 0;
+    private static volatile long trkMissAt = 0;
+    private static volatile long tickAt = 0;
+    private static String beatSeen = null;
+    private static long beatChangedAt = 0;
+    private static long lastPollAt = 0;
+    private static boolean beatArmed = false;
     private static volatile int beatStale = 0;
     private static final Object REFRESH_LOCK = new Object();
     private static long lastTry = -RETRY_MS;
@@ -328,6 +334,7 @@ final class Config {
         return SEED;
     }
 
+    /** true bila lochooks termuat dan seed-nya (turunan salt) sama dengan seed Java. */
     private static final boolean LOC_NATIVE = verifyLoc();
 
     static boolean locNative() {
@@ -525,7 +532,7 @@ final class Config {
     }
 
     private static Track loadTrackFile() {
-        File f = new File(trkFile);
+        java.io.File f = new java.io.File(trkFile);
         long len = f.length();
         if (len <= 0 || len > TRK_FILE_MAX) return null;
         byte[] buf = new byte[(int) len];
@@ -577,7 +584,7 @@ final class Config {
     private static boolean reloadTrackFile(long now, boolean force) {
         if (!force && now - fileTrackAt < FILE_CHECK_MS) return false;
         fileTrackAt = now;
-        File f = new File(trkFile);
+        java.io.File f = new java.io.File(trkFile);
         String sig = f.lastModified() + ":" + f.length();
         if (sig.equals(fileTrackSig)) return false;
         fileTrackSig = sig;
@@ -784,7 +791,12 @@ final class Config {
     private static Application currentApplication() {
         try {
             Class<?> at = Class.forName("android.app.ActivityThread");
-            Method m = at.getDeclaredMethod("currentApplication");
+            Method m;
+            try {
+                m = at.getDeclaredMethod("currentApplication");
+            } catch (Throwable t) {
+                m = Reflection.getDeclaredMethod(at, "currentApplication");
+            }
             m.setAccessible(true);
             return (Application) m.invoke(null);
         } catch (Throwable t) {
@@ -851,7 +863,7 @@ final class Config {
     private static void tryLoadFromFile() {
         for (String path : FILE_PATHS) {
             try {
-                String[] f = readFileFields(new File(path));
+                String[] f = readFileFields(new java.io.File(path));
                 if (f == null) continue;
                 synchronized (REFRESH_LOCK) {
                     READING.set(Boolean.TRUE);
@@ -868,7 +880,7 @@ final class Config {
         }
     }
 
-    private static String[] readFileFields(File f) throws IOException {
+    private static String[] readFileFields(java.io.File f) throws java.io.IOException {
         byte[] buf = new byte[FILE_MAX];
         int n = 0, r;
         try (FileInputStream in = new FileInputStream(f)) {
@@ -896,7 +908,7 @@ final class Config {
     }
 
     private static String fileSeen;
-    private static long fileCheckAt;
+    private static long fileCheckAt = 0;
     private static volatile boolean settingsEmpty;
     private static final long FILE_CHECK_MS = 2_000;
 
@@ -905,7 +917,7 @@ final class Config {
         fileCheckAt = now;
         for (String path : FILE_PATHS) {
             try {
-                File f = new File(path);
+                java.io.File f = new java.io.File(path);
                 String sig = path + ":" + f.lastModified() + ":" + f.length();
                 if (f.length() <= 0) continue;
                 if (sig.equals(fileSeen)) return;

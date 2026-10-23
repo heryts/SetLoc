@@ -5,6 +5,8 @@ import android.location.LocationManager;
 import android.os.Bundle;
 import android.os.SystemClock;
 
+import com.v7878.unsafe.Reflection;
+
 import java.lang.reflect.Method;
 import java.util.Map;
 import java.util.Random;
@@ -44,6 +46,13 @@ final class Fix {
             Method m = Location.class.getDeclaredMethod(name, ps);
             m.setAccessible(true);
             return m;
+        } catch (Throwable ignored) { }
+        try {
+            Method m = Reflection.getDeclaredMethod(Location.class, name, ps);
+            if (m != null) {
+                m.setAccessible(true);
+                return m;
+            }
         } catch (Throwable ignored) { }
         return null;
     }
@@ -108,6 +117,7 @@ final class Fix {
         l.setExtras(b);
     }
 
+    /** Tata letak double[13] dari LocationNative.nativeApply: lihat native/README.md. */
     private static boolean applyNative(Location l, String provider, Config.Pt p) {
         double[] a;
         try {

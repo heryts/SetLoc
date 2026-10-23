@@ -10,11 +10,11 @@ fn cp_a(src: &str, dst: &str) -> bool {
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .status()
-        .is_ok_and(|s| s.success())
+        .map_or(false, |s| s.success())
 }
 
 fn in_path(name: &str) -> bool {
-    std::env::var_os("PATH").is_some_and(|p| std::env::split_paths(&p).any(|d| d.join(name).is_file()))
+    std::env::var_os("PATH").map_or(false, |p| std::env::split_paths(&p).any(|d| d.join(name).is_file()))
 }
 
 fn keep_config(old: &Path, new: &Path) {

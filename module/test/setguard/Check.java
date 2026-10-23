@@ -34,6 +34,9 @@ public final class Check {
 
     private static void reset() {
         LsNative.HOOKS.clear();
+        LegacyFrame.HOOKED.clear();
+        LegacyFrame.fail = false;
+        Frames.legacyBroken = false;
     }
 
     public static void main(String[] args) throws Throwable {
@@ -44,6 +47,7 @@ public final class Check {
         SettingsGuard.install();
         int n = LsNative.HOOKS.size();
         expect("hook terpasang lewat LSPlant (" + n + ")", n >= 12);
+        expect("jalur lama tidak dipakai", LegacyFrame.HOOKED.isEmpty());
 
         ContentResolver cr = new ContentResolver();
         Settings.NameValueCache cache = new Settings.NameValueCache();
@@ -161,21 +165,21 @@ public final class Check {
         expect("aktif: kunci lain asli", "orig".equals(LsNative.dispatch(gs, null, cr, "other")));
         Config.enabled = false;
 
-        System.out.println("[tanpa jalur cadangan]");
+        System.out.println("[cadangan jalur lama]");
         reset();
         LsNative.set = false;
         SettingsGuard.install();
-        expect("disable_ls_set: tidak ada hook sama sekali", LsNative.HOOKS.isEmpty());
+        expect("disable_ls_set: tanpa hook LSPlant, semua lewat jalur lama (" + LegacyFrame.HOOKED.size() + ")", LsNative.HOOKS.isEmpty() && LegacyFrame.HOOKED.size() >= 12);
         reset();
         LsNative.set = true;
         LsNative.ready = false;
         SettingsGuard.install();
-        expect("LSPlant tidak siap: tidak ada hook, install tidak melempar", LsNative.HOOKS.isEmpty());
+        expect("LSPlant tidak siap: jalur lama", LsNative.HOOKS.isEmpty() && LegacyFrame.HOOKED.size() >= 12);
         reset();
         LsNative.ready = true;
         LsNative.loc = false;
         SettingsGuard.install();
-        expect("disable_ls_loc tidak memengaruhi SettingsGuard", LsNative.HOOKS.size() >= 12);
+        expect("disable_ls_loc tidak memengaruhi SettingsGuard", LsNative.HOOKS.size() >= 12 && LegacyFrame.HOOKED.isEmpty());
 
         System.out.println(fail == 0 ? "SEMUA LOLOS" : fail + " GAGAL");
         System.exit(fail == 0 ? 0 : 1);

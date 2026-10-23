@@ -70,7 +70,7 @@ impl Daemon {
     }
 
     fn ino_active(&self) -> bool {
-        self.ino.as_ref().is_some_and(|i| !i.dead)
+        self.ino.as_ref().map_or(false, |i| !i.dead)
     }
 
     fn ino_up(&mut self) {
@@ -189,7 +189,7 @@ impl Daemon {
             return;
         }
         let done = self.core.moddir.join(".legacy_done");
-        if fs::read_to_string(&done).is_ok_and(|s| s.trim_end_matches('\n') == keys) {
+        if fs::read_to_string(&done).map_or(false, |s| s.trim_end_matches('\n') == keys) {
             return;
         }
         for k in keys.split_whitespace() {
@@ -205,8 +205,10 @@ impl Daemon {
             .and_then(|r| r.1.split_whitespace().next().map(String::from))
             .unwrap_or_default();
         let stored = fs::read_to_string(moddir.join(".apk_sum")).unwrap_or_default();
-        if (!app_installed() || sum != stored.trim_end_matches('\n')) && install_app(&apk) {
-            let _ = fs::write(moddir.join(".apk_sum"), format!("{}\n", sum));
+        if !app_installed() || sum != stored.trim_end_matches('\n') {
+            if install_app(&apk) {
+                let _ = fs::write(moddir.join(".apk_sum"), format!("{}\n", sum));
+            }
         }
         self.core.prefc = find_pref("", false);
         self.core.cur_bc = sget("boot_count");
@@ -241,6 +243,7 @@ impl Daemon {
                 break;
             }
             sleep_ms(50);
+            self.core.prefc.clear();
             self.core.prefc = find_pref("", false);
         }
         if ok {
@@ -260,10 +263,11 @@ impl Daemon {
             self.n += 1;
             self.yield_lock();
             if self.n % 100 == 0 {
-                self.lock.clean();
+                self.lock.tidy();
             }
             let missing = !Path::new(&self.core.prefc).is_file();
             if self.n % 20 == 0 || (missing && (!self.core.prefc.is_empty() || self.n % 5 == 0)) {
+                self.core.prefc.clear();
                 self.core.prefc = find_pref("", false);
             }
             if let Some(i) = self.ino.as_ref() {
@@ -274,7 +278,7 @@ impl Daemon {
                 self.ino_up();
             }
             let parent = Path::new(&self.core.prefc).parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
-            if self.ino.as_ref().is_some_and(|i| !i.dead && i.dir != parent) {
+            if self.ino_active() && self.ino.as_ref().map_or(false, |i| i.dir != parent) {
                 self.ino_up();
             }
             let rt_ok = self.core.route.is_some();
@@ -284,13 +288,15 @@ impl Daemon {
                 self.core.fast = true;
                 self.core.sync_cfg(false);
                 self.core.fast = false;
-            } else if self.playing && rt_ok && self.core.trk_on() && !self.core.trk_pump() {
-                if let Some(r) = self.core.route.as_mut() {
-                    r.trk = false;
+            } else if self.playing && rt_ok && self.core.trk_on() {
+                if !self.core.trk_pump() {
+                    if let Some(r) = self.core.route.as_mut() {
+                        r.trk = false;
+                    }
+                    self.core.fast = true;
+                    self.core.sync_cfg(false);
+                    self.core.fast = false;
                 }
-                self.core.fast = true;
-                self.core.sync_cfg(false);
-                self.core.fast = false;
             }
             self.playing = self.core.new.ends_with(";pl=1");
             if self.playing {
@@ -328,7 +334,7 @@ impl Daemon {
             let sn = uptime_cs().unwrap_or(0);
             if sn - self.suat >= self.super_check {
                 self.suat = sn;
-                start_super(&self.core.moddir);
+                start_super(&self.core.moddir.clone());
             }
         }
     }

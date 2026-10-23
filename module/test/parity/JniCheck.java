@@ -41,6 +41,20 @@ public class JniCheck {
     }
     check("nativeApply via JNI sama dengan Fix.apply Java (4 provider x 4 waktu x 5 varian)", applyOk);
 
+    String[] merged = LocationNative.nativeMergeProviders(new String[]{"passive", "network"});
+    check("nativeMergeProviders: urutan dan isi", java.util.Arrays.equals(merged, new String[]{"passive", "network", "gps", "fused"}));
+    check("nativeMergeProviders: array kosong", java.util.Arrays.equals(LocationNative.nativeMergeProviders(new String[0]), new String[]{"gps", "network", "fused"}));
+    check("nativeIsSpoofProvider", LocationNative.nativeIsSpoofProvider("gps") && !LocationNative.nativeIsSpoofProvider("passive") && !LocationNative.nativeIsSpoofProvider(null));
+    check("nativeRoute: Create, Set, Providers, Snap, Ext", LocationNative.nativeRoute(41) == 0 && LocationNative.nativeRoute(54) == 1 && LocationNative.nativeRoute(56) == 2 && LocationNative.nativeRoute(0) == 5 && LocationNative.nativeRoute(32) == 16);
+    check("nativeIsSnapKind", LocationNative.nativeIsSnapKind(13) && LocationNative.nativeIsSnapKind(43) && !LocationNative.nativeIsSnapKind(11));
+    check("nativeExtValue: BSSID palsu hanya saat hideNet", LocationNative.nativeExtValue(32, true, false) == 1 && LocationNative.nativeExtValue(32, false, true) == 0 && LocationNative.nativeExtValue(39, false, true) == 5);
+    check("nativeActive", LocationNative.nativeActive(false, true, true, false) && !LocationNative.nativeActive(true, true, true, false));
+    check("nativeSnapDecide: lewati bila mark sama, clamp waktu masa depan, tolak provider null",
+        LocationNative.nativeSnapDecide(7, 9, "gps", true, 7, 9, 100) == -1
+        && LocationNative.nativeSnapDecide(7, 9, "gps", false, 0, 0, 100) == 9
+        && LocationNative.nativeSnapDecide(7, 200_000, "gps", false, 0, 0, 100) == 100
+        && LocationNative.nativeSnapDecide(7, 9, null, false, 0, 0, 100) == -1);
+    check("nativeIsFix", LocationNative.nativeIsFix(1, 1, "gps") && !LocationNative.nativeIsFix(0, 1, "gps") && !LocationNative.nativeIsFix(1, 1, ""));
     long[] a = LocationNative.nativeStamp("gps", 10_000_000_000L, 1_000_000L);
     long[] b = LocationNative.nativeStamp("gps", 11_000_000_000L, 1_001_000L);
     check("nativeStamp: ns tidak lebih dari now, monoton, time konsisten",
@@ -57,6 +71,7 @@ public class JniCheck {
     double[] sp = LocationNative.nativeSnapshot(-7.7, 110.4, 5f, 45f, 100.0, 3f, true, 8f, 700000);
     check("nativeSnapshot via JNI sama dengan Config.snapshot Java",
         near(jp.lat, sp[0], 1e-12) && near(jp.lng, sp[1], 1e-12) && near(jp.alt, sp[5], 1e-12) && near(jp.accJit, sp[6], 1e-6) && near(jp.spd, sp[3], 1e-9) && near(jp.brg, sp[4], 1e-9));
+    check("nativeSnapFresh", LocationNative.nativeSnapFresh(100, 149) && !LocationNative.nativeSnapFresh(100, 150));
     System.out.println(fails == 0 ? "SEMUA LULUS" : "GAGAL: " + fails);
     System.exit(fails == 0 ? 0 : 1);
   }

@@ -193,7 +193,7 @@ pub fn snapshot(seed: u64, pool: &[SatDef], now_sec: i64, fixed: bool) -> Snap {
         let c = g1 as f64 - 7.0 + 14.0 * norm + (jitter::hash_unit(seed, s.ty as i64 * 100 + s.svid as i64, now_sec) - 0.5) * 2.4;
         out.ty.push(s.ty);
         out.svid.push(s.svid);
-        out.cn0.push(c.clamp(14.0, 47.0) as f32);
+        out.cn0.push(c.min(47.0).max(14.0) as f32);
         out.elev.push(el[i] as f32);
         out.az.push((((s.az0 + s.rate * t) % 360.0 + 360.0) % 360.0) as f32);
         out.carrier.push(carrier(s.ty, s.svid));
@@ -492,7 +492,7 @@ pub fn nmea(s: &Snap, f: &FixIn, wall_ms: i64) -> Vec<String> {
         if idx.is_empty() {
             continue;
         }
-        let pages = idx.len().div_ceil(4);
+        let pages = (idx.len() + 3) / 4;
         for p in 0..pages {
             let mut sb = format!("{}GSV,{},{},{:02}", talker(ty), pages, p + 1, idx.len());
             let end = idx.len().min(p * 4 + 4);
@@ -670,8 +670,8 @@ mod tests {
         let f = FixIn { lat: -6.2088, lng: 106.8456, acc: 12.5, spd: Some(1.2), brg: Some(270.5), alt: Some(8.3) };
         let v = nmea(&s, &f, 1_700_000_123_456);
         assert!(v[0].starts_with("$GNGGA,221523.00,0612.528000,S,10650.736000,E,1,"));
-        assert!(v.last().is_some_and(|l| l.starts_with("$GNRMC,221523.00,A,0612.528000,S,10650.736000,E,")));
-        assert!(v.last().is_some_and(|l| l.contains(",141123,,,A*")));
+        assert!(v.last().map_or(false, |l| l.starts_with("$GNRMC,221523.00,A,0612.528000,S,10650.736000,E,")));
+        assert!(v.last().map_or(false, |l| l.contains(",141123,,,A*")));
         for line in &v {
             assert!(line.ends_with("\r\n"));
             let star = line.rfind('*').unwrap_or(0);
@@ -681,7 +681,7 @@ mod tests {
         let idle = snapshot(SEED, &pool, 5000, false);
         let w = nmea(&idle, &f, 1_700_000_123_456);
         assert!(w[0].contains(",0,00,"));
-        assert!(w.last().is_some_and(|l| l.contains(",V,")));
+        assert!(w.last().map_or(false, |l| l.contains(",V,")));
         assert!(w.iter().all(|l| !l.starts_with("$GNGSA")));
     }
 

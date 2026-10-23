@@ -29,16 +29,41 @@ public final class ZygoteEntry {
         }
     }
 
-    private static boolean disabled(String marker) {
+    private static boolean lsDisabled() {
         try {
-            return new File(ZygoteLoader.getModuleDir(), marker).exists();
+            return new File(ZygoteLoader.getModuleDir(), "disable_ls").exists();
         } catch (Throwable t) {
             return true;
         }
     }
 
+    private static boolean locDisabled() {
+        try {
+            return new File(ZygoteLoader.getModuleDir(), "disable_ls_loc").exists();
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
+    private static boolean setDisabled() {
+        try {
+            return new File(ZygoteLoader.getModuleDir(), "disable_ls_set").exists();
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
+    private static boolean rsDisabled() {
+        try {
+            return new File(ZygoteLoader.getModuleDir(), "disable_rs").exists();
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
+    /** Memuat libconfigcore.so dan liblochooks.so (Rust). Gagal memuat berarti jalur Java lama dipakai. */
     private static void loadRust() {
-        if (disabled("disable_rs")) return;
+        if (rsDisabled()) return;
         ConfigNative.ensureLoaded();
         LocationNative.ensureLoaded();
     }
@@ -58,7 +83,7 @@ public final class ZygoteEntry {
     @DoNotShrink
     public static void premain() {
         if (isSelf()) return;
-        boolean ls = !disabled("disable_ls");
+        boolean ls = !lsDisabled();
         if (isSystemServer()) {
             if (ls && systemArmed()) {
                 LsNative.setSysEnabled(true);
@@ -68,8 +93,8 @@ public final class ZygoteEntry {
             return;
         }
         if (ls) {
-            LsNative.setLocEnabled(!disabled("disable_ls_loc"));
-            LsNative.setSetEnabled(!disabled("disable_ls_set"));
+            LsNative.setLocEnabled(!locDisabled());
+            LsNative.setSetEnabled(!setDisabled());
             LsNative.ensureLoaded();
         }
         loadRust();

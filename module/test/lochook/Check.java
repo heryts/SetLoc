@@ -52,6 +52,9 @@ public final class Check {
 
     private static void reset() {
         LsNative.HOOKS.clear();
+        LegacyFrame.HOOKED.clear();
+        LegacyFrame.fail = false;
+        Frames.legacyBroken = false;
         LsNative.failOn = null;
     }
 
@@ -73,7 +76,8 @@ public final class Check {
         LocationHooks.install();
         int n = LsNative.HOOKS.size();
         expect("banyak method terpasang lewat LSPlant (" + n + ")", n >= 45);
-        expect("SettingsGuard dan PackageGuardLs dipasang sekali", SettingsGuard.installs == 1 && PackageGuardLs.installs == 1);
+        expect("jalur lama tidak dipakai", LegacyFrame.HOOKED.isEmpty());
+        expect("SettingsGuard dan PackageGuard dipasang sekali", SettingsGuard.installs == 1 && PackageGuard.installs == 1);
         expect("Location.getLatitude", LsNative.HOOKS.containsKey(find(Location.class, "getLatitude")));
         expect("LocationManager.getCurrentLocation", LsNative.HOOKS.containsKey(
                 find(LocationManager.class, "getCurrentLocation", String.class, Object.class, java.util.concurrent.Executor.class, Consumer.class)));
@@ -191,24 +195,28 @@ public final class Check {
         expect("getCurrentLocation: heartbeat sistem -> method asli (false, tanpa lokasi)", Boolean.FALSE.equals(r) && delivered[0] == null);
         Config.sysHeartbeat = false;
 
-        System.out.println("[tanpa jalur cadangan]");
+        System.out.println("[cadangan jalur lama]");
         reset();
         LsNative.loc = false;
         LocationHooks.install();
-        expect("disable_ls_loc: tidak ada hook sama sekali", LsNative.HOOKS.isEmpty());
+        expect("disable_ls_loc: tidak ada hook LSPlant", LsNative.HOOKS.isEmpty());
+        expect("disable_ls_loc: semua hook lewat jalur lama (" + LegacyFrame.HOOKED.size() + ")", LegacyFrame.HOOKED.size() >= 45);
         reset();
         LsNative.loc = true;
         LsNative.ready = false;
         LocationHooks.install();
-        expect("LSPlant tidak siap: tidak ada hook, install tidak melempar", LsNative.HOOKS.isEmpty());
+        expect("LSPlant tidak siap: jalur lama", LsNative.HOOKS.isEmpty() && LegacyFrame.HOOKED.size() >= 45);
         reset();
         LsNative.ready = true;
         LsNative.failOn = find(Location.class, "getLatitude");
         LocationHooks.install();
-        expect("satu method gagal di LSPlant: hanya itu yang tidak dihook (" + LsNative.HOOKS.size() + ")",
-                !LsNative.HOOKS.containsKey(find(Location.class, "getLatitude")) && LsNative.HOOKS.size() >= 40
-                        && LsNative.HOOKS.containsKey(find(Location.class, "getLongitude")));
+        expect("satu method gagal di LSPlant: hanya itu jatuh ke jalur lama",
+                LegacyFrame.HOOKED.size() == 1 && LegacyFrame.HOOKED.get(0).getName().equals("getLatitude") && LsNative.HOOKS.size() >= 40);
         reset();
+        LsNative.ready = false;
+        LegacyFrame.fail = true;
+        LocationHooks.install();
+        expect("jalur lama gagal: install tidak melempar, tidak ada hook", LsNative.HOOKS.isEmpty() && LegacyFrame.HOOKED.isEmpty() && Frames.legacyBroken);
 
         System.out.println(fail == 0 ? "SEMUA LOLOS" : fail + " GAGAL");
         System.exit(fail == 0 ? 0 : 1);

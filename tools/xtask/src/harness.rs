@@ -240,7 +240,7 @@ impl H {
             return true;
         }
         let group = match name {
-            "beat" | "idmap" | "lshook" | "lochook" | "setguard" | "syshook" | "sysguard" | "rswire" | "gnssfake" => "java",
+            "beat" | "unsafe" | "idmap" | "lshook" | "lochook" | "setguard" | "syshook" | "sysguard" | "rswire" | "gnssfake" => "java",
             "parity" | "cfgwire" | "gnsswire" | "native" => "native",
             _ => "",
         };
@@ -407,7 +407,7 @@ impl H {
             if let Ok(rd) = fs::read_dir(&d) {
                 for e in rd.filter_map(|e| e.ok()) {
                     let p = e.path();
-                    if p.extension().is_some_and(|x| x == "sh") {
+                    if p.extension().map_or(false, |x| x == "sh") {
                         files.push(p);
                     }
                 }
@@ -867,26 +867,14 @@ impl H {
         self.check("LocationHooks tidak memakai WeakHashMap/Collections.synchronizedMap untuk PER_OBJ", c);
         let mdir = self.root.join("module");
         let settings = self.rd(&mdir.join("settings.gradle.kts"));
-        let c = settings.contains("include(\":zygote\")") && !settings.contains("include(\":unsafe\")") && !settings.contains("include(\":stub\")");
-        self.check("settings.gradle.kts hanya memuat :zygote (tanpa :stub dan :unsafe)", c);
-        let c = !settings.to_lowercase().contains("androidvmtools");
-        self.check("settings.gradle.kts tidak lagi memakai version catalog AndroidVMTools", c);
+        let c = settings.contains("include(\":stub\")") && settings.contains("include(\":unsafe\")");
+        self.check("settings.gradle.kts memuat :stub dan :unsafe", c);
         let zb = self.rd(&mdir.join("zygote/build.gradle.kts"));
-        let zl = zb.to_lowercase();
-        let c = !zl.contains("androidvmtools") && !zb.contains("project(\":unsafe\")") && !zb.contains("SunUnsafeWrapper") && !zb.contains("panama") && !zb.contains("sun.cleaner");
-        self.check("zygote/build.gradle.kts bebas AndroidVMTools, :unsafe, panama, sun.cleaner", c);
-        let c = !mdir.join("unsafe").exists() && !mdir.join("stub").exists() && !mdir.join("external").exists();
-        self.check("module/unsafe, module/stub, module/external tidak ada", c);
-        let mut srcs: Vec<PathBuf> = Vec::new();
-        collect_java(&self.jsrc, &mut srcs);
-        let mut dirty = false;
-        for f in &srcs {
-            let t = self.rd(f);
-            if t.contains("com.v7878.unsafe") || t.contains("LegacyFrame") || t.contains("legacyBroken") || t.contains("Hooks.hook(") {
-                dirty = true;
-            }
-        }
-        self.check("sumber zygote tidak memakai com.v7878.unsafe, LegacyFrame, atau Hooks.hook", !dirty);
+        let ub = self.rd(&mdir.join("unsafe/build.gradle.kts"));
+        let c = zb.contains("module = \"SunUnsafeWrapper\"") && zb.contains("implementation(project(\":unsafe\"))");
+        self.check("zygote mengeluarkan SunUnsafeWrapper dan memakai :unsafe", c);
+        let c = ub.contains("compileOnly(project(\":stub\"))") && !zb.contains("project(\":stub\")");
+        self.check("stub hanya compileOnly (tidak ikut ke dex)", c);
     }
 
     fn sec_webui(&mut self) {
@@ -991,6 +979,10 @@ impl H {
             println!("[hook: Config.checkBeat, parse, track (beat daemon)]");
         }
         self.java_suite(&jc, "beat", "checkBeat + refresh + parse + track + baca file: freeze, off, resume, jeda poll, titik tunggal, snapshot, flag sistem, onReady sekali");
+        if self.want("unsafe") || self.want("idmap") {
+            println!("[unsafe: SunUnsafe milik sendiri menggantikan SunUnsafeWrapper]");
+        }
+        self.java_suite(&jc, "unsafe", "SunUnsafe: API identik v1.0.2, nol warning javac, bytecode valid, memori/CAS/fence jalan");
         self.java_suite(&jc, "idmap", "PER_OBJ berbasis identitas: equals/hashCode Location tidak dipanggil, entri di-GC dibersihkan");
         if self.want("struktur") {
             self.sec_struktur();
@@ -1016,9 +1008,9 @@ impl H {
             println!("[hook LSPlant]");
         }
         self.java_suite(&jc, "lshook", "PackageGuardLs lewat mesin hook palsu");
-        self.java_suite(&jc, "lochook", "LocationHooks lewat mesin hook palsu (LSPlant, tanpa jalur cadangan, disable_ls_loc)");
-        self.java_suite(&jc, "setguard", "SettingsGuard lewat mesin hook palsu (LSPlant, tanpa jalur cadangan, disable_ls_set)");
-        self.java_suite(&jc, "syshook", "SystemHooks lewat mesin hook palsu (LSPlant; mati/belum siap/gagal per method = tidak dihook, tanpa jalur cadangan)");
+        self.java_suite(&jc, "lochook", "LocationHooks lewat mesin hook palsu (LSPlant, cadangan jalur lama, disable_ls_loc)");
+        self.java_suite(&jc, "setguard", "SettingsGuard lewat mesin hook palsu (LSPlant, cadangan jalur lama, disable_ls_set)");
+        self.java_suite(&jc, "syshook", "SystemHooks lewat mesin hook palsu (LSPlant, jalur lama saat mati/belum siap, cadangan per method)");
         self.java_suite(&jc, "rswire", "Penyambungan Java ke Rust (Fase 8): jalur Java vs native palsu, verifikasi salt/seed, cadangan");
         self.java_suite(&jc, "sysguard", "SysGuard: penanda boot opt-in, blokir percobaan kedua, gagal tertutup");
         self.java_suite(&jc, "gnssfake", "GnssFake (Fase 11): native palsu dipakai bila verifikasi lolos, cadangan Java bila gagal");
@@ -1057,19 +1049,6 @@ pub fn run(args: &[String]) -> R<()> {
         Ok(())
     } else {
         Err(format!("{} pemeriksaan gagal", h.fail))
-    }
-}
-
-fn collect_java(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
-    if let Ok(rd) = std::fs::read_dir(dir) {
-        for e in rd.filter_map(|e| e.ok()) {
-            let p = e.path();
-            if p.is_dir() {
-                collect_java(&p, out);
-            } else if p.extension().is_some_and(|x| x == "java") {
-                out.push(p);
-            }
-        }
     }
 }
 

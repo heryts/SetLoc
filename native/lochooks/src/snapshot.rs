@@ -18,6 +18,10 @@ pub struct Inputs {
     pub seed: u64,
 }
 
+pub fn fresh(at: i64, now_ms: i64) -> bool {
+    now_ms - at < SNAP_MS
+}
+
 pub fn renew(i: &Inputs) -> Pt {
     let alt = jitter::altitude_now(i.seed, i.now_ms / 1000, i.alt, i.alt_var as f64);
     let radius = if i.random { i.rr as f64 } else { FLOOR_RADIUS_M };
@@ -106,6 +110,13 @@ mod tests {
             let p = renew(&i);
             assert!((-180.0..=180.0).contains(&p.lng), "{}", p.lng);
         }
+    }
+
+    #[test]
+    fn fresh_window_is_50ms() {
+        let p = renew(&inp());
+        assert!(fresh(p.at, p.at + 49));
+        assert!(!fresh(p.at, p.at + 50));
     }
 
     #[test]

@@ -174,8 +174,7 @@ pub fn route_apply(b: &Base, rt: &Route, now_cs: i64) -> Applied {
     let mut idx = if el < 0 { 1 } else { el / rt.tk + 1 };
     let ended = idx >= rt.nn;
     if ended { idx = rt.nn; }
-    let mut a = static_apply(b);
-    a.idx = idx;
+    let mut a = Applied { e: b.e, r: b.r, lat: b.lat.clone(), lng: b.lng.clone(), spd: b.spd.clone(), brg: b.brg.clone(), alt: b.alt.clone(), pl: "", idx };
     if let Some(t) = timeline_tokens(&rt.tf, rt.tlw, idx) {
         if t.len() >= 5 && t[..5].iter().all(|x| numok(x)) {
             a.lat = t[0].clone();
