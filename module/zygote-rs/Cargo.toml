@@ -1,0 +1,16 @@
+[package]
+name = "gpsz"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "gpsz"
+path = "src/gpsz.rs"
+crate-type = ["cdylib", "rlib"]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
