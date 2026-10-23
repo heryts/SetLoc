@@ -10,12 +10,11 @@ pub fn tag(logical: &str) -> String {
 }
 
 pub fn enc(plain: &str) -> String {
+    use std::fmt::Write;
     let mut out = String::with_capacity(plain.len() * 2);
     let salt = SALT.as_bytes();
     for (i, &b) in plain.as_bytes().iter().enumerate() {
-        let cv = b as u16;
-        let kv = salt[i % salt.len()] as u16;
-        out.push_str(&format!("{:02x}", (cv + kv) % 256));
+        let _ = write!(out, "{:02x}", b.wrapping_add(salt[i % salt.len()]));
     }
     out
 }

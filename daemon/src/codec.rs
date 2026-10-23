@@ -1,10 +1,10 @@
 include!(concat!(env!("OUT_DIR"), "/keys.rs"));
 
 pub fn enc(s: &str) -> String {
+    use std::fmt::Write;
     let mut out = String::with_capacity(s.len() * 2);
     for (i, b) in s.bytes().enumerate() {
-        let v = (b as u16 + KV[i % KV.len()] as u16) % 256;
-        out.push_str(&format!("{:02x}", v));
+        let _ = write!(out, "{:02x}", b.wrapping_add(KV[i % KV.len()]));
     }
     out
 }

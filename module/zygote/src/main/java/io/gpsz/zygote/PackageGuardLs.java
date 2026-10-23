@@ -56,7 +56,7 @@ final class PackageGuardLs {
                 Class<?> first = ps.length > 0 ? ps[0] : null;
                 if (MISSING.contains(n) && (first == String.class || first == ComponentName.class
                         || first == VersionedPackage.class || first == ApplicationInfo.class)) {
-                    hookGuard(m, first == String.class || first == ComponentName.class || first == VersionedPackage.class);
+                    hookGuard(m, first != ApplicationInfo.class);
                 } else if (UNKNOWN.contains(n) && (first == String.class || first == ComponentName.class)) {
                     hookGuard(m, false);
                 } else if (LISTS.contains(n) && List.class.isAssignableFrom(m.getReturnType())) {
@@ -179,7 +179,6 @@ final class PackageGuardLs {
         }
         if (item instanceof PackageItemInfo) return OWN.equals(((PackageItemInfo) item).packageName);
         if (item instanceof PackageInfo) return OWN.equals(((PackageInfo) item).packageName);
-        if (item instanceof ApplicationInfo) return OWN.equals(((ApplicationInfo) item).packageName);
         return false;
     }
 

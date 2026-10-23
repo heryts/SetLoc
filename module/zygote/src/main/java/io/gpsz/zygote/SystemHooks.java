@@ -355,8 +355,7 @@ final class SystemHooks {
                 if (o instanceof Location) copies.add(spoof((Location) o));
             }
             if (copies.isEmpty()) return null;
-            if (wrapTakesList) return resultWrap.invoke(null, copies);
-            return resultWrap.invoke(null, (Object) copies.toArray(new Location[0]));
+            return wrap(copies);
         }
         if (resultMap != null) {
             Function<Location, Location> f = SystemHooks::spoof;
@@ -463,28 +462,12 @@ final class SystemHooks {
                         Object mgr = managers.get(name);
                         if (mgr == null) continue;
                         try {
-                            Location fix;
-                            if (full) {
-                                if (LocationManager.NETWORK_PROVIDER.equals(name)) {
-                                    if (now - lastNetReport < NET_INTERVAL_MS) continue;
-                                    fix = Fix.fresh(name);
-                                    if (fix == null) continue;
-                                    lastNetReport = now;
-                                } else {
-                                    fix = Fix.fresh(name);
-                                }
-                            } else {
-                                if (LocationManager.NETWORK_PROVIDER.equals(name)) {
-                                    if (now - lastNetReport < NET_INTERVAL_MS) continue;
-                                    fix = realBeat(name);
-                                    if (fix == null) continue;
-                                    lastNetReport = now;
-                                } else {
-                                    fix = realBeat(name);
-                                }
-                            }
+                            boolean net = LocationManager.NETWORK_PROVIDER.equals(name);
+                            if (net && now - lastNetReport < NET_INTERVAL_MS) continue;
+                            Location fix = full ? Fix.fresh(name) : realBeat(name);
                             if (fix == null) continue;
-                            Object res = wrap(fix);
+                            if (net) lastNetReport = now;
+                            Object res = wrap(Collections.singletonList(fix));
                             if (res != null) {
                                 lpmOnReport.invoke(mgr, res);
                                 anySent = true;
@@ -508,9 +491,9 @@ final class SystemHooks {
         th.start();
     }
 
-    private static Object wrap(Location l) throws Throwable {
-        if (wrapTakesList) return resultWrap.invoke(null, Collections.singletonList(l));
-        return resultWrap.invoke(null, (Object) new Location[]{l});
+    private static Object wrap(List<Location> list) throws Throwable {
+        if (wrapTakesList) return resultWrap.invoke(null, list);
+        return resultWrap.invoke(null, (Object) list.toArray(new Location[0]));
     }
 
     private static boolean scanForManagers() {

@@ -108,7 +108,6 @@ final class Fix {
         l.setExtras(b);
     }
 
-    /** Tata letak double[13] dari LocationNative.nativeApply: lihat native/README.md. */
     private static boolean applyNative(Location l, String provider, Config.Pt p) {
         double[] a;
         try {

@@ -15,6 +15,7 @@ import androidx.core.content.edit
 
 object PrefManager {
     private const val SALT = "Vzvwk4Rxj7Ps"
+    private const val HEX = "0123456789abcdef"
 
     fun tag(logical: String): String {
         val s = SALT + logical
@@ -23,15 +24,14 @@ object PrefManager {
             val o = c.code and 0xFF
             h = ((h xor o) * 16777619) and 0x7FFFFFFF
         }
-        return String.format(java.util.Locale.US, "%06x", h and 0xFFFFFF)
+        return String.format(Locale.US, "%06x", h and 0xFFFFFF)
     }
 
     fun enc(plain: String): String {
-        val out = StringBuilder()
+        val out = StringBuilder(plain.length * 2)
         for (i in plain.indices) {
-            val cv = plain[i].code and 0xFF
-            val kv = SALT[i % SALT.length].code and 0xFF
-            out.append(String.format(java.util.Locale.US, "%02x", (cv + kv) % 256))
+            val v = ((plain[i].code and 0xFF) + (SALT[i % SALT.length].code and 0xFF)) and 0xFF
+            out.append(HEX[v ushr 4]).append(HEX[v and 15])
         }
         return out.toString()
     }
@@ -190,10 +190,12 @@ object PrefManager {
         -1
     }
 
+    private fun routeEnd(hold: Long): Long =
+        pref.getLong(ROUTE_T0, 0L) * 10 + (pref.getInt(ROUTE_N, 1) - 1) * pref.getLong(ROUTE_TICK, 0L) + hold
+
     fun routeLive(): Boolean {
         if (!routePlay) return false
-        val end = pref.getLong(ROUTE_T0, 0L) * 10 + (pref.getInt(ROUTE_N, 1) - 1) * pref.getLong(ROUTE_TICK, 0L) +
-            pref.getLong(ROUTE_HOLD_END, 0L)
+        val end = routeEnd(pref.getLong(ROUTE_HOLD_END, 0L))
         return pref.getInt(ROUTE_BC, -1) == bootCount() && SystemClock.elapsedRealtime() < end
     }
 
@@ -201,8 +203,7 @@ object PrefManager {
         if (!routePlay) return false
         val hold = pref.getLong(ROUTE_HOLD_END, 0L)
         if (hold <= 0L) return false
-        val end = pref.getLong(ROUTE_T0, 0L) * 10 + (pref.getInt(ROUTE_N, 1) - 1) * pref.getLong(ROUTE_TICK, 0L) + hold
-        return pref.getInt(ROUTE_BC, -1) == bootCount() && SystemClock.elapsedRealtime() >= end
+        return pref.getInt(ROUTE_BC, -1) == bootCount() && SystemClock.elapsedRealtime() >= routeEnd(hold)
     }
 
     fun beginPlayback(t0Centis: Long, tickMs: Long, n: Int, holdEndMs: Long, lineWidth: Int) {

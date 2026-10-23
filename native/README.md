@@ -96,8 +96,6 @@ Yang disambungkan (satu panggilan JNI per pekerjaan yang cukup besar):
 - `Config.renewSnapshot` -> `nativeSnapshot` (jitter, altitude, clamp kutub, wrap bujur).
 - `Config.tag/enc/dec` -> `nativeTag/nativeEnc/nativeDec`.
 
-Sengaja TIDAK disambungkan: `nativeRoute`, `nativeIsSnapKind`, `nativeExtValue`, `nativeActive`, `nativeIsSpoofProvider`, `nativeMergeProviders`, `nativeSnapDecide`, `nativeIsFix`, `nativeSnapFresh`, `ConfigNative.nativeNetworkAccuracy` dan `nativeAccNow`. Isinya perbandingan integer atau satu baris aritmetika; satu panggilan JNI lebih mahal daripada pekerjaannya, dan `transformer` di `LocationHooks` dipanggil di jalur panas. `nativeNetworkAccuracy` dan `nativeAccNow` sudah tercakup `nativeApply`. Fungsinya tetap ada di Rust (diuji paritas), hanya tidak dipanggil dari Java.
-
 ### Pengaman
 - Pemuatan: `ZygoteEntry.premain()` memanggil `loadRust()` (sebelum specialize, sama seperti `libgpsz_hook.so`). Di `system_server` hanya bila `enable_ls_system` aktif dan `SysGuard` memberi `ARMED`; tanpa itu `system_server` berjalan persis seperti sebelumnya. File `disable_rs` di folder modul mematikan pemuatan library Rust (`disable_ls` tidak memengaruhinya, dan sebaliknya).
 - Verifikasi saat `Config` dimuat: `CODEC_NATIVE` hanya aktif bila `nativeTag("cfg")`, `nativeEnc`, dan `nativeDec` memberi hasil yang sama dengan Java; `LOC_NATIVE` hanya aktif bila `nativePhaseNs` sama dengan hitungan Java (membuktikan seed turunan salt sama). Library yang dibangun sebelum salt diputar gagal di sini dan jalur Java dipakai, tanpa crash dan tanpa perubahan hasil.
@@ -177,22 +175,17 @@ Perbaikan di Fase 3 untuk kode Fase 2:
 
 ## lochooks (Fase 3)
 Target: logika murni dari `LocationHooks.java`, `Fix.java`, dan `Config.renewSnapshot`, tanpa LSPlant dan tanpa objek Android.
-- `src/kind.rs`: konstanta `K_*`, `is_snap_kind`, `route(kind)` (urutan cabang sama dengan rantai `if` di `transformer`), `ext_value(kind, hideNet, hideBt)`.
 - `src/fix.rs`: `apply` (hasil `Fix.apply` sebagai nilai, bukan menulis ke `Location`), `Stamper` (`stamp` dan `last_known`, RNG disuntik), `phase_ns`.
-- `src/snap.rs`: `is_fix` dan `decide` (lewati bila `Mark` sama, clamp waktu masa depan lebih dari 5 detik).
 - `src/snapshot.rs`: `renew` (posisi + jitter, clamp kutub, wrap bujur, `accJit`).
-- `src/providers.rs`: `active`, `is_spoof`, `merge` daftar provider.
 - `src/lib.rs`: ekspor JNI untuk `io.gpsz.zygote.LocationNative` (`LocationNative.java`; sebagian dipanggil dari `Config` dan `Fix` sejak Fase 8).
 
-Kode `Route` (`nativeRoute`): Create 0, Set 1, Providers 2, LastKnown 3, Deliver 4, Snap 5, SnapPair 6, CellUpdate 7, CellListArg 8, Drop 9, WifiScan 10, WifiSsid 11, CellAll 12, CellLoc 13, Feed 14, GpsStatus 15, Ext 16, MockFalse 17.
-Kode `ExtValue` (`nativeExtValue`): PassThrough 0, Bssid 1, Null 2, Void 3, Int0 4, True 5, False 6.
 `nativeApply` mengembalikan double[13]: 0 lat, 1 lng, 2 acc, 3 flags (bit0 motion, bit1 bearing, bit2 extras), 4 alt, 5 spd, 6 vAcc, 7 sAcc, 8 brg, 9 bAcc, 10 satelit, 11 meanCn0, 12 maxCn0.
 `nativeSnapshot` mengembalikan double[7]: lat, lng, at, spd, brg, alt, accJit.
 
 ### Pengujian
 `cargo xtask test parity`:
 1. `ParityDump.java` menjalankan `Config` dan `Fix` Java asli (dengan stub Android) dan mencetak 263 baris nilai. `examples/parity.rs` menghitung hal yang sama di Rust lalu membandingkan dengan toleransi 1e-12 (nilai turunan float: 2e-6). Hasil: 0 beda.
-2. `JniCheck.java` memuat `liblochooks.so` hasil build host lewat `System.load` dan memeriksa `nativeApply`, `nativeSnapshot`, `nativeStamp`, `nativeMergeProviders`, dan lainnya terhadap Java.
+2. `JniCheck.java` memuat `liblochooks.so` hasil build host lewat `System.load` dan memeriksa `nativeApply`, `nativeSnapshot`, `nativeStamp`, dan lainnya terhadap Java.
 Keduanya juga dipanggil dari `cargo xtask test`.
 
 ### Yang sengaja TIDAK dipindah di Fase 3

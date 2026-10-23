@@ -53,7 +53,7 @@ fn keystore_cmd(a: &[String]) -> R<()> {
     };
     let key = abs(&a[0]);
     let cert = abs(&a[1]);
-    let out_arg = a.get(2).map(|s| abs(s));
+    let out_arg = a.get(2).map(abs);
     enter_root()?;
     let out = match out_arg {
         Some(o) => o,
@@ -226,8 +226,6 @@ fn build_daemon(skip_tests: bool) -> R<()> {
 
 const NATIVE_CRATES: [&str; 2] = ["configcore", "lochooks"];
 
-/// Membangun libconfigcore.so dan liblochooks.so (Rust) dan menaruhnya di jniLibs modul. Harus berjalan
-/// sesudah rotate-salt: build.rs configcore membaca .salt dan menanamkannya ke library.
 fn build_native(skip_tests: bool) -> R<()> {
     if which("cargo").is_none() {
         return Err("butuh cargo (https://rustup.rs)".into());
@@ -275,7 +273,7 @@ fn newest_apk() -> Option<PathBuf> {
     let rd = fs::read_dir("app/app/build/outputs/apk/release").ok()?;
     rd.filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| p.extension().map_or(false, |x| x == "apk"))
+        .filter(|p| p.extension().is_some_and(|x| x == "apk"))
         .max_by_key(|p| fs::metadata(p).and_then(|m| m.modified()).ok())
 }
 
@@ -350,11 +348,11 @@ fn tempdir(tag: &str) -> R<TempDir> {
 
 fn find_source_root(t: &Path) -> Option<PathBuf> {
     for d1 in list_dirs(&t.to_string_lossy()) {
-        if d1.file_name().map_or(false, |n| n == "setloc-zygisk-all") {
+        if d1.file_name().is_some_and(|n| n == "setloc-zygisk-all") {
             return Some(d1);
         }
         for d2 in list_dirs(&d1.to_string_lossy()) {
-            if d2.file_name().map_or(false, |n| n == "setloc-zygisk-all") {
+            if d2.file_name().is_some_and(|n| n == "setloc-zygisk-all") {
                 return Some(d2);
             }
         }

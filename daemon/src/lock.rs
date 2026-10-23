@@ -56,16 +56,12 @@ impl Lock {
         false
     }
 
-    fn clean(&self) {
+    pub fn clean(&self) {
         for (n, p) in pid_files(&self.dir) {
             if n != self.pid.to_string() && !is_self_cmd(&n, "daemon") {
                 let _ = fs::remove_file(p);
             }
         }
-    }
-
-    pub fn tidy(&self) {
-        self.clean();
     }
 
     pub fn fast(&self) -> bool {

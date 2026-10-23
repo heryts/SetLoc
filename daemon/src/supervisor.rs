@@ -15,7 +15,7 @@ pub fn run() -> i32 {
         if stopping() {
             return 143;
         }
-        if fs::read_to_string(&supf).map_or(true, |s| s.trim() != me) {
+        if !fs::read_to_string(&supf).is_ok_and(|s| s.trim() == me) {
             return 0;
         }
         let exe = match std::env::current_exe() {

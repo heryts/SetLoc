@@ -1,5 +1,6 @@
 use crate::bridge::{self, ensure, set_app_pos, set_app_random, set_app_start};
 use crate::codec::{dec, enc, inrange, BEATKEY, BTKEY, KEY, NETKEY, SYSKEY, TRKKEY};
+use crate::config::{DEFAULT_LAT, DEFAULT_LNG};
 use crate::engine::Core;
 use crate::lsguard;
 use crate::sys::{self, csget, mtime_s, now_s, pidof, quiet, run, sget, sput, uptime_s};
@@ -41,8 +42,8 @@ fn load() -> State {
     let raw = dec(&sget(KEY)).unwrap_or_default();
     State {
         e: or(get(&raw, "enabled"), "0"),
-        lat: or(get(&raw, "lat"), "-7.7829"),
-        lng: or(get(&raw, "lng"), "110.3671"),
+        lat: or(get(&raw, "lat"), DEFAULT_LAT),
+        lng: or(get(&raw, "lng"), DEFAULT_LNG),
         acc: or(get(&raw, "acc"), "10"),
         rnd: or(get(&raw, "random"), "0"),
         spd: get(&raw, "spd"),
@@ -61,15 +62,11 @@ fn isnum(s: &str) -> bool {
         || s == "-."
         || s.bytes().any(|b| !(b.is_ascii_digit() || b == b'.' || b == b'-'))
         || s.matches('.').count() > 1
-        || s.get(1..).map_or(false, |r| r.contains('-')))
+        || s.get(1..).is_some_and(|r| r.contains('-')))
 }
 
 fn validpkg(s: &str) -> bool {
     !(s.is_empty() || s.starts_with('.') || s.bytes().any(|b| !(b.is_ascii_alphanumeric() || b == b'.' || b == b'_')))
-}
-
-fn mirror(core: &Core) {
-    core.mirror_from_settings();
 }
 
 fn save(st: &State, core: &Core) {
@@ -80,7 +77,7 @@ fn save(st: &State, core: &Core) {
         }
     }
     sput(KEY, &enc(&format!("enabled={};lat={};lng={};acc={};random={}{}", st.e, st.lat, st.lng, st.acc, st.rnd, x)));
-    mirror(core);
+    core.mirror_from_settings();
 }
 
 fn bootts() -> i64 {
@@ -93,7 +90,7 @@ fn write_empty(p: &Path) {
 
 fn touch_ref(target: &Path, reference: &Path) {
     if let Ok(m) = fs::metadata(reference).and_then(|m| m.modified()) {
-        if let Ok(f) = fs::OpenOptions::new().write(true).create(true).open(target) {
+        if let Ok(f) = fs::OpenOptions::new().write(true).create(true).truncate(false).open(target) {
             let _ = f.set_modified(m);
         }
     }
@@ -145,7 +142,7 @@ impl Ctx {
         }
         let _ = fs::remove_file(&mt);
         sput(SYSKEY, &enc(val));
-        mirror(core);
+        core.mirror_from_settings();
         true
     }
 
@@ -167,18 +164,17 @@ impl Ctx {
                     if self.injected() {
                         touch_ref(&mt, &android);
                         let _ = fs::remove_file(&android);
-                        let _ = fs::remove_file(&off);
                         write_empty(&off);
                     } else {
                         for f in [&android, &off, &mt] {
                             let _ = fs::remove_file(f);
                         }
                         sput(SYSKEY, &enc("0"));
-                        mirror(core);
+                        core.mirror_from_settings();
                     }
                 } else if !(off.is_file() && mtime_s(&off) >= bootts()) {
                     sput(SYSKEY, &enc("0"));
-                    mirror(core);
+                    core.mirror_from_settings();
                 }
                 say!("system hook OFF. Reboot agar system_server tidak lagi di-inject.");
             }
@@ -347,12 +343,12 @@ pub fn run_cli(args: &[String]) -> i32 {
         "bt" => match a(1) {
             "on" => {
                 sput(BTKEY, &enc("1"));
-                mirror(&core);
+                core.mirror_from_settings();
                 say!("blokir scan Bluetooth: aktif");
             }
             "off" => {
                 sput(BTKEY, &enc("0"));
-                mirror(&core);
+                core.mirror_from_settings();
                 say!("blokir scan Bluetooth: mati");
             }
             _ => say!("{}", if csget(BTKEY).as_deref() == Some("1") { "bt=aktif" } else { "bt=mati" }),
@@ -360,12 +356,12 @@ pub fn run_cli(args: &[String]) -> i32 {
         "net" => match a(1) {
             "on" => {
                 sput(NETKEY, &enc("1"));
-                mirror(&core);
+                core.mirror_from_settings();
                 say!("sembunyikan Wi-Fi/cell: aktif");
             }
             "off" => {
                 sput(NETKEY, &enc("0"));
-                mirror(&core);
+                core.mirror_from_settings();
                 say!("sembunyikan Wi-Fi/cell: mati");
             }
             _ => say!("{}", if csget(NETKEY).as_deref() == Some("0") { "net=mati" } else { "net=aktif" }),

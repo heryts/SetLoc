@@ -48,8 +48,6 @@ android {
     packaging {
         jniLibs {
             keepDebugSymbols += "**/libzygisk_loader.so"
-            // libshadowhook.so datang dua kali: salinan CMake (prefab, obj/) dan dari AAR (jni/).
-            // Keduanya sama (shadowhook 2.0.0), ambil satu supaya tidak ada peringatan AGP.
             pickFirsts += "**/libshadowhook.so"
         }
     }

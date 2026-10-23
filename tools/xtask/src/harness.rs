@@ -407,7 +407,7 @@ impl H {
             if let Ok(rd) = fs::read_dir(&d) {
                 for e in rd.filter_map(|e| e.ok()) {
                     let p = e.path();
-                    if p.extension().map_or(false, |x| x == "sh") {
+                    if p.extension().is_some_and(|x| x == "sh") {
                         files.push(p);
                     }
                 }
@@ -1060,6 +1060,19 @@ pub fn run(args: &[String]) -> R<()> {
     }
 }
 
+fn collect_java(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        for e in rd.filter_map(|e| e.ok()) {
+            let p = e.path();
+            if p.is_dir() {
+                collect_java(&p, out);
+            } else if p.extension().is_some_and(|x| x == "java") {
+                out.push(p);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1087,18 +1100,5 @@ mod tests {
         assert_eq!(sk_value(t, "cfg").as_deref(), Some("956349"));
         assert_eq!(sk_value(t, "zzz"), None);
         assert_eq!(config_salt("static final String SALT = \"Vzvwk4Rxj7Ps\";").as_deref(), Some("Vzvwk4Rxj7Ps"));
-    }
-}
-
-fn collect_java(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
-    if let Ok(rd) = std::fs::read_dir(dir) {
-        for e in rd.filter_map(|e| e.ok()) {
-            let p = e.path();
-            if p.is_dir() {
-                collect_java(&p, out);
-            } else if p.extension().map_or(false, |x| x == "java") {
-                out.push(p);
-            }
-        }
     }
 }

@@ -1,12 +1,9 @@
 pub mod fix;
 pub mod gnss;
-pub mod kind;
-pub mod providers;
-pub mod snap;
 pub mod snapshot;
 
-use jni::objects::{JClass, JDoubleArray, JObject, JObjectArray, JString};
-use jni::sys::{jboolean, jdouble, jdoubleArray, jfloat, jint, jlong, jlongArray, jobjectArray, JNI_FALSE, JNI_TRUE};
+use jni::objects::{JClass, JDoubleArray, JObject, JString};
+use jni::sys::{jboolean, jdouble, jdoubleArray, jfloat, jlong, jlongArray, jobjectArray, JNI_FALSE};
 use jni::JNIEnv;
 use std::sync::{Mutex, OnceLock};
 
@@ -39,14 +36,6 @@ fn next_int(rng: &mut u64, bound: i32) -> i32 {
     *rng ^= *rng >> 27;
     let v = rng.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 33;
     (v % bound.max(1) as u64) as i32
-}
-
-fn b(v: bool) -> jboolean {
-    if v {
-        JNI_TRUE
-    } else {
-        JNI_FALSE
-    }
 }
 
 fn opt_string(env: &mut JNIEnv, s: &JString) -> Option<String> {
@@ -102,95 +91,6 @@ fn double_array(env: &JNIEnv, v: &[f64]) -> jdoubleArray {
         }
         Err(_) => std::ptr::null_mut(),
     }
-}
-
-#[no_mangle]
-pub extern "system" fn Java_io_gpsz_zygote_LocationNative_nativeRoute(_e: JNIEnv, _c: JClass, kind: jint) -> jint {
-    kind::route(kind).code()
-}
-
-#[no_mangle]
-pub extern "system" fn Java_io_gpsz_zygote_LocationNative_nativeIsSnapKind(_e: JNIEnv, _c: JClass, kind: jint) -> jboolean {
-    b(kind::is_snap_kind(kind))
-}
-
-#[no_mangle]
-pub extern "system" fn Java_io_gpsz_zygote_LocationNative_nativeExtValue(
-    _e: JNIEnv,
-    _c: JClass,
-    kind: jint,
-    hide_net: jboolean,
-    hide_bt: jboolean,
-) -> jint {
-    kind::ext_value(kind, hide_net != JNI_FALSE, hide_bt != JNI_FALSE).code()
-}
-
-#[no_mangle]
-pub extern "system" fn Java_io_gpsz_zygote_LocationNative_nativeActive(
-    _e: JNIEnv,
-    _c: JClass,
-    parsing: jboolean,
-    enabled: jboolean,
-    has_pos: jboolean,
-    sys_heartbeat: jboolean,
-) -> jboolean {
-    b(providers::active(parsing != JNI_FALSE, enabled != JNI_FALSE, has_pos != JNI_FALSE, sys_heartbeat != JNI_FALSE))
-}
-
-#[no_mangle]
-pub extern "system" fn Java_io_gpsz_zygote_LocationNative_nativeIsSpoofProvider(mut env: JNIEnv, _c: JClass, provider: JString) -> jboolean {
-    b(opt_string(&mut env, &provider).map_or(false, |p| providers::is_spoof(&p)))
-}
-
-#[no_mangle]
-pub extern "system" fn Java_io_gpsz_zygote_LocationNative_nativeMergeProviders(mut env: JNIEnv, _c: JClass, items: JObjectArray) -> jobjectArray {
-    let len = env.get_array_length(&items).unwrap_or(0);
-    let mut existing: Vec<String> = Vec::with_capacity(len as usize);
-    for i in 0..len {
-        if let Ok(obj) = env.get_object_array_element(&items, i) {
-            let js = JString::from(obj);
-            if let Some(s) = opt_string(&mut env, &js) {
-                existing.push(s);
-            }
-        }
-    }
-    let merged = providers::merge(&existing);
-    let out = match env.new_object_array(merged.len() as i32, "java/lang/String", JObject::null()) {
-        Ok(a) => a,
-        Err(_) => return items.into_raw(),
-    };
-    for (i, s) in merged.iter().enumerate() {
-        if let Ok(js) = env.new_string(s) {
-            let _ = env.set_object_array_element(&out, i as i32, &js);
-        }
-    }
-    out.into_raw()
-}
-
-#[no_mangle]
-pub extern "system" fn Java_io_gpsz_zygote_LocationNative_nativeSnapDecide(
-    mut env: JNIEnv,
-    _c: JClass,
-    ns: jlong,
-    ms: jlong,
-    provider: JString,
-    has_mark: jboolean,
-    mark_ns: jlong,
-    mark_ms: jlong,
-    wall_now_ms: jlong,
-) -> jlong {
-    let p = opt_string(&mut env, &provider);
-    let mark = if has_mark != JNI_FALSE { Some(snap::Mark { ns: mark_ns, ms: mark_ms }) } else { None };
-    match snap::decide(ns, ms, p.as_deref(), mark, wall_now_ms) {
-        snap::Decision::Skip => -1,
-        snap::Decision::Fix { ms } => ms,
-    }
-}
-
-#[no_mangle]
-pub extern "system" fn Java_io_gpsz_zygote_LocationNative_nativeIsFix(mut env: JNIEnv, _c: JClass, ns: jlong, ms: jlong, provider: JString) -> jboolean {
-    let p = opt_string(&mut env, &provider);
-    b(snap::is_fix(ns, ms, p.as_deref()))
 }
 
 #[no_mangle]
@@ -301,11 +201,6 @@ pub extern "system" fn Java_io_gpsz_zygote_LocationNative_nativeSnapshot(
         seed: seed(),
     });
     double_array(&env, &[p.lat, p.lng, p.at as f64, p.spd as f64, p.brg as f64, p.alt, p.acc_jit as f64])
-}
-
-#[no_mangle]
-pub extern "system" fn Java_io_gpsz_zygote_LocationNative_nativeSnapFresh(_e: JNIEnv, _c: JClass, at: jlong, now_ms: jlong) -> jboolean {
-    b(snapshot::fresh(at, now_ms))
 }
 
 #[no_mangle]

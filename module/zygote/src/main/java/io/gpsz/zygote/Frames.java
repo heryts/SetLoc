@@ -4,11 +4,6 @@ import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Lapisan tipis di atas LSPlant supaya satu kode transformer bisa dipakai di semua hook.
- * Indeks: 0 = this, 1.. = argumen, RET = nilai kembali. Tidak ada jalur cadangan: method yang
- * gagal dipasang lewat LSPlant (engine belum siap, atau pemasangan satu method gagal) tidak dihook.
- */
 final class Frames {
     static final int RET = -1;
 
@@ -58,7 +53,6 @@ final class Frames {
         }
     }
 
-    /** Nilai kembali callback LSPlant akan di-unbox native; tipe yang salah atau null di method primitif tidak boleh lolos. */
     static Object coerce(Class<?> rt, Object v) {
         if (rt == void.class) return null;
         Class<?> box = BOX.get(rt);
@@ -82,7 +76,6 @@ final class Frames {
         return hook(m, LsNative.locEnabled(), tx);
     }
 
-    /** ls=false melewatkan method ini sama sekali (file disable_ls_loc / disable_ls_set). */
     static boolean hook(Method m, boolean ls, Tx tx) {
         if (!ls || !LsNative.isReady()) return false;
         final Class<?> rt = m.getReturnType();

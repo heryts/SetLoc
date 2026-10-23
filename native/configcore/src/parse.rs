@@ -48,8 +48,7 @@ fn defaults(prev: &Prev) -> Parsed {
 
 pub fn parse(s: Option<&str>, prev: &Prev) -> Parsed {
     let s = match s {
-        None => "",
-        Some(v) if v == "null" => "",
+        None | Some("null") => "",
         Some(v) => v,
     };
     parse_inner(s, prev, false).unwrap_or_else(|| defaults(prev))
@@ -140,17 +139,12 @@ fn parse_inner(s: &str, prev: &Prev, strict: bool) -> Option<Parsed> {
     Some(Parsed { enabled: en, jitter: jit, playing: pl, tk, lat: la, lng: lo, acc: ac, spd: sp, brg: br, alt: al, altv: av, rr: rad })
 }
 
+#[derive(Default)]
 pub struct BeatState {
     pub seen: Option<String>,
     pub changed_at: i64,
     pub armed: bool,
     pub last_poll_at: i64,
-}
-
-impl Default for BeatState {
-    fn default() -> Self {
-        BeatState { seen: None, changed_at: 0, armed: false, last_poll_at: 0 }
-    }
 }
 
 const GAP_MS: i64 = 3_000;

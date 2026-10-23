@@ -303,5 +303,5 @@ pub fn spawn_detached(args: &[&str]) -> bool {
 }
 
 pub fn boot_completed() -> bool {
-    run("getprop", &["sys.boot_completed"]).map_or(false, |r| r.1 == "1")
+    run("getprop", &["sys.boot_completed"]).is_some_and(|r| r.1 == "1")
 }

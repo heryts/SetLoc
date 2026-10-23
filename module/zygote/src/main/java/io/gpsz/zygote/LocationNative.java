@@ -14,26 +14,9 @@ final class LocationNative {
         return loaded;
     }
 
-    /** Baca saja, tanpa kunci: dipanggil dari static initializer Config. */
     static boolean ready() {
         return loaded;
     }
-
-    static native int nativeRoute(int kind);
-
-    static native boolean nativeIsSnapKind(int kind);
-
-    static native int nativeExtValue(int kind, boolean hideNet, boolean hideBt);
-
-    static native boolean nativeActive(boolean parsing, boolean enabled, boolean hasPos, boolean sysHeartbeat);
-
-    static native boolean nativeIsSpoofProvider(String provider);
-
-    static native String[] nativeMergeProviders(String[] existing);
-
-    static native long nativeSnapDecide(long ns, long ms, String provider, boolean hasMark, long markNs, long markMs, long wallNowMs);
-
-    static native boolean nativeIsFix(long ns, long ms, String provider);
 
     static native double[] nativeApply(String provider, double lat, double lng, float spd, float brg, double alt, float accJit, float acc, long nowMs);
 
@@ -44,8 +27,6 @@ final class LocationNative {
     static native long nativePhaseNs(long bootNs);
 
     static native double[] nativeSnapshot(double lat, double lng, float spd, float brg, double alt, float altVar, boolean random, float rr, long nowMs);
-
-    static native boolean nativeSnapFresh(long at, long nowMs);
 
     static native double[] nativeGnssSnapshot(long nowSec, boolean fixed);
 

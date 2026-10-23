@@ -22,7 +22,6 @@ final class LsNative {
 
     private static volatile boolean loc = true;
 
-    /** false bila file disable_ls_loc ada: LocationHooks tidak dipasang sama sekali, PackageGuardLs tetap jalan. */
     static boolean locEnabled() {
         return loc;
     }
@@ -33,7 +32,6 @@ final class LsNative {
 
     private static volatile boolean set = true;
 
-    /** false bila file disable_ls_set ada: SettingsGuard tidak dipasang sama sekali. */
     static boolean setEnabled() {
         return set;
     }

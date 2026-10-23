@@ -25,9 +25,7 @@ pub fn javac_cmd() -> Option<Vec<String>> {
     if which("javac").is_some() {
         return Some(vec!["javac".to_string()]);
     }
-    if which("java").is_none() {
-        return None;
-    }
+    which("java")?;
     let o = Command::new("java").arg("--list-modules").output().ok()?;
     if String::from_utf8_lossy(&o.stdout).lines().any(|l| l.starts_with("jdk.compiler@")) {
         return Some(vec![
@@ -114,7 +112,7 @@ fn java_files(dir: &Path, out: &mut Vec<PathBuf>) {
             let p = e.path();
             if p.is_dir() {
                 java_files(&p, out);
-            } else if p.extension().map_or(false, |x| x == "java") {
+            } else if p.extension().is_some_and(|x| x == "java") {
                 out.push(p);
             }
         }

@@ -28,7 +28,7 @@ final class SysGuard {
 
     private static boolean create(File f) {
         try {
-            if (!f.createNewFile() && !f.exists()) return false;
+            f.createNewFile();
             return f.exists();
         } catch (Throwable t) {
             return false;
