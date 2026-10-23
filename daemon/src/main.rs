@@ -62,15 +62,11 @@ fn bridge_cmd(args: &[String]) -> i32 {
             daemon::sysdefault();
             0
         }
-        "lsarm" => {
-            lsguard::arm_boot(&sys::moddir());
-            0
-        }
         "service" => service::run(),
         "super" => supervisor::run(),
         "daemon" => daemon::run(),
         _ => {
-            say!("usage: setlocd ensure [super]|service|sync|mirror|force|setstart 0|1|setpos <lat> <lng> [acc]|setrandom 0|1|status|install|modinstall <MODPATH> [OLD_MOD] [MODID]|sysdefault|lsarm|gpsz ...");
+            say!("usage: setlocd ensure [super]|service|sync|mirror|force|setstart 0|1|setpos <lat> <lng> [acc]|setrandom 0|1|status|install|modinstall <MODPATH> [OLD_MOD] [MODID]|sysdefault|gpsz ...");
             1
         }
     }

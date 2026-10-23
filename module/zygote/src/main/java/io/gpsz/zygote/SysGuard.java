@@ -12,13 +12,26 @@ final class SysGuard {
     static final int BLOCKED_NOW = 2;
     static final int FAILED = 3;
 
-    static int arm(File disable, File pending, File blocked) {
+    static int arm(File off, File pending, File blocked) {
         try {
-            if (disable.exists()) return OFF;
+            if (off.exists()) return OFF;
             if (blocked.exists()) return BLOCKED_NOW;
-            return pending.exists() ? ARMED : FAILED;
+            if (pending.exists()) {
+                create(blocked);
+                return BLOCKED_NOW;
+            }
+            return create(pending) ? ARMED : FAILED;
         } catch (Throwable t) {
             return FAILED;
+        }
+    }
+
+    private static boolean create(File f) {
+        try {
+            f.createNewFile();
+            return f.exists();
+        } catch (Throwable t) {
+            return false;
         }
     }
 

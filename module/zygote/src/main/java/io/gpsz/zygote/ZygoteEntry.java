@@ -4,8 +4,6 @@ import com.v7878.r8.annotations.DoNotObfuscate;
 import com.v7878.r8.annotations.DoNotObfuscateType;
 import com.v7878.r8.annotations.DoNotShrink;
 import com.v7878.r8.annotations.DoNotShrinkType;
-import android.util.Log;
-
 import com.v7878.zygisk.ZygoteLoader;
 
 import java.io.File;
@@ -46,15 +44,14 @@ public final class ZygoteEntry {
     }
 
     private static boolean systemArmed() {
-        int state = SysGuard.FAILED;
         try {
-            state = SysGuard.arm(
+            return SysGuard.arm(
                     new File(ZygoteLoader.getModuleDir(), SysGuard.DISABLE),
                     new File(ZygoteLoader.getModuleDir(), SysGuard.PENDING),
-                    new File(ZygoteLoader.getModuleDir(), SysGuard.BLOCKED));
-        } catch (Throwable ignored) { }
-        Log.i("GpsZ", "system hook arm=" + state);
-        return state == SysGuard.ARMED;
+                    new File(ZygoteLoader.getModuleDir(), SysGuard.BLOCKED)) == SysGuard.ARMED;
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     @DoNotObfuscate

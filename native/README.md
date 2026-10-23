@@ -59,30 +59,30 @@ Target: 14 hook di `SettingsGuard` (kunci modul di `Settings.NameValueCache`, `C
 ## SystemHooks di LSPlant (Fase 7)
 Target: 10 hook di `system_server` (`LocationProviderManager.onReportLocation`; di `LocationManagerService`: `getLastLocation`, `injectLocation`, daftar/hapus pendengar GNSS, blokir batching dan navigation message) memakai adaptor `Frames` yang sama. Perubahan di `SystemHooks.java` mekanis (`frame.accessor().getReference(i)` jadi `frame.get(i)`, `setValue(RETURN_VALUE_IDX, x)` jadi `set(Frames.RET, x)`, `invokeExactNoChecks` jadi `original.invoke()`); logika dan urutan cabang tidak berubah. Pemasangan lewat `Frames.hook(m, LsNative.sysEnabled(), tx)`, jadi tiap method yang gagal lewat LSPlant jatuh ke jalur lama sendiri.
 
-Default HIDUP sejak Fase 12, karena AndroidVMTools sudah dibuang dan tanpa LSPlant `system_server` tidak punya mesin hook sama sekali. File `disable_ls_system` di folder modul mematikannya (`gpsz.sh ls-system off`).
+Default MATI. Tanpa file `enable_ls_system`, `system_server` berjalan persis seperti sebelum fase ini (AndroidVMTools, LSPlant tidak dimuat).
 
 ### Pengaman boot
-Semua penanda ada di folder modul. Penulisnya daemon (root), bukan `premain()`: `post-fs-data.sh` menjalankan `setlocd lsarm` sebelum zygote mulai, dan `SysGuard.arm` di `premain()` hanya membaca, sebelum `libgpsz_hook.so` dimuat:
-1. `disable_ls_system` ada: tidak ada yang disentuh, tidak ada hook sistem.
-2. `lsarm`: `ls_system_blocked` ada: `.ls_sys_pending` dibuang, tetap diblokir.
-3. `lsarm`: `.ls_sys_pending` ada (percobaan sebelumnya tidak pernah dikonfirmasi): `ls_system_blocked` dibuat dan `.ls_sys_pending` dibuang. Sesudahnya semua boot tetap diblokir sampai `gpsz.sh ls-system reset` atau `on`.
-4. Selain itu `lsarm` membuat `.ls_sys_pending`. `SysGuard.arm` mengembalikan `ARMED` hanya bila `disable_ls_system` tidak ada, `ls_system_blocked` tidak ada, dan `.ls_sys_pending` ada; selain itu LSPlant tidak dimuat (gagal tertutup). Hasilnya dicatat ke logcat dengan tag `GpsZ` (`system hook arm=0|1|2|3`: `OFF|ARMED|BLOCKED_NOW|FAILED`).
+Semua penanda ada di folder modul. `SysGuard.arm` dipanggil di `premain()` (sebelum specialize), sebelum `libgpsz_hook.so` dimuat:
+1. `enable_ls_system` tidak ada: tidak ada yang disentuh, jalur lama.
+2. `ls_system_blocked` ada: jalur lama.
+3. `.ls_sys_pending` ada (percobaan sebelumnya tidak pernah dikonfirmasi): `ls_system_blocked` dibuat, jalur lama. Sesudahnya semua boot tetap jalur lama sampai `gpsz.sh ls-system reset` atau `on`.
+4. Selain itu `.ls_sys_pending` dibuat dulu, baru LSPlant dimuat. Kalau penanda tidak bisa ditulis (misalnya SELinux), LSPlant tidak dimuat (gagal tertutup).
 
-Konfirmasi ada di daemon Rust (`daemon/src/lsguard.rs`, dijalankan dari `service.rs` hanya bila `disable_ls_system` tidak ada): setelah `sys.boot_completed`, bila `.ls_sys_pending` ada dan PID `system_server` tidak berubah selama 60 detik, penanda dihapus. PID berubah (system_server mati dan dimulai ulang) menghitung ulang dari nol. Kalau `ls_system_blocked` ada, `.ls_sys_pending` dibuang tanpa menunggu.
+Konfirmasi ada di daemon Rust (`daemon/src/lsguard.rs`, dijalankan dari `service.rs` hanya bila `enable_ls_system` ada): setelah `sys.boot_completed`, bila `.ls_sys_pending` ada dan PID `system_server` tidak berubah selama 60 detik, penanda dihapus. PID berubah (system_server mati dan dimulai ulang) menghitung ulang dari nol. Kalau `ls_system_blocked` ada, `.ls_sys_pending` dibuang tanpa menunggu.
 
-Perintah: `gpsz.sh ls-system on|off|status|reset`. `on` menghapus blokir, penanda, dan `disable_ls_system` (perlu reboot); `off` menghapus blokir dan penanda lalu membuat `disable_ls_system`; `reset` hanya menghapus blokir dan penanda; `status` menampilkan `ls-system=off|on|pending|blocked`. `gpsz.sh doctor` juga mencetak barisnya.
+Perintah: `gpsz.sh ls-system on|off|status|reset`. `on` menghapus blokir dan penanda lalu membuat `enable_ls_system` (perlu reboot); `off` menghapus ketiganya; `reset` hanya menghapus blokir dan penanda; `status` menampilkan `ls-system=off|on|pending|blocked`. `gpsz.sh doctor` juga mencetak barisnya. `enable_ls_system` sengaja tidak ikut dipertahankan saat pemasangan ulang modul (seperti `disable_ls*`).
 
 ### Pengujian
 - `cargo xtask test syshook`: menjalankan `SystemHooks`, `Config`, `Fix`, dan `GnssFake` asli dengan kelas palsu `LocationManagerService`, `LocationProviderManager`, `LocationResult`, dan `LsNative` palsu, dalam empat proses terpisah (`ls`, `off`, `notready`, `partial`). Mode `ls` (10 hook lewat LSPlant, nol lewat jalur lama) memeriksa: semua diteruskan saat config mati; mode penuh mengganti hasil `onReportLocation` dan `getLastLocation`, mengganti argumen `injectLocation`, memblokir batching, memberi pendengar GNSS palsu (dan `android` tetap diteruskan), `SecurityException` dari method asli tetap sampai ke pemanggil; darurat dan heartbeat tidak mengganti apa pun. Mode `off` dan `notready`: 10 method ke jalur lama. Mode `partial`: satu method gagal di LSPlant dan hanya itu yang jatuh ke jalur lama. Uji mutasi (hasil tidak diganti, exception ditelan, flag `sysEnabled` selalu true, method asli selalu dipanggil) membuat tes gagal.
-- `cargo xtask test sysguard`: `SysGuard` hanya membaca (dimatikan, tanpa pending, pending dari daemon, blokir, reset) dan jalur gagal tertutup (jalur berupa folder, `File` null, folder tidak ada).
-- `cargo test` di `daemon/`: 9 tes `lsguard` (termasuk urutan boot `arm_boot`) (pending hanya dihapus setelah PID sama selama 60 detik, PID berubah mengulang hitungan, `system_server` hilang tidak mengonfirmasi, blokir membuang pending, perintah `on|off|reset`).
+- `cargo xtask test sysguard`: urutan boot (tanpa opt-in, boot pertama, boot kedua tanpa dan dengan konfirmasi, reset, off) dan jalur gagal tertutup (penanda tidak bisa ditulis, jalur berupa folder, `File` null).
+- `cargo test` di `daemon/`: 7 tes `lsguard` (pending hanya dihapus setelah PID sama selama 60 detik, PID berubah mengulang hitungan, `system_server` hilang tidak mengonfirmasi, blokir membuang pending, perintah `on|off|reset`).
 Ketiganya dipanggil dari `cargo xtask test` (dua pertama) dan `cargo xtask build`.
 
 ### Batas dan risiko yang belum teruji
 - Belum dikompilasi untuk Android dan belum dijalankan di perangkat, sama seperti fase 4 sampai 6. Hook lewat LSPlant di `system_server` belum terbukti di ART.
-- `premain()` hanya membaca penanda; penulisan dilakukan `post-fs-data.sh` sebagai root. Kalau `post-fs-data.sh` tidak jalan atau `setlocd lsarm` gagal, `SysGuard.arm` memberi `FAILED` (`system hook arm=3`) dan LSPlant tidak dimuat di `system_server`. `gpsz.sh ls-system status` akan menunjukkan `on` tanpa pernah `pending`.
+- Semua yang dibaca dan ditulis `premain()` (folder modul) bergantung pada izin SELinux proses yang sedang di-fork. Pembacaan sudah dipakai fase 4 sampai 6; penulisan `.ls_sys_pending` belum. Kalau ditolak, hasilnya LSPlant tidak dimuat di `system_server` (aman, tetapi fase ini tidak akan pernah aktif). `gpsz.sh ls-system status` akan menunjukkan `on` tanpa pernah `pending`.
 - Pengaman hanya menutup crash dalam 60 detik pertama sesudah `boot_completed` dan sebelum itu. Crash `system_server` yang terjadi lebih lama sesudah dinyatakan stabil tidak memblokir apa pun.
-- Reboot manual dalam 60 detik pertama sesudah boot selesai meninggalkan `.ls_sys_pending`, sehingga boot berikutnya memblokir. Pulihkan dengan `gpsz.sh ls-system reset`.
+- Reboot manual dalam 60 detik pertama sesudah boot selesai meninggalkan `.ls_sys_pending`, sehingga boot berikutnya memblokir (jalur lama). Pulihkan dengan `gpsz.sh ls-system reset`.
 - LSPlant dan AndroidVMTools bisa hidup bersamaan di `system_server` hanya lewat jalur cadangan per method (mode `partial`).
 - `System.loadLibrary("gpsz_hook")` dari `premain()` di `system_server` bergantung pada jalur library dan namespace linker, sama dengan fase 4 tetapi untuk proses lain.
 - Overhead per panggilan `onReportLocation` naik (alokasi `Object[]` dan `Method.invoke`); belum diukur.
@@ -97,7 +97,7 @@ Yang disambungkan (satu panggilan JNI per pekerjaan yang cukup besar):
 - `Config.tag/enc/dec` -> `nativeTag/nativeEnc/nativeDec`.
 
 ### Pengaman
-- Pemuatan: `ZygoteEntry.premain()` memanggil `loadRust()` (sebelum specialize, sama seperti `libgpsz_hook.so`). Di `system_server` hanya bila `disable_ls_system` tidak ada dan `SysGuard` memberi `ARMED`. File `disable_rs` di folder modul mematikan pemuatan library Rust (`disable_ls` tidak memengaruhinya, dan sebaliknya).
+- Pemuatan: `ZygoteEntry.premain()` memanggil `loadRust()` (sebelum specialize, sama seperti `libgpsz_hook.so`). Di `system_server` hanya bila `enable_ls_system` aktif dan `SysGuard` memberi `ARMED`; tanpa itu `system_server` berjalan persis seperti sebelumnya. File `disable_rs` di folder modul mematikan pemuatan library Rust (`disable_ls` tidak memengaruhinya, dan sebaliknya).
 - Verifikasi saat `Config` dimuat: `CODEC_NATIVE` hanya aktif bila `nativeTag("cfg")`, `nativeEnc`, dan `nativeDec` memberi hasil yang sama dengan Java; `LOC_NATIVE` hanya aktif bila `nativePhaseNs` sama dengan hitungan Java (membuktikan seed turunan salt sama). Library yang dibangun sebelum salt diputar gagal di sini dan jalur Java dipakai, tanpa crash dan tanpa perubahan hasil.
 - Setiap panggilan dibungkus `try/catch Throwable`; hasil `null` atau array pendek jatuh ke Java. `UnsatisfiedLinkError` (misalnya nama method diubah R8) ikut tertangkap, jadi gejalanya hanya Rust tidak pernah dipakai. Karena itu `proguard-rules.pro` sekarang menjaga method `native` di `ConfigNative` dan `LocationNative`.
 - `dec`: Rust menolak hex ganjil atau bertanda (`+f`) dan memakai UTF-8 lossy untuk byte di atas 0x7F, sedangkan Java menerimanya. Hasil Rust hanya dipakai bila bukan null dan ASCII; selain itu Java yang menghitung, sehingga perilaku lama untuk input rusak tidak berubah. `enc` memakai Rust hanya untuk input ASCII.

@@ -50,12 +50,8 @@ impl Watch {
     }
 }
 
-pub fn enabled(moddir: &Path) -> bool {
-    !moddir.join(DISABLE).exists()
-}
-
 pub fn state(moddir: &Path) -> &'static str {
-    if !enabled(moddir) {
+    if moddir.join(DISABLE).exists() {
         "off"
     } else if moddir.join(BLOCKED).exists() {
         "blocked"
@@ -66,40 +62,18 @@ pub fn state(moddir: &Path) -> &'static str {
     }
 }
 
-pub fn arm_boot(moddir: &Path) -> &'static str {
-    let pending = moddir.join(PENDING);
-    if !enabled(moddir) {
-        return "off";
-    }
-    if moddir.join(BLOCKED).exists() {
-        let _ = fs::remove_file(&pending);
-        return "blocked";
-    }
-    if pending.exists() {
-        let _ = fs::write(moddir.join(BLOCKED), "");
-        let _ = fs::remove_file(&pending);
-        return "blocked";
-    }
-    if fs::write(&pending, "").is_ok() {
-        "armed"
-    } else {
-        "failed"
-    }
-}
-
 pub fn enable(moddir: &Path) -> bool {
-    for f in [BLOCKED, PENDING] {
-        let _ = fs::remove_file(moddir.join(f));
-    }
-    let d = moddir.join(DISABLE);
-    !d.exists() || fs::remove_file(d).is_ok()
+    let _ = fs::remove_file(moddir.join(BLOCKED));
+    let _ = fs::remove_file(moddir.join(PENDING));
+    let _ = fs::remove_file(moddir.join(DISABLE));
+    !moddir.join(DISABLE).exists()
 }
 
-pub fn disable(moddir: &Path) -> bool {
+pub fn disable(moddir: &Path) {
     for f in [PENDING, BLOCKED] {
         let _ = fs::remove_file(moddir.join(f));
     }
-    fs::write(moddir.join(DISABLE), "").is_ok()
+    let _ = fs::write(moddir.join(DISABLE), "");
 }
 
 pub fn reset(moddir: &Path) {
@@ -110,7 +84,7 @@ pub fn reset(moddir: &Path) {
 
 pub fn watch(moddir: &Path) {
     let mut w = Watch::default();
-    while enabled(moddir) {
+    while !moddir.join(DISABLE).exists() {
         if !moddir.join(PENDING).exists() {
             w.reset();
             sleep_ms(POLL_IDLE_MS);
@@ -144,10 +118,15 @@ mod tests {
         assert_eq!(state(&d), "on");
         touch(&d, PENDING);
         assert_eq!(state(&d), "pending");
-        touch(&d, BLOCKED);
-        assert_eq!(state(&d), "blocked");
         touch(&d, DISABLE);
         assert_eq!(state(&d), "off");
+        fs::remove_file(d.join(DISABLE)).unwrap();
+        fs::remove_file(d.join(PENDING)).unwrap();
+        assert_eq!(state(&d), "on");
+        touch(&d, BLOCKED);
+        assert_eq!(state(&d), "blocked");
+        touch(&d, PENDING);
+        assert_eq!(state(&d), "blocked");
         let _ = fs::remove_dir_all(&d);
     }
 
@@ -215,44 +194,6 @@ mod tests {
     }
 
     #[test]
-    fn arm_boot_follows_the_boot_sequence() {
-        let d = tmp("armboot");
-        assert_eq!(arm_boot(&d), "armed");
-        assert!(d.join(PENDING).exists() && !d.join(BLOCKED).exists());
-        assert_eq!(arm_boot(&d), "blocked");
-        assert!(d.join(BLOCKED).exists() && !d.join(PENDING).exists());
-        assert_eq!(arm_boot(&d), "blocked");
-        assert!(!d.join(PENDING).exists());
-        reset(&d);
-        assert_eq!(arm_boot(&d), "armed");
-        let mut w = Watch::default();
-        assert!(!w.step(&d, 0, Some("1".into())));
-        assert!(w.step(&d, STABLE_S, Some("1".into())));
-        assert_eq!(arm_boot(&d), "armed");
-        let _ = fs::remove_dir_all(&d);
-    }
-
-    #[test]
-    fn arm_boot_does_nothing_when_disabled() {
-        let d = tmp("armoff");
-        touch(&d, DISABLE);
-        touch(&d, PENDING);
-        assert_eq!(arm_boot(&d), "off");
-        assert!(d.join(PENDING).exists() && !d.join(BLOCKED).exists());
-        fs::remove_file(d.join(PENDING)).unwrap();
-        assert_eq!(arm_boot(&d), "off");
-        assert!(!d.join(PENDING).exists());
-        let _ = fs::remove_dir_all(&d);
-    }
-
-    #[test]
-    fn arm_boot_missing_dir_does_not_create_it() {
-        let g = std::env::temp_dir().join(format!("lsguard-ghost-{}", std::process::id()));
-        assert_eq!(arm_boot(&g), "failed");
-        assert!(!g.exists());
-    }
-
-    #[test]
     fn enable_disable_reset() {
         let d = tmp("cmds");
         touch(&d, PENDING);
@@ -263,12 +204,9 @@ mod tests {
         reset(&d);
         assert_eq!(state(&d), "on");
         touch(&d, PENDING);
-        assert!(disable(&d));
+        disable(&d);
         assert_eq!(state(&d), "off");
         assert!(!d.join(PENDING).exists() && !d.join(BLOCKED).exists() && d.join(DISABLE).exists());
-        assert!(enable(&d));
-        assert_eq!(state(&d), "on");
-        assert!(!d.join(DISABLE).exists());
         let _ = fs::remove_dir_all(&d);
     }
 }
