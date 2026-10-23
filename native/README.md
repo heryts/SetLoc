@@ -289,7 +289,3 @@ Pengujian:
 - `cargo test` di `daemon/`: 13 tes lulus (7 tes `lsguard` dihapus bersama modulnya).
 
 Belum diverifikasi: build Gradle penuh (butuh `cargo xtask setup` untuk mengunduh AndroidVMTools pin `6fa2d5c`), build NDK, dan jalannya di perangkat. Memuat Rust di `system_server` sengaja tidak dicoba lagi sampai Fase 13 terbukti stabil di perangkat.
-
-### ShadowHook 2.0.0 (build 12p)
-`libs.versions.toml` kembali ke ShadowHook 2.0.0. Versi 1.0.10 hanya dipakai sebagai jalan pintas saat `shadowhook init` di 2.0.0 mengembalikan 12 (`SHADOWHOOK_ERRNO_INIT_LINKER`) di Android 15; itu bukan kebutuhan fitur. Urutan muat `shadowhook`, `lsplant`, `gpsz_hook` tidak berubah, dan `hook.cpp` (log diagnostik, cadangan `shadowhook_dlsym_symtab`, stub `FixupStaticTrampolines`) memakai fungsi yang ada di header 1.0.10 dan 2.0.0. Belum dibangun dan belum diuji di perangkat. Yang harus dicek di logcat: `shadowhook init(...) return: 0`. Kalau muncul `return: 12` lagi, hook di app mati karena tidak ada jalur cadangan; `system_server` tidak terpengaruh (AndroidVMTools).
-
