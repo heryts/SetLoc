@@ -1,0 +1,13 @@
+[package]
+name = "rotate-salt"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

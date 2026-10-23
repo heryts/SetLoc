@@ -13,7 +13,10 @@ mod config;
 mod daemon;
 mod engine;
 mod lock;
+mod lsguard;
+mod modinstall;
 mod pref;
+mod service;
 mod supervisor;
 mod sys;
 
@@ -27,6 +30,7 @@ fn bridge_cmd(args: &[String]) -> i32 {
     let a = |i: usize| args.get(i).map(String::as_str).unwrap_or("");
     match a(0) {
         "install" => bridge::install(&moddir),
+        "modinstall" => modinstall::run_install(&args[1..]),
         "sync" => {
             core.sync_cfg(false);
             0
@@ -58,10 +62,11 @@ fn bridge_cmd(args: &[String]) -> i32 {
             daemon::sysdefault();
             0
         }
+        "service" => service::run(),
         "super" => supervisor::run(),
         "daemon" => daemon::run(),
         _ => {
-            say!("usage: setlocd ensure [super]|sync|mirror|force|setstart 0|1|setpos <lat> <lng> [acc]|setrandom 0|1|status|install|sysdefault|gpsz ...");
+            say!("usage: setlocd ensure [super]|service|sync|mirror|force|setstart 0|1|setpos <lat> <lng> [acc]|setrandom 0|1|status|install|modinstall <MODPATH> [OLD_MOD] [MODID]|sysdefault|gpsz ...");
             1
         }
     }

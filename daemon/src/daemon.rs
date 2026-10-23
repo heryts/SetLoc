@@ -230,7 +230,9 @@ impl Daemon {
 
     fn step_sync(&mut self) {
         let _ = fs::write(self.core.stamp(), "");
-        if sig(&self.core.prefc) != self.last {
+        self.synced = self.core.prefc.clone();
+        let s = sig(&self.core.prefc);
+        if s != self.last {
             sleep_ms(100);
         }
         let mut ok = false;
@@ -244,14 +246,14 @@ impl Daemon {
             self.core.prefc.clear();
             self.core.prefc = find_pref("", false);
         }
-        if !ok {
-            self.core.fast = false;
-            ok = self.core.sync_cfg(false);
-        }
         if ok {
-            self.last = sig(&self.core.prefc);
+            self.last = s;
+        } else {
+            self.core.fast = false;
+            if self.core.sync_cfg(false) {
+                self.last = s;
+            }
         }
-        self.synced = self.core.prefc.clone();
     }
 
     fn main_loop(&mut self) -> i32 {

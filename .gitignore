@@ -14,3 +14,6 @@ module/external/
 module/zygote/src/main/assets/apk/
 module/zygote/src/main/assets/bin/
 daemon/target/
+tools/rotate-salt/target/
+tools/xtask/target/
+native/*/target/

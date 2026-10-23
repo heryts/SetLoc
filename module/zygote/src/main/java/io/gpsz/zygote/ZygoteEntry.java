@@ -6,6 +6,8 @@ import com.v7878.r8.annotations.DoNotShrink;
 import com.v7878.r8.annotations.DoNotShrinkType;
 import com.v7878.zygisk.ZygoteLoader;
 
+import java.io.File;
+
 @DoNotObfuscateType
 @DoNotShrinkType
 public final class ZygoteEntry {
@@ -19,9 +21,64 @@ public final class ZygoteEntry {
         }
     }
 
+    static boolean isSystemServer() {
+        try {
+            return ZygoteLoader.PACKAGE_SYSTEM_SERVER.equals(ZygoteLoader.getPackageName());
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private static boolean lsDisabled() {
+        try {
+            return new File(ZygoteLoader.getModuleDir(), "disable_ls").exists();
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
+    private static boolean locDisabled() {
+        try {
+            return new File(ZygoteLoader.getModuleDir(), "disable_ls_loc").exists();
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
+    private static boolean setDisabled() {
+        try {
+            return new File(ZygoteLoader.getModuleDir(), "disable_ls_set").exists();
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
+    private static boolean systemArmed() {
+        try {
+            return SysGuard.arm(
+                    new File(ZygoteLoader.getModuleDir(), SysGuard.ENABLE),
+                    new File(ZygoteLoader.getModuleDir(), SysGuard.PENDING),
+                    new File(ZygoteLoader.getModuleDir(), SysGuard.BLOCKED)) == SysGuard.ARMED;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     @DoNotObfuscate
     @DoNotShrink
-    public static void premain() { }
+    public static void premain() {
+        if (isSelf() || lsDisabled()) return;
+        if (isSystemServer()) {
+            if (systemArmed()) {
+                LsNative.setSysEnabled(true);
+                LsNative.ensureLoaded();
+            }
+            return;
+        }
+        LsNative.setLocEnabled(!locDisabled());
+        LsNative.setSetEnabled(!setDisabled());
+        LsNative.ensureLoaded();
+    }
 
     @DoNotObfuscate
     @DoNotShrink

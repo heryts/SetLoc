@@ -80,6 +80,15 @@ fn timeline_tokens(tf: &Path, tlw: usize, idx: i64) -> Option<Vec<String>> {
     }
 }
 
+pub fn timeline_path(pref: &Path) -> PathBuf {
+    let p = pref.to_string_lossy();
+    let base = match p.rfind("/shared_prefs/") {
+        Some(i) => &p[..i],
+        None => &p,
+    };
+    PathBuf::from(format!("{}/files/route_timeline.txt", base))
+}
+
 pub fn derive(px: &str, pref: &Path, cur_bc: &str, trk_disabled: bool) -> Option<Derived> {
     let start = fval(px, "boolean", "start");
     let mut lat = fval(px, "float", "latitude").unwrap_or("").to_string();
@@ -90,7 +99,10 @@ pub fn derive(px: &str, pref: &Path, cur_bc: &str, trk_disabled: bool) -> Option
             lng = lg.to_string();
         }
     }
-    let rnd = fval(px, "boolean", "random_position").map_or(true, |v| v == "true");
+    let rnd = match fval(px, "boolean", "random_position") {
+        None | Some("") => true,
+        Some(v) => v == "true",
+    };
     let acc = match fstr(px, "accuracy_settings") {
         Some(a) if !a.is_empty() && a.bytes().all(|b| b.is_ascii_digit() || b == b'.') => a.to_string(),
         _ => "10".to_string(),
@@ -124,8 +136,8 @@ pub fn derive(px: &str, pref: &Path, cur_bc: &str, trk_disabled: bool) -> Option
         };
         let bc = fval(px, "int", "route_bc").unwrap_or("");
         let tlw = fval(px, "int", "route_tlw").and_then(|v| if numok(v) { v.parse::<usize>().ok() } else { None }).unwrap_or(0);
-        let files = pref.parent().and_then(|p| p.parent()).map(|p| p.join("files").join("route_timeline.txt"));
-        if let (Some(tf), Some(t0), Some(tk), Some(nn), Some(he)) = (files, t0, tk, nn, he) {
+        let tf = timeline_path(pref);
+        if let (Some(t0), Some(tk), Some(nn), Some(he)) = (t0, tk, nn, he) {
             if tf.is_file() && bc == cur_bc && tk > 0 && nn > 0 {
                 let mut rt = Route { t0, tk, nn, he, tlw, tf, rnd, trk: false, t_lat: String::new(), t_lng: String::new(), t_alt: String::new() };
                 if tlw > 0 && !trk_disabled {
@@ -258,5 +270,24 @@ mod tests {
         let px = format!("{}<boolean name=\"route_play\" value=\"true\" /><int name=\"route_bc\" value=\"7\" />", PX);
         let d = derive(&px, Path::new("/x/shared_prefs/p.xml"), "8", false).unwrap();
         assert!(d.route.is_none());
+    }
+
+    #[test]
+    fn timeline_path_follows_shared_prefs() {
+        assert_eq!(
+            timeline_path(Path::new("/d/user/0/app/shared_prefs/p.xml")),
+            PathBuf::from("/d/user/0/app/files/route_timeline.txt")
+        );
+        assert_eq!(
+            timeline_path(Path::new("/d/misc/prefs/app/p.xml")),
+            PathBuf::from("/d/misc/prefs/app/p.xml/files/route_timeline.txt")
+        );
+    }
+
+    #[test]
+    fn empty_random_position_defaults_true() {
+        let px = "<map><boolean name=\"random_position\" value=\"\" /><float name=\"latitude\" value=\"1\" /><float name=\"longitude\" value=\"2\" /></map>";
+        let d = derive(px, Path::new("/x/shared_prefs/p.xml"), "1", false).unwrap();
+        assert_eq!(d.base.r, 1);
     }
 }

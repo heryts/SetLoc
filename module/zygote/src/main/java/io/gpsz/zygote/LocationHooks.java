@@ -16,10 +16,6 @@ import android.telephony.CellInfo;
 import android.telephony.TelephonyManager;
 
 import com.v7878.unsafe.Reflection;
-import com.v7878.unsafe.invoke.EmulatedStackFrame;
-import com.v7878.unsafe.invoke.Transformers;
-import com.v7878.vmtools.HookTransformer;
-import com.v7878.vmtools.Hooks;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
@@ -56,7 +52,6 @@ final class LocationHooks {
             LocationManager.GPS_PROVIDER,
             LocationManager.NETWORK_PROVIDER,
             LocationManager.FUSED_PROVIDER);
-    private static boolean crashed = false;
     private static final ThreadLocal<Boolean> PARSING = new ThreadLocal<>();
 
     static void install() {
@@ -132,9 +127,9 @@ final class LocationHooks {
             if (!m.getName().equals("getCurrentLocation")) continue;
             final int nParams = m.getParameterCount();
             try {
-                Hooks.hook(m, Hooks.EntryPointType.DIRECT, (original, frame) -> {
+                Frames.hook(m, (original, frame) -> {
                     if (!Config.enabled || !Config.hasPos() || Config.sysHeartbeat || PARSING.get() != null) {
-                        try { Transformers.invokeExactNoChecks(original, frame); }
+                        try { original.invoke(); }
                         catch (Throwable t) { ZygoteEntry.<RuntimeException>sneaky(t); }
                         return;
                     }
@@ -143,14 +138,14 @@ final class LocationHooks {
                     Consumer<Location> consumer = null;
                     for (int i = 1; i <= nParams; i++) {
                         try {
-                            Object o = frame.accessor().getReference(i);
+                            Object o = frame.get(i);
                             if (o instanceof String) provider = (String) o;
                             else if (o instanceof Executor) executor = (Executor) o;
                             else if (o instanceof Consumer) consumer = castConsumer(o);
                         } catch (Throwable ignored) { }
                     }
                     if (consumer == null) {
-                        try { Transformers.invokeExactNoChecks(original, frame); }
+                        try { original.invoke(); }
                         catch (Throwable t) { ZygoteEntry.<RuntimeException>sneaky(t); }
                         return;
                     }
@@ -163,9 +158,9 @@ final class LocationHooks {
                         try { c.accept(fake); } catch (Throwable ignored) { }
                     }
                     if (m.getReturnType() == boolean.class) {
-                        frame.accessor().setValue(EmulatedStackFrame.RETURN_VALUE_IDX, Boolean.TRUE);
+                        frame.set(Frames.RET, Boolean.TRUE);
                     }
-                }, Hooks.EntryPointType.DIRECT);
+                });
             } catch (Throwable ignored) { }
         }
     }
@@ -192,33 +187,32 @@ final class LocationHooks {
                 final int idx = opIdx;
                 final Class<?> ret = m.getReturnType();
                 try {
-                    Hooks.hook(m, Hooks.EntryPointType.DIRECT, (original, frame) -> {
+                    Frames.hook(m, (original, frame) -> {
                         try {
-                            Object op = frame.accessor().getReference(idx);
+                            Object op = frame.get(idx);
                             if (op instanceof Integer && (Integer) op == OP_MOCK_LOCATION) {
-                                if (ret == int.class) frame.accessor().setValue(EmulatedStackFrame.RETURN_VALUE_IDX, MODE_IGNORED);
+                                if (ret == int.class) frame.set(Frames.RET, MODE_IGNORED);
                                 return;
                             }
                         } catch (Throwable ignored) { }
                         try {
-                            Transformers.invokeExactNoChecks(original, frame);
+                            original.invoke();
                         } catch (Throwable t) {
                             ZygoteEntry.<RuntimeException>sneaky(t);
                         }
-                    }, Hooks.EntryPointType.DIRECT);
+                    });
                 } catch (Throwable ignored) { }
             }
         } catch (Throwable ignored) { }
     }
 
     private static void hookCreator() {
-        if (crashed) return;
         try {
             Object creator = Location.class.getField("CREATOR").get(null);
             for (Method m : creator.getClass().getDeclaredMethods()) {
                 if (!m.getName().equals("createFromParcel") || m.isBridge() || m.getReturnType() != Location.class) continue;
                 try {
-                    Hooks.hook(m, Hooks.EntryPointType.DIRECT, transformer(K_CREATE, m.getParameterCount()), Hooks.EntryPointType.DIRECT);
+                    Frames.hook(m, transformer(K_CREATE, m.getParameterCount()));
                 } catch (Throwable ignored) { }
             }
         } catch (Throwable ignored) { }
@@ -239,20 +233,17 @@ final class LocationHooks {
                 k = r == void.class ? K_BT_DROP : r == int.class ? K_BT_INT : K_BT_TRUE;
             }
             try {
-                Hooks.hook(m, Hooks.EntryPointType.DIRECT, transformer(k, m.getParameterCount()), Hooks.EntryPointType.DIRECT);
+                Frames.hook(m, transformer(k, m.getParameterCount()));
             } catch (Throwable ignored) { }
         }
     }
 
     private static void hookExact(Class<?> c, String name, int kind, Class<?>... params) {
-        if (crashed) return;
         try {
             Method m = c.getDeclaredMethod(name, params);
-            Hooks.hook(m, Hooks.EntryPointType.DIRECT, transformer(kind, m.getParameterCount()), Hooks.EntryPointType.DIRECT);
+            Frames.hook(m, transformer(kind, m.getParameterCount()));
         } catch (NoSuchMethodException ignored) {
-        } catch (Throwable t) {
-            crashed = true;
-        }
+        } catch (Throwable ignored) { }
     }
 
     private static final int GPS_EVENT_STARTED = 1, GPS_EVENT_STOPPED = 2, GPS_EVENT_FIRST_FIX = 3, GPS_EVENT_SATELLITE_STATUS = 4;
@@ -279,39 +270,36 @@ final class LocationHooks {
             if (idx < 0) continue;
             final int target = idx;
             try {
-                Hooks.hook(m, Hooks.EntryPointType.DIRECT, (original, frame) -> {
+                Frames.hook(m, (original, frame) -> {
                     try {
-                        Object l = frame.accessor().getReference(target);
+                        Object l = frame.get(target);
                         if (l != null) GnssFake.stop(GnssFake.keyOf(l));
                     } catch (Throwable ignored) { }
                     try {
-                        Transformers.invokeExactNoChecks(original, frame);
+                        original.invoke();
                     } catch (Throwable t) {
                         ZygoteEntry.<RuntimeException>sneaky(t);
                     }
-                }, Hooks.EntryPointType.DIRECT);
+                });
             } catch (Throwable ignored) { }
         }
     }
 
     private static void hook(Class<?> c, String name, int kind, Class<?>... params) {
-        if (crashed) return;
         try {
             Method m = c.getDeclaredMethod(name, params);
-            Hooks.hook(m, Hooks.EntryPointType.DIRECT, transformer(kind, m.getParameterCount()), Hooks.EntryPointType.DIRECT);
+            Frames.hook(m, transformer(kind, m.getParameterCount()));
         } catch (NoSuchMethodException ignored) {
-        } catch (Throwable t) {
-            crashed = true;
-        }
+        } catch (Throwable ignored) { }
     }
 
-    private static HookTransformer transformer(final int kind, final int np) {
+    private static Frames.Tx transformer(final int kind, final int np) {
         return (original, frame) -> {
             if (kind == K_CREATE) {
                 Boolean prev = PARSING.get();
                 PARSING.set(Boolean.TRUE);
                 try {
-                    Transformers.invokeExactNoChecks(original, frame);
+                    original.invoke();
                 } catch (Throwable t) {
                     ZygoteEntry.<RuntimeException>sneaky(t);
                 } finally {
@@ -319,20 +307,20 @@ final class LocationHooks {
                 }
                 try {
                     if (Config.enabled && Config.hasPos()) {
-                        fixSnap(frame.accessor().getReference(EmulatedStackFrame.RETURN_VALUE_IDX));
+                        fixSnap(frame.get(Frames.RET));
                     }
                 } catch (Throwable ignored) { }
                 return;
             }
             if (kind == K_SET) {
                 try {
-                    Transformers.invokeExactNoChecks(original, frame);
+                    original.invoke();
                 } catch (Throwable t) {
                     ZygoteEntry.<RuntimeException>sneaky(t);
                 }
                 if (PARSING.get() == null) {
                     try {
-                        if (Config.enabled && Config.hasPos()) fixSnap(frame.accessor().getReference(0));
+                        if (Config.enabled && Config.hasPos()) fixSnap(frame.get(0));
                     } catch (Throwable ignored) { }
                 }
                 return;
@@ -340,31 +328,31 @@ final class LocationHooks {
             if (kind == K_LOCATION_ENABLED || kind == K_PROVIDER_ENABLED || kind == K_GET_PROVIDERS) {
                 boolean active = PARSING.get() == null && Config.enabled && Config.hasPos() && !Config.sysHeartbeat;
                 if (active && kind == K_LOCATION_ENABLED) {
-                    frame.accessor().setValue(EmulatedStackFrame.RETURN_VALUE_IDX, Boolean.TRUE);
+                    frame.set(Frames.RET, Boolean.TRUE);
                     return;
                 }
                 if (active && kind == K_PROVIDER_ENABLED) {
                     try {
-                        Object p = frame.accessor().getReference(1);
+                        Object p = frame.get(1);
                         if (p instanceof String && SPOOF_PROVIDERS.contains(p)) {
-                            frame.accessor().setValue(EmulatedStackFrame.RETURN_VALUE_IDX, Boolean.TRUE);
+                            frame.set(Frames.RET, Boolean.TRUE);
                             return;
                         }
                     } catch (Throwable ignored) { }
                 }
                 try {
-                    Transformers.invokeExactNoChecks(original, frame);
+                    original.invoke();
                 } catch (Throwable t) {
                     ZygoteEntry.<RuntimeException>sneaky(t);
                 }
                 if (active && kind == K_GET_PROVIDERS) {
                     try {
-                        Object r = frame.accessor().getReference(EmulatedStackFrame.RETURN_VALUE_IDX);
+                        Object r = frame.get(Frames.RET);
                         if (r instanceof List) {
                             List<String> dst = new ArrayList<>();
                             for (Object o : (List<?>) r) if (o instanceof String) dst.add((String) o);
                             for (String p : SPOOF_PROVIDERS) if (!dst.contains(p)) dst.add(p);
-                            frame.accessor().setValue(EmulatedStackFrame.RETURN_VALUE_IDX, dst);
+                            frame.set(Frames.RET, dst);
                         }
                     } catch (Throwable ignored) { }
                 }
@@ -372,7 +360,7 @@ final class LocationHooks {
             }
             if (PARSING.get() != null) {
                 try {
-                    Transformers.invokeExactNoChecks(original, frame);
+                    original.invoke();
                 } catch (Throwable t) {
                     ZygoteEntry.<RuntimeException>sneaky(t);
                 }
@@ -387,12 +375,12 @@ final class LocationHooks {
                         value = null;
                         handled = true;
                         try {
-                            Transformers.invokeExactNoChecks(original, frame);
+                            original.invoke();
                         } catch (Throwable e) {
                             denied = e;
                         }
                         if (denied == null && lastKnownAllowed(frame)) {
-                            frame.accessor().setValue(EmulatedStackFrame.RETURN_VALUE_IDX, fakeLastKnown(frame));
+                            frame.set(Frames.RET, fakeLastKnown(frame));
                         }
                     }
                     else if (kind == K_DELIVER) {
@@ -400,12 +388,12 @@ final class LocationHooks {
                         deliver(frame, np);
                     }
                     else if (isSnapKind(kind)) {
-                        fixSnap(frame.accessor().getReference(0));
+                        fixSnap(frame.get(0));
                         value = null;
                     }
                     else if (kind == K_DIST || kind == K_BEARING_TO) {
-                        fixSnap(frame.accessor().getReference(0));
-                        fixSnap(frame.accessor().getReference(1));
+                        fixSnap(frame.get(0));
+                        fixSnap(frame.get(1));
                         value = null;
                     }
                     else if (kind == K_CELL_UPDATE) {
@@ -414,7 +402,7 @@ final class LocationHooks {
                     }
                     else if (kind == K_CELL_LIST_ARG) {
                         value = null;
-                        if (Config.hideNet) frame.accessor().setValue(1, Collections.<CellInfo>emptyList());
+                        if (Config.hideNet) frame.set(1, Collections.<CellInfo>emptyList());
                     }
                     else if (kind == K_DROP) {
                         value = null;
@@ -436,17 +424,17 @@ final class LocationHooks {
                         value = Boolean.valueOf(feed(kind, frame, np));
                     }
                     else if (kind == K_GPS_STATUS) {
-                        value = fakeGpsStatus(frame.accessor().getReference(1));
+                        value = fakeGpsStatus(frame.get(1));
                     }
                     else if (kind >= K_EXT) value = (kind == K_NO_BOOL || (kind >= K_BT_DROP && kind <= K_BT_TRUE ? Config.hideBt : Config.hideNet)) ? fakeExt(kind) : null;
-                    else value = isFix(frame.accessor().getReference(0)) ? fake() : null;
+                    else value = isFix(frame.get(0)) ? fake() : null;
                     if (value == VOID_RESULT) {
                         handled = true;
                     } else if (value == NULL_RESULT) {
-                        frame.accessor().setValue(EmulatedStackFrame.RETURN_VALUE_IDX, null);
+                        frame.set(Frames.RET, null);
                         handled = true;
                     } else if (value != null) {
-                        frame.accessor().setValue(EmulatedStackFrame.RETURN_VALUE_IDX, value);
+                        frame.set(Frames.RET, value);
                         handled = true;
                     }
                 }
@@ -454,7 +442,7 @@ final class LocationHooks {
             if (denied != null) ZygoteEntry.<RuntimeException>sneaky(denied);
             if (!handled) {
                 try {
-                    Transformers.invokeExactNoChecks(original, frame);
+                    original.invoke();
                 } catch (Throwable t) {
                     ZygoteEntry.<RuntimeException>sneaky(t);
                 }
@@ -533,10 +521,10 @@ final class LocationHooks {
         }
     }
 
-    private static void deliver(EmulatedStackFrame frame, int np) {
+    private static void deliver(Frames.Fr frame, int np) {
         for (int i = 1; i <= np; i++) {
             try {
-                Object o = frame.accessor().getReference(i);
+                Object o = frame.get(i);
                 if (o instanceof List) {
                     for (Object e : (List<?>) o) fixSnap(e);
                 } else {
@@ -551,12 +539,12 @@ final class LocationHooks {
         return Boolean.FALSE;
     }
 
-    private static boolean emptyCellUpdate(EmulatedStackFrame frame, int np) {
+    private static boolean emptyCellUpdate(Frames.Fr frame, int np) {
         Executor ex = null;
         TelephonyManager.CellInfoCallback cb = null;
         for (int i = 1; i <= np; i++) {
             try {
-                Object o = frame.accessor().getReference(i);
+                Object o = frame.get(i);
                 if (o instanceof Executor) ex = (Executor) o;
                 else if (o instanceof TelephonyManager.CellInfoCallback) cb = (TelephonyManager.CellInfoCallback) o;
             } catch (Throwable ignored) { }
@@ -706,10 +694,10 @@ final class LocationHooks {
         }
     }
 
-    private static boolean lastKnownAllowed(EmulatedStackFrame frame) {
+    private static boolean lastKnownAllowed(Frames.Fr frame) {
         try {
-            Object self = frame.accessor().getReference(0);
-            Object arg = frame.accessor().getReference(1);
+            Object self = frame.get(0);
+            Object arg = frame.get(1);
             String provider = arg instanceof String ? (String) arg : LocationManager.GPS_PROVIDER;
             return !(self instanceof LocationManager) || ((LocationManager) self).isProviderEnabled(provider);
         } catch (Throwable t) {
@@ -717,8 +705,8 @@ final class LocationHooks {
         }
     }
 
-    private static Location fakeLastKnown(EmulatedStackFrame frame) {
-        Object arg = frame.accessor().getReference(1);
+    private static Location fakeLastKnown(Frames.Fr frame) {
+        Object arg = frame.get(1);
         String provider = arg instanceof String ? (String) arg : LocationManager.GPS_PROVIDER;
         Location l = Fix.lastKnown(provider);
         PER_OBJ.put(l, new Mark(l.getElapsedRealtimeNanos(), l.getTime()));
@@ -729,10 +717,10 @@ final class LocationHooks {
         return Config.enabled && Config.hasPos();
     }
 
-    private static Executor executorOf(EmulatedStackFrame frame, int np) {
+    private static Executor executorOf(Frames.Fr frame, int np) {
         for (int i = 1; i <= np; i++) {
             try {
-                Object o = frame.accessor().getReference(i);
+                Object o = frame.get(i);
                 if (o instanceof Executor) return (Executor) o;
                 if (o instanceof Handler) {
                     final Handler h = (Handler) o;
@@ -744,10 +732,10 @@ final class LocationHooks {
         return main::post;
     }
 
-    private static <T> T argOf(EmulatedStackFrame frame, int np, Class<T> type) {
+    private static <T> T argOf(Frames.Fr frame, int np, Class<T> type) {
         for (int i = 1; i <= np; i++) {
             try {
-                Object o = frame.accessor().getReference(i);
+                Object o = frame.get(i);
                 if (type.isInstance(o)) return type.cast(o);
             } catch (Throwable ignored) { }
         }
@@ -842,9 +830,9 @@ final class LocationHooks {
         }, off);
     }
 
-    private static boolean feed(int kind, EmulatedStackFrame frame, int np) {
+    private static boolean feed(int kind, Frames.Fr frame, int np) {
         final Executor ex = executorOf(frame, np);
-        final LocationManager lm = (LocationManager) frame.accessor().getReference(0);
+        final LocationManager lm = (LocationManager) frame.get(0);
         if (kind == K_FEED_GPS) {
             final Object l = GPS_LISTENER == null ? null : argOf(frame, np, GPS_LISTENER);
             if (l == null) return false;
@@ -889,24 +877,24 @@ final class LocationHooks {
             final int nParams = m.getParameterCount();
             final boolean returnsBool = (m.getReturnType() == boolean.class);
             try {
-                Hooks.hook(m, Hooks.EntryPointType.DIRECT, (original, frame) -> {
+                Frames.hook(m, (original, frame) -> {
                     if (!live()) {
-                        try { Transformers.invokeExactNoChecks(original, frame); }
+                        try { original.invoke(); }
                         catch (Throwable t) { ZygoteEntry.<RuntimeException>sneaky(t); }
                         return;
                     }
                     if (returnsBool) {
-                        frame.accessor().setValue(EmulatedStackFrame.RETURN_VALUE_IDX, Boolean.TRUE);
+                        frame.set(Frames.RET, Boolean.TRUE);
                     }
                     try {
                         GnssStatus.Callback cb = argOf(frame, nParams, GnssStatus.Callback.class);
                         if (cb != null) {
                             final Executor ex = executorOf(frame, nParams);
-                            final LocationManager lm = (LocationManager) frame.accessor().getReference(0);
+                            final LocationManager lm = (LocationManager) frame.get(0);
                             feedStatus(cb, ex, () -> lm.registerGnssStatusCallback(ex, cb));
                         }
                     } catch (Throwable ignored) { }
-                }, Hooks.EntryPointType.DIRECT);
+                });
             } catch (Throwable ignored) { }
         }
     }

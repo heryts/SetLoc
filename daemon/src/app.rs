@@ -13,23 +13,26 @@ pub fn grant_secure() -> bool {
     quiet("pm", &["grant", APP, "android.permission.WRITE_SECURE_SETTINGS"])
 }
 
-pub fn install_app(apk: &Path) -> bool {
+pub fn install_app_out(apk: &Path) -> (bool, String) {
     if !apk.is_file() {
-        say!("APK tidak ditemukan: {}", apk.display());
-        return false;
+        return (false, format!("APK tidak ditemukan: {}", apk.display()));
     }
     let tmp = sys::data().join("local/tmp/gpsz_app.apk");
     let _ = fs::copy(apk, &tmp);
     let _ = fs::set_permissions(&tmp, fs::Permissions::from_mode(0o644));
     let (_, out) = run_all("pm", &["install", "-r", "-d", &tmp.to_string_lossy()]);
     let _ = fs::remove_file(&tmp);
-    say!("{}", out);
-    if out.contains("Success") {
+    let ok = out.contains("Success");
+    if ok {
         grant_secure();
-        true
-    } else {
-        false
     }
+    (ok, out)
+}
+
+pub fn install_app(apk: &Path) -> bool {
+    let (ok, out) = install_app_out(apk);
+    say!("{}", out);
+    ok
 }
 
 pub fn keepalive(full: bool) {

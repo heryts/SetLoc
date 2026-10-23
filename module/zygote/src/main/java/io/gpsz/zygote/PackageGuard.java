@@ -50,6 +50,7 @@ final class PackageGuard {
 
     static void install() {
         if (ZygoteEntry.isSelf()) return;
+        if (PackageGuardLs.install()) return;
         hookFiles();
         try {
             for (Method m : Class.forName("android.app.ApplicationPackageManager").getDeclaredMethods()) {

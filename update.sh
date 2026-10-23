@@ -1,39 +1,33 @@
 #!/bin/sh
-set -e
-for c in rsync unzip dos2unix; do command -v $c >/dev/null || { echo "GAGAL: butuh $c"; exit 1; }; done
-ZIP=${1:?pakai: sh update.sh <zip-source-baru>}
-REPO=${REPO:-$HOME/proj/SetLoc}
-T=$(mktemp -d)
-trap 'rm -rf "$T"' EXIT
-unzip -q "$ZIP" -d "$T"
-Z=$(find $T -maxdepth 2 -type d -name setloc-zygisk-all | head -1)
-[ -d "$Z/app" ] && [ -d "$Z/module" ] || { echo "GAGAL: bukan source SetLoc"; exit 1; }
-
-cd "$REPO"
-[ -f build-all.sh ] && [ -f version.properties ] && [ -d app ] && [ -d module ] || { echo "GAGAL: $REPO bukan repo SetLoc"; exit 1; }
-[ -z "$CHECK_CLEAN" ] || [ -z "$(git status --porcelain app module 2>/dev/null)" ] \
-  || { echo "GAGAL: CHECK_CLEAN=1 aktif dan ada perubahan belum di-commit di app/ atau module/"; exit 1; }
-EX="--exclude=local.properties --exclude=keystore.properties --exclude=*.p12 --exclude=*.pem --exclude=*.jks --exclude=*.keystore --exclude=build/ --exclude=.gradle/ --exclude=external/ --exclude=.cxx/ --exclude=target/"
-rsync -a --delete $EX "$Z/app/" app/
-rsync -a --delete $EX --exclude=apk/ --exclude=assets/bin/ "$Z/module/" module/
-if [ -d "$Z/daemon" ]; then mkdir -p daemon; rsync -a --delete $EX "$Z/daemon/" daemon/; fi
-for f in README.md build-all.sh make-keystore.sh .gitignore .gitattributes version.properties .salt; do if [ -f "$Z/$f" ]; then cp "$Z/$f" .; fi; done
-if [ -d "$Z/tools" ]; then mkdir -p tools; rsync -a --delete "$Z/tools/" tools/; fi
-if [ -d "$Z/.github/workflows" ]; then mkdir -p .github/workflows; rsync -a --delete "$Z/.github/workflows/" .github/workflows/; fi
-cp "$Z/update.sh" update.sh.new && mv update.sh.new update.sh
-find . -path ./module/external -prune -o \( -name '*.sh' -o -name gradlew \) -type f -print | xargs dos2unix -q
-chmod +x app/gradlew
-
-sh build-all.sh
-
-VER=$(sed -n 's/^versionName=//p' version.properties)
-OUT=module/zygote/build/outputs/magisk/release/SetLocZygisk-release.zip
-[ -f "$OUT" ] || { echo "GAGAL: $OUT tidak ada"; exit 1; }
-C=$(mktemp -d)
-unzip -q "$OUT" -d "$C"
-[ -f "$C/customize.d/40-install-apk.sh" ] && [ "$(grep -c 40-install-apk.sh "$C/customize.sh")" = 2 ] \
-  && [ -f "$C/bin/arm64-v8a/setlocd" ] && cmp -s "$C/apk/SetLoc.apk" "$(ls -t app/app/build/outputs/apk/release/*.apk | head -n 1)" || { echo "GAGAL: isi zip tidak sesuai"; exit 1; }
-rm -rf "$C"
-cp "$OUT" "$HOME/SetLocZygisk-v$VER.zip"
-[ -d /mnt/c ] && cp "$OUT" "/mnt/c/SetLocZygisk-v$VER.zip"
-echo "SELESAI: ~/SetLocZygisk-v$VER.zip"
+# Shim kompatibilitas untuk rilis.sh lama. Kerjanya sekarang di tools/xtask (Rust).
+#   sh update.sh <zip-atau-folder-source>   salin source ke repo ini, lalu build dan periksa zip
+#   sh update.sh                            build repo ini apa adanya
+# Memakai xtask dari source baru (bukan dari repo), jadi jalan juga di repo lama yang belum punya tools/xtask.
+[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+PATH="$HOME/.cargo/bin:$PATH"; export PATH
+command -v cargo >/dev/null 2>&1 || { echo "GAGAL: cargo tidak ditemukan (pasang lewat https://rustup.rs)" >&2; exit 1; }
+HERE=$(cd "$(dirname "$0")" && pwd)
+if [ -z "$1" ]; then
+  [ -f "$HERE/tools/xtask/Cargo.toml" ] || { echo "GAGAL: tools/xtask belum ada, jalankan dengan zip source baru" >&2; exit 1; }
+  cd "$HERE" && exec cargo run --release -q --manifest-path tools/xtask/Cargo.toml -- build
+fi
+A="$1"
+[ -e "$A" ] || { [ -e "$A.zip" ] && A="$A.zip"; }
+[ -e "$A" ] || { echo "GAGAL: $1 tidak ada" >&2; exit 1; }
+SRC=$(cd "$(dirname "$A")" && pwd)/$(basename "$A")
+T=$(mktemp -d) || exit 1
+trap 'rm -rf "$T"' EXIT INT TERM
+if [ -d "$SRC" ]; then
+  R=$(find "$SRC" -maxdepth 3 -type d -name setloc-zygisk-all | head -1); [ -n "$R" ] || R="$SRC"
+  cp -r "$R/tools" "$T/tools"
+else
+  command -v unzip >/dev/null 2>&1 || { echo "GAGAL: butuh unzip" >&2; exit 1; }
+  unzip -q "$SRC" '*/tools/*' -d "$T/x" || { echo "GAGAL: unzip $SRC" >&2; exit 1; }
+  R=$(find "$T/x" -maxdepth 3 -type d -name setloc-zygisk-all | head -1)
+  [ -n "$R" ] || { echo "GAGAL: bukan source SetLoc" >&2; exit 1; }
+  cp -r "$R/tools" "$T/tools"
+fi
+[ -f "$T/tools/xtask/Cargo.toml" ] || { echo "GAGAL: tools/xtask tidak ada di $SRC" >&2; exit 1; }
+rm -rf "$T/x"
+cd "$HERE" || exit 1
+REPO="${REPO:-$HERE}" CARGO_TARGET_DIR="$T/target" cargo run --release -q --manifest-path "$T/tools/xtask/Cargo.toml" -- update "$SRC"

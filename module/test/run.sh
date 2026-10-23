@@ -317,6 +317,30 @@ fi
 
 
 
+echo "[native: configcore dan lochooks]"
+NR="$TD/../../native"
+if command -v cargo >/dev/null 2>&1; then
+  check "configcore: cargo test" '(cd "$NR/configcore" && cargo test -q >"$T/nc.log" 2>&1) || { cat "$T/nc.log"; false; }'
+  check "lochooks: cargo test" '(cd "$NR/lochooks" && cargo test -q >"$T/nl.log" 2>&1) || { cat "$T/nl.log"; false; }'
+  if command -v java >/dev/null 2>&1 && { command -v javac >/dev/null 2>&1 || java --list-modules 2>/dev/null | grep -q '^jdk.compiler@'; }; then
+    check "paritas Java vs Rust (Config, Fix, snapshot) dan JNI lochooks" 'sh "$TD/parity/run.sh" >"$T/parity.log" 2>&1 || { cat "$T/parity.log"; false; }'
+  else
+    bad "tes paritas dilewati: javac/java tidak ada"
+  fi
+else
+  bad "tes native dilewati: cargo tidak ada"
+fi
+echo "[hook LSPlant]"
+if command -v java >/dev/null 2>&1 && { command -v javac >/dev/null 2>&1 || java --list-modules 2>/dev/null | grep -q '^jdk.compiler@'; }; then
+  check "PackageGuardLs lewat mesin hook palsu" 'sh "$TD/lshook/run.sh" >"$T/lshook.log" 2>&1 || { cat "$T/lshook.log"; false; }'
+  check "LocationHooks lewat mesin hook palsu (LSPlant, cadangan jalur lama, disable_ls_loc)" 'sh "$TD/lochook/run.sh" >"$T/lochook.log" 2>&1 || { cat "$T/lochook.log"; false; }'
+  check "SettingsGuard lewat mesin hook palsu (LSPlant, cadangan jalur lama, disable_ls_set)" 'sh "$TD/setguard/run.sh" >"$T/setguard.log" 2>&1 || { cat "$T/setguard.log"; false; }'
+  check "SystemHooks lewat mesin hook palsu (LSPlant, jalur lama saat mati/belum siap, cadangan per method)" 'sh "$TD/syshook/run.sh" >"$T/syshook.log" 2>&1 || { cat "$T/syshook.log"; false; }'
+  check "SysGuard: penanda boot opt-in, blokir percobaan kedua, gagal tertutup" 'sh "$TD/sysguard/run.sh" >"$T/sysguard.log" 2>&1 || { cat "$T/sysguard.log"; false; }'
+else
+  bad "tes hook dilewati: javac/java tidak ada"
+fi
+
 echo
 echo "lulus: $PASS  gagal: $FAIL"
 [ "$FAIL" = 0 ]

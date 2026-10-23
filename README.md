@@ -26,7 +26,7 @@ Mode spoof:
 | System-wide | Semua app mendapat lokasi palsu |
 | Heartbeat | Sistem mengulang lokasi asli tiap 1 detik agar app yang menunggu callback (mis. Google Maps) tetap menerima pembaruan. App di daftar tetap dipalsukan, app lain tidak |
 
-System-wide dan Heartbeat butuh reboot kalau belum aktif. Kalau terjadi bootloop, buat file `disable` di folder modul dari recovery.
+System-wide dan Heartbeat butuh reboot kalau belum aktif. Kalau terjadi bootloop, buat file `disable` di folder modul dari recovery. Untuk mematikan hook native LSPlant saja (penyembunyian paket kembali ke jalur lama), buat file `disable_ls` di folder modul. Untuk mematikan LSPlant hanya pada `LocationHooks` (PackageGuard tetap LSPlant), buat file `disable_ls_loc`, dan untuk `SettingsGuard` saja `disable_ls_set`. `SystemHooks` di `system_server` tetap memakai jalur lama kecuali Anda memilihnya sendiri: `gpsz.sh ls-system on`, lalu reboot (lihat `native/README.md`, Fase 7).
 
 Saat memutar rute, daemon menulis jendela 24 detik (`gpsz_trk`) dan hook menginterpolasi posisi sendiri, jadi Settings hampir tidak ditulis selama rute berjalan. Kalau ada masalah, buat file `disable_trk` di folder modul untuk kembali ke mode lama (satu tulis per tick).
 
@@ -36,7 +36,7 @@ Saat memutar rute, daemon menulis jendela 24 detik (`gpsz_trk`) dan hook mengint
 - Key `Settings.Global` modul (`gpsz_*`) disembunyikan di app yang disuntik (kecuali app SetLoc) dari `Settings.Global.getString` dan sejenisnya, `ContentResolver.query/call`, `ContentProviderClient.query/call`, dan `ContentProviderProxy.query/call` (akses langsung `IContentProvider`). Notifikasi `ContentObserver` untuk URI key `gpsz_*` dibuang, dan semua overload `ProcessBuilder.start` yang perintahnya memuat `gpsz_`, memanggil `settings`/`content`, atau menjalankan `cmd`/`dumpsys` dengan argumen `settings`/`content` (termasuk argumen terpisah) ditolak dengan IOException.
 - Di mode Per-app dan System-wide, callback GNSS status, NMEA, pengukuran GNSS, dan info antena tetap terdaftar dan menerima data satelit palsu yang konsisten dengan lokasi palsu: `onStarted`, `onFirstFix`, lalu `onSatelliteStatusChanged`, kalimat NMEA, dan `GnssMeasurementsEvent` tiap detik. `GpsStatus.Listener` lama dan `getGpsStatus` ikut dilayani. Saat spoof berhenti, callback status, NMEA, dan pengukuran didaftarkan ulang ke sistem asli supaya app tidak kehilangan data. Navigation message dan batching tetap ditolak. Google Play Services dan komponen sistem tetap lolos.
 - Log modul hanya ditulis di proses `android`, tidak di proses app.
-- `SALT`, `KV`, dan nama key `Settings.Global` dibuat acak per build oleh `tools/RotateSalt.java` (disimpan di `.salt`), bukan konstanta yang sama untuk semua pemasang. `ROTATE_SALT=1 sh build-all.sh` membuat salt baru. App dan modul harus dibangun dari salt yang sama. Key lama dihapus otomatis oleh daemon saat modul baru berjalan.
+- `SALT`, `KV`, dan nama key `Settings.Global` dibuat acak per build oleh `tools/rotate-salt` (Rust, disimpan di `.salt`), bukan konstanta yang sama untuk semua pemasang. `ROTATE_SALT=1 cargo xtask build` membuat salt baru. App dan modul harus dibangun dari salt yang sama. Key lama dihapus otomatis oleh daemon saat modul baru berjalan.
 - Satelit GNSS palsu, jumlah satelit, dan offset lokasi network ditentukan dari seed salt dan `elapsedRealtime`, jadi semua proses melihat data yang sama pada saat yang sama. Hal yang sama berlaku untuk offset `random`, jitter akurasi, dan variasi ketinggian.
 - Saat `random` mati, posisi tetap diberi derau halus di bawah 1 meter supaya tidak identik dari pembacaan ke pembacaan.
 
@@ -62,23 +62,30 @@ sh /data/adb/modules/setloc_zygisk/gpsz.sh pkg all on|off
 `pkg all on` menyuntikkan modul ke semua app. Pakai hati-hati.
 
 ## Build
-Butuh satu JDK 21 (dipakai app dan modul), `git`, dan koneksi internet (AndroidVMTools di-clone dan dependensi Gradle diunduh).
+Butuh satu JDK 21 (dipakai app dan modul), Rust (`cargo`), Android NDK, `git`, dan koneksi internet (AndroidVMTools di-clone dan dependensi Gradle diunduh). Semua langkah build dijalankan oleh `tools/xtask` (Rust), bukan skrip shell.
 
 ```
-MAPS_API_KEY=... sh build-all.sh
+MAPS_API_KEY=... cargo xtask build
 ```
 
 Hasilnya `module/zygote/build/outputs/magisk/release/SetLocZygisk-release.zip`.
 
 - `MAPS_API_KEY` adalah API key Google Maps untuk peta di app.
-- `SKIP_TESTS=1` melewati unit test app.
+- `SKIP_TESTS=1` melewati unit test app dan daemon.
+- `ROTATE_SALT=1` membuat salt baru.
 - `JAVA21_HOME` menunjuk JDK 21 tertentu kalau ada lebih dari satu JDK.
+- `RUST_TARGETS` daftar target daemon (default `aarch64-linux-android`).
+- `cargo xtask setup` hanya menyiapkan AndroidVMTools.
+- `setup.sh` dan `update.sh` hanya shim kompatibilitas untuk `rilis.sh` lama; keduanya memanggil `cargo xtask` (`update.sh` menerima zip atau folder source).
+- `REPO=~/proj/SetLoc cargo xtask update <zip-source-baru>` menyalin source baru ke repo lalu build dan memeriksa isi zip.
 - Tanpa `app/keystore.properties`, APK ditandatangani dengan debug key. Untuk rilis, buat keystore dengan `sh make-keystore.sh <release-key.pem> <release-cert.pem>`.
 
 ## Struktur
 - `app/` app Android (peta, favorit, rute, pengaturan)
-- `module/` modul Zygisk: hook Java, daemon `bridge.sh`, CLI `gpsz.sh`, WebUI
+- `module/` modul Zygisk: hook Java, stub skrip Magisk, WebUI
+- `daemon/` `setlocd` (Rust): daemon, CLI `gpsz`, installer modul (`modinstall`)
+- `tools/` `xtask` (build/update) dan `rotate-salt`, keduanya Rust
 - `module/test/run.sh` uji sandbox untuk skrip dan `Config`
 
 ## Kredit
-Terinspirasi dari GPS Setter. Hook Java tanpa native memakai [ZygoteLoader](https://github.com/aerath-stuff/ZygoteLoader) dan [AndroidVMTools](https://github.com/aerath-stuff/AndroidVMTools).
+Terinspirasi dari GPS Setter. Hook Java memakai [ZygoteLoader](https://github.com/aerath-stuff/ZygoteLoader) dan [AndroidVMTools](https://github.com/aerath-stuff/AndroidVMTools). Penyembunyian paket memakai [LSPlant](https://github.com/LSPosed/LSPlant) dan [ShadowHook](https://github.com/bytedance/android-inline-hook).

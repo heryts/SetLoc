@@ -9,10 +9,6 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Settings;
 
-import com.v7878.unsafe.invoke.EmulatedStackFrame;
-import com.v7878.unsafe.invoke.Transformers;
-import com.v7878.vmtools.HookTransformer;
-import com.v7878.vmtools.Hooks;
 
 import java.io.IOException;
 import java.io.Serializable;
@@ -32,7 +28,7 @@ import java.util.Set;
 final class SettingsGuard {
     private static Set<String> KEYS = Collections.emptySet();
     private static final int K_STR = 0, K_QUERY = 1, K_CALL = 2, K_MAP = 3, K_EXEC = 4, K_OBS = 5, K_REG_OBS = 6, K_PCALL = 7;
-    private static final int RET = EmulatedStackFrame.RETURN_VALUE_IDX;
+    private static final int RET = Frames.RET;
     private static final String[] QUERY_STRING_ARGS = {
             ContentResolver.QUERY_ARG_SQL_SELECTION,
             ContentResolver.QUERY_ARG_SQL_SORT_ORDER,
@@ -69,27 +65,27 @@ final class SettingsGuard {
                 if (ps.length < 2 || ps[0] != ContentResolver.class || ps[1] != String.class) continue;
                 final Class<?> ret = m.getReturnType();
                 try {
-                    Hooks.hook(m, Hooks.EntryPointType.DIRECT, (original, frame) -> {
+                    Frames.hook(m, LsNative.setEnabled(), (original, frame) -> {
                         try {
                             if (Config.READING.get() == null && Config.enabled && Config.hasPos() && !Config.sysHeartbeat) {
-                                Object key = frame.accessor().getReference(1);
+                                Object key = frame.get(1);
                                 if (LOCATION_MODE.equals(key)) {
                                     if (ret == int.class) {
-                                        frame.accessor().setValue(RET, 3);
+                                        frame.set(RET, 3);
                                         return;
                                     } else if (ret == String.class) {
-                                        frame.accessor().setValue(RET, "3");
+                                        frame.set(RET, "3");
                                         return;
                                     }
                                 }
                             }
                         } catch (Throwable ignored) { }
                         try {
-                            Transformers.invokeExactNoChecks(original, frame);
+                            original.invoke();
                         } catch (Throwable t) {
                             ZygoteEntry.<RuntimeException>sneaky(t);
                         }
-                    }, Hooks.EntryPointType.DIRECT);
+                    });
                 } catch (Throwable ignored) { }
             }
         } catch (Throwable ignored) { }
@@ -194,7 +190,7 @@ final class SettingsGuard {
 
     private static void put(Method m, int kind, int a, int b) {
         try {
-            Hooks.hook(m, Hooks.EntryPointType.DIRECT, transformer(kind, a, b), Hooks.EntryPointType.DIRECT);
+            Frames.hook(m, LsNative.setEnabled(), transformer(kind, a, b));
         } catch (Throwable ignored) { }
     }
 
@@ -279,12 +275,12 @@ final class SettingsGuard {
         return false;
     }
 
-    private static boolean queryHidden(EmulatedStackFrame frame, int argc) {
+    private static boolean queryHidden(Frames.Fr frame, int argc) {
         Uri uri = null;
         boolean hit = false;
         for (int i = 1; i <= argc; i++) {
             Object o;
-            try { o = frame.accessor().getReference(i); } catch (Throwable t) { continue; }
+            try { o = frame.get(i); } catch (Throwable t) { continue; }
             if (o instanceof Uri && uri == null) uri = (Uri) o;
             else if (mentions(o)) hit = true;
         }
@@ -293,10 +289,10 @@ final class SettingsGuard {
         return hit || (last != null && KEYS.contains(last));
     }
 
-    private static boolean settingsUri(EmulatedStackFrame frame, int argc) {
+    private static boolean settingsUri(Frames.Fr frame, int argc) {
         for (int i = 1; i <= argc; i++) {
             try {
-                Object o = frame.accessor().getReference(i);
+                Object o = frame.get(i);
                 if (o instanceof Uri) return "settings".equals(((Uri) o).getAuthority());
             } catch (Throwable ignored) { }
         }
@@ -368,13 +364,13 @@ final class SettingsGuard {
         } catch (Throwable ignored) { }
     }
 
-    private static HookTransformer transformer(final int kind, final int a, final int b) {
+    private static Frames.Tx transformer(final int kind, final int a, final int b) {
         final boolean isCall = kind == K_CALL || kind == K_PCALL;
         return (original, frame) -> {
             if (kind == K_EXEC) {
                 boolean deny = false;
                 try {
-                    Object self = frame.accessor().getReference(0);
+                    Object self = frame.get(0);
                     if (self instanceof ProcessBuilder) {
                         deny = revealsArgv(((ProcessBuilder) self).command());
                     }
@@ -383,8 +379,8 @@ final class SettingsGuard {
             } else if (kind == K_OBS) {
                 boolean drop = false;
                 try {
-                    if (!Config.ownObserver(frame.accessor().getReference(0))) {
-                        Object o = frame.accessor().getReference(b);
+                    if (!Config.ownObserver(frame.get(0))) {
+                        Object o = frame.get(b);
                         if (o instanceof Uri) {
                             drop = hiddenUri((Uri) o);
                         } else if (o instanceof Collection) {
@@ -396,7 +392,7 @@ final class SettingsGuard {
                             }
                             if (cut) {
                                 if (keep.isEmpty()) drop = true;
-                                else frame.accessor().setValue(b, keep);
+                                else frame.set(b, keep);
                             }
                         }
                     }
@@ -404,8 +400,8 @@ final class SettingsGuard {
                 if (drop) return;
             } else if (kind == K_REG_OBS) {
                 try {
-                    Object uriObj = frame.accessor().getReference(1);
-                    Object obsObj = frame.accessor().getReference(3);
+                    Object uriObj = frame.get(1);
+                    Object obsObj = frame.get(3);
                     if (uriObj instanceof Uri && !Config.ownObserver(obsObj) && hiddenUri((Uri) uriObj)) {
                         return;
                     }
@@ -413,7 +409,7 @@ final class SettingsGuard {
             }
             if (kind == K_EXEC || kind == K_OBS || kind == K_REG_OBS) {
                 try {
-                    Transformers.invokeExactNoChecks(original, frame);
+                    original.invoke();
                 } catch (Throwable t) {
                     ZygoteEntry.<RuntimeException>sneaky(t);
                 }
@@ -424,30 +420,30 @@ final class SettingsGuard {
             if (guard) {
                 try {
                     if (kind == K_STR) {
-                        if (isKey(frame.accessor().getReference(b))) {
-                            frame.accessor().setValue(RET, null);
+                        if (isKey(frame.get(b))) {
+                            frame.set(RET, null);
                             return;
                         }
                     } else if (isCall) {
-                        Object method = frame.accessor().getReference(a);
+                        Object method = frame.get(a);
                         if (method instanceof String) {
                             String mn = (String) method;
-                            Object first = frame.accessor().getReference(kind == K_PCALL ? a - 1 : 1);
+                            Object first = frame.get(kind == K_PCALL ? a - 1 : 1);
                             boolean settings = first instanceof Uri
                                     ? hiddenAuthority(((Uri) first).getAuthority())
                                     : first instanceof String && hiddenAuthority((String) first);
                             if (settings) {
-                                Object keyArg = frame.accessor().getReference(b);
+                                Object keyArg = frame.get(b);
                                 Object extras = null;
                                 for (int i = 2; i <= b + 1; i++) {
                                     try {
-                                        Object o = frame.accessor().getReference(i);
+                                        Object o = frame.get(i);
                                         if (o instanceof Bundle) { extras = o; break; }
                                     } catch (Throwable ignored) { }
                                 }
                                 boolean keyHit = isKey(keyArg) || (extras instanceof Bundle && bundleMentions((Bundle) extras));
                                 if ((mn.startsWith("GET_") || mn.startsWith("PUT_") || mn.startsWith("DELETE_")) && keyHit) {
-                                    frame.accessor().setValue(RET, new Bundle());
+                                    frame.set(RET, new Bundle());
                                     return;
                                 }
                             }
@@ -462,20 +458,20 @@ final class SettingsGuard {
                 try { hide = queryHidden(frame, a); } catch (Throwable ignored) { }
             }
             try {
-                Transformers.invokeExactNoChecks(original, frame);
+                original.invoke();
             } catch (Throwable t) {
                 ZygoteEntry.<RuntimeException>sneaky(t);
             }
             if (!guard) return;
             try {
-                Object r = frame.accessor().getReference(RET);
+                Object r = frame.get(RET);
                 if (r == null) return;
                 if (kind == K_QUERY && sUri && r instanceof Cursor) {
                     Cursor c = (Cursor) r;
                     Cursor n = hide ? emptyLike(c) : filterRows(c);
-                    if (n != c) frame.accessor().setValue(RET, n);
+                    if (n != c) frame.set(RET, n);
                 } else if (isCall && r instanceof Bundle) {
-                    Object method = frame.accessor().getReference(a);
+                    Object method = frame.get(a);
                     if (method instanceof String && ((String) method).startsWith("LIST_")) stripBundle((Bundle) r);
                 } else if (kind == K_MAP && r instanceof Map) {
                     stripMap((Map<?, ?>) r);

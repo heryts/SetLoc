@@ -19,6 +19,26 @@ android {
         targetSdk = 36
         versionCode = ver.getProperty("versionCode").toInt()
         versionName = ver.getProperty("versionName")
+
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
+
+        externalNativeBuild {
+            cmake {
+                arguments("-DANDROID_STL=c++_static")
+            }
+        }
+    }
+
+    buildFeatures {
+        prefab = true
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("../../native/hook/CMakeLists.txt")
+        }
     }
 
     sourceSets {
@@ -77,6 +97,8 @@ configurations.configureEach {
 dependencies {
     implementation(project(":unsafe"))
     implementation(libs.r8annotations)
+    implementation(libs.lsplant)
+    implementation(libs.shadowhook)
 
     api(androidvmtools.panama.core)
     api(androidvmtools.panama.unsafe)

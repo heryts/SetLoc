@@ -7,10 +7,6 @@ import android.os.IInterface;
 import android.os.SystemClock;
 
 import com.v7878.unsafe.Reflection;
-import com.v7878.unsafe.invoke.EmulatedStackFrame;
-import com.v7878.unsafe.invoke.Transformers;
-import com.v7878.vmtools.HookTransformer;
-import com.v7878.vmtools.Hooks;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -191,8 +187,7 @@ final class SystemHooks {
             }
             if (kind < 0) continue;
             try {
-                Hooks.hook(m, Hooks.EntryPointType.DIRECT, transformer(kind, argIdx, lstIdx, ret == boolean.class), Hooks.EntryPointType.DIRECT);
-                hooked++;
+                if (Frames.hook(m, LsNative.sysEnabled(), transformer(kind, argIdx, lstIdx, ret == boolean.class))) hooked++;
             } catch (Throwable ignored) { }
         }
         return hooked;
@@ -301,37 +296,37 @@ final class SystemHooks {
         }
     }
 
-    private static HookTransformer transformer(final int kind, final int argIdx, final int lstIdx, final boolean retBool) {
+    private static Frames.Tx transformer(final int kind, final int argIdx, final int lstIdx, final boolean retBool) {
         return (original, frame) -> {
             boolean handled = false;
             Throwable denied = null;
             try {
                 if (kind == K_UNFEED) {
-                    GnssFake.stop(GnssFake.keyOf(frame.accessor().getReference(lstIdx)));
+                    GnssFake.stop(GnssFake.keyOf(frame.get(lstIdx)));
                 } else if (kind == K_ARG_RESULT) {
-                    Object self = frame.accessor().getReference(0);
+                    Object self = frame.get(0);
                     String name = register(self);
                     if (LocationManager.GPS_PROVIDER.equals(name)) lastGpsReport = SystemClock.elapsedRealtime();
-                    if (Config.sysHeartbeat) captureReal(frame.accessor().getReference(argIdx));
+                    if (Config.sysHeartbeat) captureReal(frame.get(argIdx));
                     if (active() && !inEmergency(self)) {
-                        Object o = frame.accessor().getReference(argIdx);
+                        Object o = frame.get(argIdx);
                         Object replaced = spoofResult(o);
-                        if (replaced != null && replaced != o) frame.accessor().setValue(argIdx, replaced);
+                        if (replaced != null && replaced != o) frame.set(argIdx, replaced);
                     }
                 } else if (active()) {
                     switch (kind) {
                         case K_LAST: {
-                            Object p = frame.accessor().getReference(1);
+                            Object p = frame.get(1);
                             String provider = p instanceof String ? (String) p : LocationManager.GPS_PROVIDER;
                             if (anyEmergency()) break;
                             handled = true;
                             try {
-                                Transformers.invokeExactNoChecks(original, frame);
+                                original.invoke();
                             } catch (Throwable e) {
                                 denied = e;
                             }
-                            if (denied == null && providerEnabled(frame.accessor().getReference(0), provider)) {
-                                frame.accessor().setValue(EmulatedStackFrame.RETURN_VALUE_IDX, Fix.lastKnown(provider));
+                            if (denied == null && providerEnabled(frame.get(0), provider)) {
+                                frame.set(Frames.RET, Fix.lastKnown(provider));
                             }
                             break;
                         }
@@ -342,33 +337,27 @@ final class SystemHooks {
                         case K_FEED_NMEA:
                         case K_FEED_MEAS:
                         case K_FEED_ANT: {
-                            Object pkg = frame.accessor().getReference(argIdx);
+                            Object pkg = frame.get(argIdx);
                             if (pkg instanceof String && TRUSTED_GNSS.contains(pkg)) break;
-                            if (retBool) frame.accessor().setValue(EmulatedStackFrame.RETURN_VALUE_IDX, Boolean.TRUE);
-                            startFeed(kind, frame.accessor().getReference(lstIdx));
+                            if (retBool) frame.set(Frames.RET, Boolean.TRUE);
+                            startFeed(kind, frame.get(lstIdx));
                             handled = true;
                             break;
                         }
                         case K_BLOCK_BOOL:
-                            frame.accessor().setValue(EmulatedStackFrame.RETURN_VALUE_IDX, Boolean.FALSE);
+                            frame.set(Frames.RET, Boolean.FALSE);
                             handled = true;
                             break;
                         case K_ARG_LOCATION: {
-                            Object o = frame.accessor().getReference(argIdx);
-                            if (o instanceof Location) frame.accessor().setValue(argIdx, spoof((Location) o));
+                            Object o = frame.get(argIdx);
+                            if (o instanceof Location) frame.set(argIdx, spoof((Location) o));
                             break;
                         }
                     }
                 }
             } catch (Throwable ignored) { }
-            if (denied != null) ZygoteEntry.<RuntimeException>sneaky(denied);
-            if (!handled) {
-                try {
-                    Transformers.invokeExactNoChecks(original, frame);
-                } catch (Throwable t) {
-                    ZygoteEntry.<RuntimeException>sneaky(t);
-                }
-            }
+            if (denied != null) throw denied;
+            if (!handled) original.invoke();
         };
     }
 

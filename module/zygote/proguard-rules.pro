@@ -1,2 +1,4 @@
 -keep class io.gpsz.zygote.ZygoteEntry { premain(); main(); }
+-keep class io.gpsz.zygote.LsHook$Hooker { public java.lang.Object callback(java.lang.Object[]); }
+-keep class io.gpsz.zygote.LsNative { native <methods>; }
 -dontwarn com.v7878.r8.annotations.KeepCodeAttribute
