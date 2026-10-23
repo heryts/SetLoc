@@ -4,6 +4,11 @@ import java.lang.reflect.Method;
 
 final class LsNative {
     private static volatile boolean ready;
+    private static volatile String error;
+
+    static String loadError() {
+        return error;
+    }
 
     static synchronized boolean ensureLoaded() {
         if (ready) return true;
@@ -12,7 +17,8 @@ final class LsNative {
             System.loadLibrary("lsplant");
             System.loadLibrary("gpsz_hook");
             ready = nativeReady();
-        } catch (Throwable ignored) {
+        } catch (Throwable t) {
+            error = t.toString();
             ready = false;
         }
         return ready;

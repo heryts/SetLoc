@@ -5,6 +5,7 @@ import android.location.LocationManager;
 import android.os.Binder;
 import android.os.IInterface;
 import android.os.SystemClock;
+import android.util.Log;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -32,6 +33,8 @@ final class SystemHooks {
     private static boolean generatorStarted = false;
     private static int lpmHooks = 0, lmsHooks = 0, lmsTries = 0;
     private static int scanFailures = 0;
+    private static int hookFailures = 0;
+    private static String lastStatus = "";
     private static Class<?> resultClass;
     private static Method resultMap, resultSize, resultGet, resultWrap;
     private static boolean wrapTakesList = true;
@@ -59,8 +62,18 @@ final class SystemHooks {
                 generatorStarted = lpmOnReport != null && resultWrap != null;
                 if (generatorStarted) startGenerator();
             }
-        } catch (Throwable ignored) { }
+        } catch (Throwable t) {
+            note("error " + t);
+        }
+        note("lpm=" + lpmHooks + " lms=" + lmsHooks + " gagal=" + hookFailures + " heartbeat=" + Config.sysHeartbeat
+                + " reflect=" + (lpmOnReport != null) + "/" + (resultWrap != null));
         return isLive();
+    }
+
+    private static void note(String status) {
+        if (status.equals(lastStatus)) return;
+        lastStatus = status;
+        Log.i("GpsZ", "system hook " + status);
     }
 
     private static boolean isLive() {
@@ -171,7 +184,10 @@ final class SystemHooks {
             if (kind < 0) continue;
             try {
                 if (Frames.hook(m, LsNative.sysEnabled(), transformer(kind, argIdx, lstIdx, ret == boolean.class))) hooked++;
-            } catch (Throwable ignored) { }
+                else hookFailures++;
+            } catch (Throwable ignored) {
+                hookFailures++;
+            }
         }
         return hooked;
     }

@@ -200,14 +200,14 @@ impl Ctx {
         match arg {
             "on" => {
                 if lsguard::enable(&self.moddir) {
-                    say!("LSPlant di system_server: AKTIF (default). REBOOT dibutuhkan. Jika boot sebelumnya gagal, percobaan otomatis diblokir; lihat: ls-system status.");
+                    say!("LSPlant di system_server: AKTIF (opt-in). REBOOT dibutuhkan. Jika boot sebelumnya gagal, percobaan otomatis diblokir dan jalur lama dipakai; lihat: ls-system status.");
                 } else {
-                    say!("gagal menghapus {}", lsguard::DISABLE);
+                    say!("gagal membuat {}", lsguard::ENABLE);
                 }
             }
             "off" => {
                 lsguard::disable(&self.moddir);
-                say!("LSPlant di system_server: MATI. Reboot; hook system-wide dan Heartbeat tidak akan aktif.");
+                say!("LSPlant di system_server: MATI. Reboot agar system_server memakai jalur lama.");
             }
             "reset" => {
                 lsguard::reset(&self.moddir);
@@ -217,15 +217,15 @@ impl Ctx {
                 say!("ls-system={}", st);
                 say!(
                     "{}: {}   {}: {}   {}: {}",
-                    lsguard::DISABLE,
-                    if self.moddir.join(lsguard::DISABLE).exists() { "ya" } else { "tidak" },
+                    lsguard::ENABLE,
+                    if self.moddir.join(lsguard::ENABLE).exists() { "ya" } else { "tidak" },
                     lsguard::PENDING,
                     if self.moddir.join(lsguard::PENDING).exists() { "ya" } else { "tidak" },
                     lsguard::BLOCKED,
                     if self.moddir.join(lsguard::BLOCKED).exists() { "ya" } else { "tidak" }
                 );
                 match st {
-                    "blocked" => say!("percobaan sebelumnya tidak selesai (system_server mati sebelum stabil). Hook system_server tidak dipasang. Setelah penyebab dicek: ls-system reset"),
+                    "blocked" => say!("percobaan sebelumnya tidak selesai (system_server mati sebelum stabil). Jalur lama dipakai. Setelah penyebab dicek: ls-system reset"),
                     "pending" => say!("system_server sedang dicoba dengan LSPlant dan belum terkonfirmasi stabil ({} dtk)", lsguard::STABLE_S),
                     _ => {}
                 }

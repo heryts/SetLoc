@@ -6,6 +6,8 @@ import com.v7878.r8.annotations.DoNotShrink;
 import com.v7878.r8.annotations.DoNotShrinkType;
 import com.v7878.zygisk.ZygoteLoader;
 
+import android.util.Log;
+
 import java.io.File;
 
 @DoNotObfuscateType
@@ -43,14 +45,14 @@ public final class ZygoteEntry {
         LocationNative.ensureLoaded();
     }
 
-    private static boolean systemArmed() {
+    private static int systemArm() {
         try {
             return SysGuard.arm(
-                    new File(ZygoteLoader.getModuleDir(), SysGuard.DISABLE),
+                    new File(ZygoteLoader.getModuleDir(), SysGuard.ENABLE),
                     new File(ZygoteLoader.getModuleDir(), SysGuard.PENDING),
-                    new File(ZygoteLoader.getModuleDir(), SysGuard.BLOCKED)) == SysGuard.ARMED;
+                    new File(ZygoteLoader.getModuleDir(), SysGuard.BLOCKED));
         } catch (Throwable t) {
-            return false;
+            return SysGuard.FAILED;
         }
     }
 
@@ -60,11 +62,14 @@ public final class ZygoteEntry {
         if (isSelf()) return;
         boolean ls = !disabled("disable_ls");
         if (isSystemServer()) {
-            if (ls && systemArmed()) {
+            int arm = ls ? systemArm() : SysGuard.OFF;
+            boolean ready = false;
+            if (arm == SysGuard.ARMED) {
                 LsNative.setSysEnabled(true);
-                LsNative.ensureLoaded();
+                ready = LsNative.ensureLoaded();
                 loadRust();
             }
+            Log.i("GpsZ", "system hook premain arm=" + arm + " lsplant=" + ready + " err=" + LsNative.loadError());
             return;
         }
         if (ls) {

@@ -2,7 +2,7 @@ use crate::sys::{now_s, pidof, sleep_ms};
 use std::fs;
 use std::path::Path;
 
-pub const DISABLE: &str = "disable_ls_system";
+pub const ENABLE: &str = "enable_ls_system";
 pub const PENDING: &str = ".ls_sys_pending";
 pub const BLOCKED: &str = "ls_system_blocked";
 pub const STABLE_S: i64 = 60;
@@ -51,7 +51,7 @@ impl Watch {
 }
 
 pub fn state(moddir: &Path) -> &'static str {
-    if moddir.join(DISABLE).exists() {
+    if !moddir.join(ENABLE).exists() {
         "off"
     } else if moddir.join(BLOCKED).exists() {
         "blocked"
@@ -65,15 +65,13 @@ pub fn state(moddir: &Path) -> &'static str {
 pub fn enable(moddir: &Path) -> bool {
     let _ = fs::remove_file(moddir.join(BLOCKED));
     let _ = fs::remove_file(moddir.join(PENDING));
-    let _ = fs::remove_file(moddir.join(DISABLE));
-    !moddir.join(DISABLE).exists()
+    fs::write(moddir.join(ENABLE), "").is_ok()
 }
 
 pub fn disable(moddir: &Path) {
-    for f in [PENDING, BLOCKED] {
+    for f in [ENABLE, PENDING, BLOCKED] {
         let _ = fs::remove_file(moddir.join(f));
     }
-    let _ = fs::write(moddir.join(DISABLE), "");
 }
 
 pub fn reset(moddir: &Path) {
@@ -84,7 +82,7 @@ pub fn reset(moddir: &Path) {
 
 pub fn watch(moddir: &Path) {
     let mut w = Watch::default();
-    while !moddir.join(DISABLE).exists() {
+    while moddir.join(ENABLE).exists() {
         if !moddir.join(PENDING).exists() {
             w.reset();
             sleep_ms(POLL_IDLE_MS);
@@ -115,12 +113,11 @@ mod tests {
     #[test]
     fn state_follows_files() {
         let d = tmp("state");
-        assert_eq!(state(&d), "on");
-        touch(&d, PENDING);
-        assert_eq!(state(&d), "pending");
-        touch(&d, DISABLE);
         assert_eq!(state(&d), "off");
-        fs::remove_file(d.join(DISABLE)).unwrap();
+        touch(&d, PENDING);
+        assert_eq!(state(&d), "off");
+        touch(&d, ENABLE);
+        assert_eq!(state(&d), "pending");
         fs::remove_file(d.join(PENDING)).unwrap();
         assert_eq!(state(&d), "on");
         touch(&d, BLOCKED);
@@ -133,6 +130,7 @@ mod tests {
     #[test]
     fn pending_cleared_only_after_stable_same_pid() {
         let d = tmp("stable");
+        touch(&d, ENABLE);
         touch(&d, PENDING);
         let mut w = Watch::default();
         let p = || Some("100".to_string());
@@ -147,6 +145,7 @@ mod tests {
     #[test]
     fn pid_change_restarts_the_clock() {
         let d = tmp("pidchange");
+        touch(&d, ENABLE);
         touch(&d, PENDING);
         let mut w = Watch::default();
         assert!(!w.step(&d, 0, Some("100".into())));
@@ -161,6 +160,7 @@ mod tests {
     #[test]
     fn missing_system_server_never_confirms() {
         let d = tmp("nopid");
+        touch(&d, ENABLE);
         touch(&d, PENDING);
         let mut w = Watch::default();
         assert!(!w.step(&d, 0, Some("100".into())));
@@ -175,6 +175,7 @@ mod tests {
     #[test]
     fn blocked_drops_pending_without_waiting() {
         let d = tmp("blocked");
+        touch(&d, ENABLE);
         touch(&d, PENDING);
         touch(&d, BLOCKED);
         let mut w = Watch::default();
@@ -187,6 +188,7 @@ mod tests {
     #[test]
     fn no_pending_is_noop() {
         let d = tmp("noop");
+        touch(&d, ENABLE);
         let mut w = Watch::default();
         assert!(!w.step(&d, 0, Some("1".into())));
         assert!(!w.step(&d, 1000, Some("1".into())));
@@ -206,7 +208,7 @@ mod tests {
         touch(&d, PENDING);
         disable(&d);
         assert_eq!(state(&d), "off");
-        assert!(!d.join(PENDING).exists() && !d.join(BLOCKED).exists() && d.join(DISABLE).exists());
+        assert!(!d.join(PENDING).exists() && !d.join(BLOCKED).exists() && !d.join(ENABLE).exists());
         let _ = fs::remove_dir_all(&d);
     }
 }

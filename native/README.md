@@ -62,11 +62,10 @@ Target: 10 hook di `system_server` (`LocationProviderManager.onReportLocation`; 
 Default MATI. Tanpa file `enable_ls_system`, `system_server` berjalan persis seperti sebelum fase ini (AndroidVMTools, LSPlant tidak dimuat).
 
 ### Pengaman boot
-Semua penanda ada di folder modul. `SysGuard.arm` dipanggil di `premain()` (sebelum specialize), sebelum `libgpsz_hook.so` dimuat:
-1. `enable_ls_system` tidak ada: tidak ada yang disentuh, jalur lama.
-2. `ls_system_blocked` ada: jalur lama.
-3. `.ls_sys_pending` ada (percobaan sebelumnya tidak pernah dikonfirmasi): `ls_system_blocked` dibuat, jalur lama. Sesudahnya semua boot tetap jalur lama sampai `gpsz.sh ls-system reset` atau `on`.
-4. Selain itu `.ls_sys_pending` dibuat dulu, baru LSPlant dimuat. Kalau penanda tidak bisa ditulis (misalnya SELinux), LSPlant tidak dimuat (gagal tertutup).
+Semua penanda ada di folder modul. Penanda ditulis oleh `post-fs-data.sh` (root, sebelum zygote), bukan oleh `system_server`, karena proses yang di-fork dari zygote tidak boleh menulis di `/data/adb` (SELinux). `premain()` hanya membaca lewat `SysGuard.arm`:
+1. `post-fs-data.sh`: tanpa `enable_ls_system` tidak melakukan apa pun; `ls_system_blocked` ada: tidak melakukan apa pun; `.ls_sys_pending` ada (percobaan sebelumnya tidak pernah dikonfirmasi): membuat `ls_system_blocked` dan menghapus pending; selain itu membuat `.ls_sys_pending`.
+2. `SysGuard.arm`: tanpa `enable_ls_system` OFF; `ls_system_blocked` ada BLOCKED_NOW; `.ls_sys_pending` ada ARMED (LSPlant dimuat); selain itu FAILED (LSPlant tidak dimuat).
+3. `premain()` mencatat `system hook premain arm=<0..3> lsplant=<bool> err=<pesan>` ke `logcat -s GpsZ`, dan `SystemHooks` mencatat `system hook lpm=.. lms=.. gagal=..` setiap kali hasilnya berubah.
 
 Konfirmasi ada di daemon Rust (`daemon/src/lsguard.rs`, dijalankan dari `service.rs` hanya bila `enable_ls_system` ada): setelah `sys.boot_completed`, bila `.ls_sys_pending` ada dan PID `system_server` tidak berubah selama 60 detik, penanda dihapus. PID berubah (system_server mati dan dimulai ulang) menghitung ulang dari nol. Kalau `ls_system_blocked` ada, `.ls_sys_pending` dibuang tanpa menunggu.
 
@@ -80,7 +79,7 @@ Ketiganya dipanggil dari `cargo xtask test` (dua pertama) dan `cargo xtask build
 
 ### Batas dan risiko yang belum teruji
 - Belum dikompilasi untuk Android dan belum dijalankan di perangkat, sama seperti fase 4 sampai 6. Hook lewat LSPlant di `system_server` belum terbukti di ART.
-- Semua yang dibaca dan ditulis `premain()` (folder modul) bergantung pada izin SELinux proses yang sedang di-fork. Pembacaan sudah dipakai fase 4 sampai 6; penulisan `.ls_sys_pending` belum. Kalau ditolak, hasilnya LSPlant tidak dimuat di `system_server` (aman, tetapi fase ini tidak akan pernah aktif). `gpsz.sh ls-system status` akan menunjukkan `on` tanpa pernah `pending`.
+- Semua yang dibaca dan ditulis `premain()` (folder modul) bergantung pada izin SELinux proses yang sedang di-fork. Pembacaan sudah dipakai fase 4 sampai 6; penulisan `.ls_sys_pending` belum. Sejak 12m penulisan dipindah ke `post-fs-data.sh`; `premain()` hanya membaca.
 - Pengaman hanya menutup crash dalam 60 detik pertama sesudah `boot_completed` dan sebelum itu. Crash `system_server` yang terjadi lebih lama sesudah dinyatakan stabil tidak memblokir apa pun.
 - Reboot manual dalam 60 detik pertama sesudah boot selesai meninggalkan `.ls_sys_pending`, sehingga boot berikutnya memblokir (jalur lama). Pulihkan dengan `gpsz.sh ls-system reset`.
 - LSPlant dan AndroidVMTools bisa hidup bersamaan di `system_server` hanya lewat jalur cadangan per method (mode `partial`).

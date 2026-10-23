@@ -18,7 +18,7 @@ public final class Check {
     }
 
     private static int arm() {
-        return SysGuard.arm(f(SysGuard.DISABLE), f(SysGuard.PENDING), f(SysGuard.BLOCKED));
+        return SysGuard.arm(f(SysGuard.ENABLE), f(SysGuard.PENDING), f(SysGuard.BLOCKED));
     }
 
     private static void touch(String n) throws Exception {
@@ -26,62 +26,44 @@ public final class Check {
     }
 
     private static void clean() {
-        for (String n : new String[]{SysGuard.DISABLE, SysGuard.PENDING, SysGuard.BLOCKED}) f(n).delete();
+        for (String n : new String[]{SysGuard.ENABLE, SysGuard.PENDING, SysGuard.BLOCKED}) f(n).delete();
     }
 
     public static void main(String[] args) throws Throwable {
         dir = Files.createTempDirectory("sysguard").toFile();
         try {
-            System.out.println("[dimatikan lewat disable_ls_system]");
+            System.out.println("[tanpa opt-in]");
             clean();
-            touch(SysGuard.DISABLE);
-            expect("disable_ls_system ada -> OFF", arm() == SysGuard.OFF);
-            expect("tidak ada file yang dibuat", !f(SysGuard.PENDING).exists() && !f(SysGuard.BLOCKED).exists());
+            expect("enable_ls_system tidak ada -> OFF", arm() == SysGuard.OFF);
             touch(SysGuard.PENDING);
             touch(SysGuard.BLOCKED);
-            expect("sisa penanda saat dimatikan tetap OFF dan tidak diubah", arm() == SysGuard.OFF && f(SysGuard.PENDING).exists());
+            expect("sisa penanda tanpa opt-in tetap OFF dan tidak diubah", arm() == SysGuard.OFF && f(SysGuard.PENDING).exists());
 
-            System.out.println("[boot pertama]");
+            System.out.println("[penanda ditulis post-fs-data, dibaca premain]");
             clean();
-            expect("default tanpa penanda -> ARMED", arm() == SysGuard.ARMED);
-            expect("penanda pending dibuat sebelum LSPlant dimuat", f(SysGuard.PENDING).exists());
-            expect("blokir belum dibuat", !f(SysGuard.BLOCKED).exists());
-
-            System.out.println("[boot kedua tanpa konfirmasi]");
-            expect("pending masih ada (boot sebelumnya gagal) -> BLOCKED_NOW", arm() == SysGuard.BLOCKED_NOW);
-            expect("blokir permanen dibuat", f(SysGuard.BLOCKED).exists());
-            expect("percobaan ketiga juga diblokir", arm() == SysGuard.BLOCKED_NOW);
-            f(SysGuard.PENDING).delete();
-            expect("blokir bertahan walau pending dihapus watcher", arm() == SysGuard.BLOCKED_NOW);
-
-            System.out.println("[boot kedua setelah konfirmasi]");
-            clean();
-            expect("boot 1 ARMED", arm() == SysGuard.ARMED);
-            f(SysGuard.PENDING).delete();
-            expect("pending dihapus (stabil) -> boot 2 ARMED lagi", arm() == SysGuard.ARMED);
-
-            System.out.println("[reset dan off]");
-            f(SysGuard.BLOCKED).delete();
-            f(SysGuard.PENDING).delete();
-            expect("setelah reset -> ARMED", arm() == SysGuard.ARMED);
-            touch(SysGuard.DISABLE);
-            expect("dimatikan -> OFF", arm() == SysGuard.OFF);
-
-            System.out.println("[gagal menulis: gagal tertutup]");
-            clean();
-            File ghost = new File(dir, "tidak-ada/.ls_sys_pending");
-            expect("tidak bisa membuat pending -> FAILED, bukan ARMED",
-                    SysGuard.arm(f(SysGuard.DISABLE), ghost, f(SysGuard.BLOCKED)) == SysGuard.FAILED);
-            File asDir = f("pending-dir");
-            asDir.mkdir();
-            expect("jalur pending berupa folder -> tidak pernah ARMED",
-                    SysGuard.arm(f(SysGuard.DISABLE), asDir, f(SysGuard.BLOCKED)) != SysGuard.ARMED);
-            f(SysGuard.BLOCKED).delete();
-            expect("File null tidak melempar -> FAILED", SysGuard.arm(f(SysGuard.DISABLE), null, f(SysGuard.BLOCKED)) == SysGuard.FAILED);
-            File ghostBlocked = new File(dir, "tidak-ada/blocked");
+            touch(SysGuard.ENABLE);
+            expect("opt-in tanpa pending (post-fs-data belum jalan) -> FAILED", arm() == SysGuard.FAILED);
+            expect("premain tidak menulis apa pun", !f(SysGuard.PENDING).exists() && !f(SysGuard.BLOCKED).exists());
             touch(SysGuard.PENDING);
-            expect("pending ada tapi blokir tidak bisa ditulis -> tetap BLOCKED_NOW",
-                    SysGuard.arm(f(SysGuard.DISABLE), f(SysGuard.PENDING), ghostBlocked) == SysGuard.BLOCKED_NOW);
+            expect("opt-in + pending -> ARMED", arm() == SysGuard.ARMED);
+            expect("membaca berulang tidak mengubah file", arm() == SysGuard.ARMED && f(SysGuard.PENDING).exists());
+
+            System.out.println("[blokir]");
+            touch(SysGuard.BLOCKED);
+            expect("blokir menang atas pending -> BLOCKED_NOW", arm() == SysGuard.BLOCKED_NOW);
+            f(SysGuard.PENDING).delete();
+            expect("blokir bertahan tanpa pending", arm() == SysGuard.BLOCKED_NOW);
+            f(SysGuard.BLOCKED).delete();
+            touch(SysGuard.PENDING);
+            expect("setelah reset + pending baru -> ARMED", arm() == SysGuard.ARMED);
+            f(SysGuard.ENABLE).delete();
+            expect("opt-in dicabut -> OFF", arm() == SysGuard.OFF);
+
+            System.out.println("[gagal baca: gagal tertutup]");
+            clean();
+            touch(SysGuard.ENABLE);
+            expect("File null tidak melempar -> FAILED", SysGuard.arm(f(SysGuard.ENABLE), null, f(SysGuard.BLOCKED)) == SysGuard.FAILED);
+            expect("enable null tidak melempar -> FAILED", SysGuard.arm(null, f(SysGuard.PENDING), f(SysGuard.BLOCKED)) == SysGuard.FAILED);
         } finally {
             for (File x : dir.listFiles()) x.delete();
             dir.delete();

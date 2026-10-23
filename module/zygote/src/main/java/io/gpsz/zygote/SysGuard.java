@@ -3,7 +3,7 @@ package io.gpsz.zygote;
 import java.io.File;
 
 final class SysGuard {
-    static final String DISABLE = "disable_ls_system";
+    static final String ENABLE = "enable_ls_system";
     static final String PENDING = ".ls_sys_pending";
     static final String BLOCKED = "ls_system_blocked";
 
@@ -12,26 +12,13 @@ final class SysGuard {
     static final int BLOCKED_NOW = 2;
     static final int FAILED = 3;
 
-    static int arm(File off, File pending, File blocked) {
+    static int arm(File enable, File pending, File blocked) {
         try {
-            if (off.exists()) return OFF;
+            if (!enable.exists()) return OFF;
             if (blocked.exists()) return BLOCKED_NOW;
-            if (pending.exists()) {
-                create(blocked);
-                return BLOCKED_NOW;
-            }
-            return create(pending) ? ARMED : FAILED;
+            return pending.exists() ? ARMED : FAILED;
         } catch (Throwable t) {
             return FAILED;
-        }
-    }
-
-    private static boolean create(File f) {
-        try {
-            f.createNewFile();
-            return f.exists();
-        } catch (Throwable t) {
-            return false;
         }
     }
 
