@@ -38,7 +38,6 @@
     <string name="delete_favourite_item">Hapus favorit</string>
     <string name="title_activity_settings">Pengaturan</string>
 
-    <string name="route_options">Opsi rute</string>
     <string name="route_channel_name">Simulasi rute</string>
     <string name="route_running">Mengikuti rute…</string>
     <string name="route_stop">Berhenti</string>

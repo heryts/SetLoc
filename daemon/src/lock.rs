@@ -1,4 +1,4 @@
-use crate::sys::{is_self_cmd, uptime_cs};
+use crate::sys::{is_self_cmd, sleep_ms, uptime_cs};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -56,24 +56,22 @@ impl Lock {
         false
     }
 
-    fn clean(&self) {
+    pub fn tidy(&self) {
+        let me = self.pid.to_string();
         for (n, p) in pid_files(&self.dir) {
-            if n != self.pid.to_string() && !is_self_cmd(&n, "daemon") {
+            if n != me && !is_self_cmd(&n, "daemon") {
                 let _ = fs::remove_file(p);
             }
         }
-    }
-
-    pub fn tidy(&self) {
-        self.clean();
     }
 
     pub fn fast(&self) -> bool {
         if !self.own().is_file() {
             self.reg();
         }
+        let me = self.pid.to_string();
         for (n, p) in pid_files(&self.dir) {
-            if n == self.pid.to_string() || !Path::new(&format!("/proc/{}", n)).is_dir() {
+            if n == me || !Path::new(&format!("/proc/{}", n)).is_dir() {
                 continue;
             }
             let k: i64 = match fs::read_to_string(&p).ok().and_then(|s| s.lines().next().and_then(|l| l.trim().parse().ok())) {
@@ -93,8 +91,8 @@ impl Lock {
         if !self.reg() {
             return false;
         }
-        crate::sys::sleep_ms(300);
-        self.clean();
+        sleep_ms(300);
+        self.tidy();
         if self.fast() {
             return true;
         }

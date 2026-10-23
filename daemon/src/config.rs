@@ -92,7 +92,7 @@ pub fn derive(px: &str, pref: &Path, cur_bc: &str, trk_disabled: bool) -> Option
     }
     let rnd = fval(px, "boolean", "random_position").map_or(true, |v| v == "true");
     let acc = match fstr(px, "accuracy_settings") {
-        Some(a) if !a.is_empty() && a.bytes().all(|b| b.is_ascii_digit() || b == b'.') => a.to_string(),
+        Some(a) if numok(a) && a.bytes().all(|b| b.is_ascii_digit() || b == b'.') => a.to_string(),
         _ => "10".to_string(),
     };
     if lat.is_empty() { lat = DEFAULT_LAT.into(); }
@@ -251,6 +251,13 @@ mod tests {
         let a = route_apply(&d.base, rt, 5000);
         assert_eq!((a.lat.as_str(), a.idx), ("11", 3));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn invalid_accuracy_falls_back() {
+        let px = PX.replace(">12<", ">1.2.3<");
+        let d = derive(&px, Path::new("/x/shared_prefs/p.xml"), "1", false).unwrap();
+        assert_eq!(d.base.acc, "10");
     }
 
     #[test]

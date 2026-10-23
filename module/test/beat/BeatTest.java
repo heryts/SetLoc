@@ -7,7 +7,7 @@ public class BeatTest {
   static String sget(String k){ return Config.dec(android.provider.Settings.Global.store.get(Config.tag(k))); }
   static void poll(long t,String cfg,String beat){ SystemClock.fake=t; Config.parse(cfg); Config.checkBeat(beat); }
   public static void main(String[] x){
-    for(String[] w:new String[][]{{"WIRE_PLAIN","WIRE_HEX"},{"WIRE_PLAIN5","WIRE_HEX5"}}){ String pl=System.getenv(w[0]), hx=System.getenv(w[1]); if(pl==null||hx==null||pl.isEmpty()||hx.isEmpty()){ fails++; System.out.println("FAIL interop: "+w[0]+"/"+w[1]+" tidak diisi dari bridge.sh"); } else eq("interop: nilai beat bridge.sh terbaca Config.dec ("+pl+")",Config.dec(hx),pl); }
+    for(String[] w:new String[][]{{"WIRE_PLAIN","WIRE_HEX"},{"WIRE_PLAIN5","WIRE_HEX5"}}){ String pl=System.getenv(w[0]), hx=System.getenv(w[1]); if(pl==null||hx==null||pl.isEmpty()||hx.isEmpty()){ fails++; System.out.println("FAIL interop: "+w[0]+"/"+w[1]+" tidak diisi dari .salt"); } else eq("interop: nilai beat daemon terbaca Config.dec ("+pl+")",Config.dec(hx),pl); }
     String PL="enabled=1;lat=-7.7;lng=110.4;acc=10;random=0;spd=33.0;alt=1;altv=0;rr=8;brg=30;pl=1";
     String SP="enabled=1;lat=-7.7;lng=110.4;acc=10;random=1;spd=0;alt=1;altv=0;rr=8";
     long t=1000;
@@ -60,8 +60,7 @@ public class BeatTest {
     eq("input tidak valid: lat/lng di luar rentang diabaikan",Config.pos.lat==-7.7&&Config.pos.lng==110.4,true);
     eq("input tidak valid: acc NaN diabaikan",Config.accNow(null)==10f,true);
     { String ck=Config.KEY+","+Config.KEY_SYS+","+Config.KEY_BEAT+","+Config.KEY_TRK+","+Config.KEY_NET+","+Config.KEY_BT+",";
-      eq("kunci Config sama dengan bridge.sh",ck,System.getenv("BRIDGE_KEYS"));
-      eq("kunci Config sama dengan gpsz.sh",ck,System.getenv("GPSZ_KEYS")); }
+      eq("kunci Config sama dengan daemon",ck,System.getenv("DAEMON_KEYS")); }
     { String base=";acc=10;random=0";
       Config.parse("enabled=1;lat=-7.7;lng=110.4"+base);
       Config.parse("enabled=1;lat=90.5;lng=180.5"+base);

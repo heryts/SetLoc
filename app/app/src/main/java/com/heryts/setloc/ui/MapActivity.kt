@@ -283,7 +283,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         }
         val pin = mLatLng
         if (routeWaypoints.isEmpty() && mMarker?.isVisible == true && pin != null &&
-            RouteClient.MAX_POINTS >= 2 && metersBetween(pin, latLng) >= 5f
+            metersBetween(pin, latLng) >= 5f
         ) {
             addRouteStop(pin, quiet = true)
         }

@@ -17,9 +17,7 @@ class SavedRoute(
 object SavedRouteStore {
     private const val FILE = "setloc_saved_routes"
     private const val KEY = "list"
-    private const val KEY_BAD = "list_bad"
     private const val KEY_NEXT = "next_id"
-    private const val KEEP_BAD = 3
 
     private val lock = Any()
     private val state = MutableStateFlow<List<SavedRoute>>(emptyList())
@@ -35,7 +33,7 @@ object SavedRouteStore {
             if (loaded) return
             val raw = sp.getString(KEY, null)
             val parsed = if (raw != null) parse(raw) else emptyList()
-            if (parsed == null) stashBad(raw)
+            if (parsed == null) stashBad(sp, raw)
             val list = parsed ?: emptyList()
             nextId = maxOf((list.maxOfOrNull { it.id } ?: 0L) + 1, sp.getLong(KEY_NEXT, 1L))
             state.value = list
@@ -60,19 +58,6 @@ object SavedRouteStore {
             val list = state.value.filterNot { it.id == route.id }
             if (save(list, nextId)) state.value = list
         }
-    }
-
-    private fun stashBad(raw: String?) {
-        val prefs = sp
-        val legacy = prefs.getString(KEY_BAD, null)
-        val legacyKey = "${KEY_BAD}_0"
-        val keys = prefs.all.keys.filter { it.startsWith("${KEY_BAD}_") }.toMutableSet()
-        if (legacy != null) keys.add(legacyKey)
-        val drop = keys.sorted().dropLast(KEEP_BAD - 1).toSet()
-        val e = prefs.edit()
-        if (legacy != null && legacyKey !in drop) e.putString(legacyKey, legacy)
-        drop.forEach { e.remove(it) }
-        e.putString("${KEY_BAD}_${System.currentTimeMillis()}", raw).remove(KEY_BAD).remove(KEY).commit()
     }
 
     private fun save(list: List<SavedRoute>, next: Long): Boolean {

@@ -77,7 +77,7 @@ Hasilnya `module/zygote/build/outputs/magisk/release/SetLocZygisk-release.zip`.
 
 ## Struktur
 - `app/` app Android (peta, favorit, rute, pengaturan)
-- `module/` modul Zygisk: hook Java, daemon `bridge.sh`, CLI `gpsz.sh`, WebUI
+- `module/` modul Zygisk: hook Java, daemon dan CLI `setlocd` (Rust, dipanggil lewat `bridge.sh`/`gpsz.sh`), WebUI
 - `module/test/run.sh` uji sandbox untuk skrip dan `Config`
 
 ## Kredit
