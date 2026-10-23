@@ -9,9 +9,13 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{exit, Command, Stdio};
+use std::thread;
 
 type R<T> = Result<T, String>;
 
+const PIN: &str = "6fa2d5cbbf51c96fb81a9b5d96fdd74beac4aafe";
+const VMTOOLS_URL: &str = "https://github.com/aerath-stuff/AndroidVMTools";
+const VMTOOLS_DIR: &str = "module/external/AndroidVMTools";
 const MODULE_ZIP: &str = "module/zygote/build/outputs/magisk/release/SetLocZygisk-release.zip";
 
 fn main() {
@@ -22,9 +26,10 @@ fn main() {
             Some(z) => update(z),
             None => enter_root().and_then(|_| build()),
         },
+        Some("setup") => enter_root().and_then(|_| setup_vmtools().map(|m| println!("{}", m))),
         Some("keystore") => keystore_cmd(&args[1..]),
         Some("test") => enter_root().and_then(|_| harness::run(&args[1..])),
-        _ => Err("pakai: cargo xtask build | update [zip-atau-folder] | keystore <key.pem> <cert.pem> [out.p12] | test [bagian...]".into()),
+        _ => Err("pakai: cargo xtask build | setup | update [zip-atau-folder] | keystore <key.pem> <cert.pem> [out.p12] | test [bagian...]".into()),
     };
     if let Err(e) = res {
         eprintln!("GAGAL: {}", e);
@@ -175,6 +180,38 @@ fn find_ndk() -> R<PathBuf> {
     Err("NDK Android tidak ditemukan. Pasang lewat SDK Manager atau set ANDROID_NDK_HOME.".into())
 }
 
+fn git_rev(d: &Path) -> Option<String> {
+    out_of(Command::new("git").arg("-C").arg(d).args(["rev-parse", "HEAD"]))
+}
+
+fn vmtools_complete(d: &Path) -> bool {
+    git_rev(d).as_deref() == Some(PIN) && d.join("gradle/libs.versions.toml").is_file() && d.join("src/main/java").is_dir()
+}
+
+fn setup_vmtools() -> R<String> {
+    let d = Path::new(VMTOOLS_DIR);
+    if vmtools_complete(d) {
+        return Ok(format!("ok (AndroidVMTools @ {}, sudah ada)", PIN));
+    }
+    let q = |args: &[&str]| -> R<()> {
+        status(Command::new("git").arg("-C").arg(d).args(args).stdout(Stdio::null()), &format!("git {}", args.join(" ")))
+    };
+    if git_rev(d).as_deref() == Some(PIN) && q(&["reset", "-q", "--hard", PIN]).is_ok() && vmtools_complete(d) {
+        return Ok(format!("ok (AndroidVMTools @ {}, dipulihkan)", PIN));
+    }
+    if !d.join(".git").exists() {
+        fs::create_dir_all(d).map_err(|e| format!("mkdir {}: {}", d.display(), e))?;
+        q(&["init", "-q"])?;
+        q(&["remote", "add", "origin", VMTOOLS_URL])?;
+    }
+    q(&["fetch", "--depth", "1", "origin", PIN])?;
+    q(&["checkout", "-q", "-f", "FETCH_HEAD"])?;
+    if !vmtools_complete(d) {
+        return Err(format!("AndroidVMTools tidak lengkap di {}", d.display()));
+    }
+    Ok(format!("ok (AndroidVMTools @ {})", PIN))
+}
+
 fn target_info(t: &str) -> R<(&'static str, &'static str)> {
     match t {
         "aarch64-linux-android" => Ok(("arm64-v8a", "aarch64-linux-android33-clang")),
@@ -310,20 +347,26 @@ fn build() -> R<()> {
         fs::write("app/local.properties", keep.join("\n") + "\n").map_err(|e| format!("local.properties: {}", e))?;
     }
 
-    println!("== 1/3 build app ==");
+    let setup = thread::spawn(setup_vmtools);
+
+    println!("== 1/4 build app ==");
     let tasks: &[&str] = if skip_tests { &["assembleRelease"] } else { &["testDebugUnitTest", "assembleRelease"] };
     gradle("app", &jdk, tasks)?;
     let apk = newest_apk().ok_or("APK rilis tidak ditemukan")?;
     fs::create_dir_all("module/zygote/src/main/assets/apk").map_err(|e| e.to_string())?;
     fs::copy(&apk, "module/zygote/src/main/assets/apk/SetLoc.apk").map_err(|e| format!("salin APK: {}", e))?;
 
-    println!("== 2/3 build daemon Rust ==");
+    println!("== 2/4 build daemon Rust ==");
     build_daemon(skip_tests).map_err(|e| format!("daemon Rust: {}", e))?;
 
-    println!("== 2b/3 build native Rust (configcore, lochooks) ==");
+    println!("== 2b/4 build native Rust (configcore, lochooks) ==");
     build_native(skip_tests).map_err(|e| format!("native Rust: {}", e))?;
 
-    println!("== 3/3 build modul Zygisk ==");
+    println!("== 3/4 siapkan AndroidVMTools ==");
+    let msg = setup.join().map_err(|_| "thread setup panik".to_string())??;
+    println!("{}", msg);
+
+    println!("== 4/4 build modul Zygisk ==");
     gradle("module", &jdk, &["--no-configuration-cache", ":zygote:assembleRelease"])?;
     if !Path::new(MODULE_ZIP).is_file() {
         return Err(format!("{} tidak ada", MODULE_ZIP));

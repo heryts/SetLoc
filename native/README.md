@@ -1,6 +1,6 @@
 # native/
 
-> Catatan: Fase 1-11 di bawah menggambarkan keadaan saat fase itu dikerjakan. Penyebutan "jalur lama", `Hooks.hook`, dan AndroidVMTools sudah usang sejak Fase 12 (lihat bagian terakhir).
+> Catatan: Fase 1-11 di bawah menggambarkan keadaan saat fase itu dikerjakan. Pembuangan jalur lama dan AndroidVMTools di Fase 12 dibalik sebagian di Fase 13: AndroidVMTools kembali, hanya untuk `system_server` (lihat bagian terakhir).
 
 Status: `configcore` dan `lochooks` sudah dikompilasi dan diuji di host (cargo test, paritas Java vs Rust, dan JNI lewat JVM). `hook/` (Fase 4) lolos cek sintaks terhadap header asli LSPlant dan ShadowHook, dan logika Java-nya diuji di JVM dengan mesin hook palsu. Fase 5 dan 6 memindahkan `LocationHooks` dan `SettingsGuard` ke jalur LSPlant, dan Fase 7 `SystemHooks` (opt-in, di `system_server`); semuanya diuji di JVM dengan mesin hook palsu yang sama. Fase 8 menyambungkan `ConfigNative` dan `LocationNative` ke `Config` dan `Fix`, dengan cadangan ke Java. Fase 9 menambah ekspor JNI `parse`, `parseTrack`, `applyTrack`, dan beat di `configcore` dan menyambungkannya ke `Config`, dengan cadangan ke Java. Fase 11 memindahkan bagian murni `GnssFake` (kumpulan satelit, snapshot, kalimat NMEA, angka measurements) ke `lochooks`, dengan cadangan ke Java. Belum ada yang dikompilasi untuk target Android atau diuji di perangkat.
 
@@ -56,7 +56,7 @@ Target: 14 hook di `SettingsGuard` (kunci modul di `Settings.NameValueCache`, `C
 - Pemanggilan `Settings.NameValueCache.getStringForUser` sangat sering. Overhead alokasi/refleksi LSPlant per panggilan lebih besar daripada jalur lama; belum diukur di perangkat.
 - `ProcessBuilder.start` adalah method inti libcore; hook LSPlant di sana (di proses aplikasi) belum diuji di ART.
 
-## SystemHooks di LSPlant (Fase 7)
+## SystemHooks di LSPlant (Fase 7, dibuang di Fase 13)
 Target: 10 hook di `system_server` (`LocationProviderManager.onReportLocation`; di `LocationManagerService`: `getLastLocation`, `injectLocation`, daftar/hapus pendengar GNSS, blokir batching dan navigation message) memakai adaptor `Frames` yang sama. Perubahan di `SystemHooks.java` mekanis (`frame.accessor().getReference(i)` jadi `frame.get(i)`, `setValue(RETURN_VALUE_IDX, x)` jadi `set(Frames.RET, x)`, `invokeExactNoChecks` jadi `original.invoke()`); logika dan urutan cabang tidak berubah. Pemasangan lewat `Frames.hook(m, LsNative.sysEnabled(), tx)`, jadi tiap method yang gagal lewat LSPlant jatuh ke jalur lama sendiri.
 
 Default MATI. Tanpa file `enable_ls_system`, `system_server` berjalan persis seperti sebelum fase ini (AndroidVMTools, LSPlant tidak dimuat).
@@ -236,7 +236,7 @@ Perubahan kecil di Java agar bisa diuji: `Config.gnssExtras()` sekarang memanggi
 1. Jalankan `cargo xtask test` dan `cargo xtask test parity` di mesin build kamu (butuh cargo dan java).
 2. Untuk Android: `cargo build --release --target aarch64-linux-android` di `native/lochooks` dan `native/configcore`, taruh `.so` di `jniLibs`, lalu uji `LocationNative.ensureLoaded()` di perangkat cadangan sebelum menyambungkan ke `LocationHooks`, `Fix`, atau `Config`.
 3. Bangun modul lewat `cargo xtask build` (sekarang juga membangun `configcore` dan `lochooks` untuk Android; lihat Fase 8) (Gradle mengunduh LSPlant dan ShadowHook, NDK membangun `libgpsz_hook.so`), flash di perangkat cadangan, lalu cek `logcat` dan `gpsz.sh doctor`. Untuk mematikan library Rust tanpa membangun ulang, buat file `disable_rs` di folder modul. Untuk mematikan jalur LSPlant tanpa membangun ulang, buat file `disable_ls` di folder modul (atau `disable_ls_loc` untuk `LocationHooks` saja).
-4. Untuk mencoba Fase 7 (hanya setelah fase 5 dan 6 terbukti stabil): `gpsz.sh ls-system on`, reboot, lalu `gpsz.sh ls-system status` (harus `on` setelah sekitar 60 detik, bukan `pending` atau `blocked`) dan `logcat -s GpsZ`. Kalau boot gagal, reboot sekali lagi: percobaan kedua otomatis diblokir dan jalur lama dipakai.
+4. Fase 7 (LSPlant di `system_server`) sudah dibuang di Fase 13; `gpsz.sh ls-system` tidak ada lagi. Cek `gpsz.sh system status` dan `logcat -s GpsZ` untuk jumlah hook `system_server`.
 
 ## Fase 10: skrip dipindah ke xtask
 `make-keystore.sh`, `setup.sh`, `update.sh`, dan harness tes shell (`module/test/run.sh` serta `run.sh` di tiap subfolder) diganti perintah `cargo xtask` (Rust, tanpa dependensi):
@@ -269,3 +269,23 @@ Pengujian:
 - Suite Java `lochook`, `setguard`, `syshook` (4 mode), `lshook`, `sysguard` dijalankan manual dengan javac JDK dan lolos; `beat`/`parity` dikompilasi tanpa error.
 
 Belum diverifikasi di lingkungan ini: kode `tools/xtask` yang diedit (tidak ada cargo di sini; hanya diedit hati-hati, belum dikompilasi) dan build Gradle penuh. Jalankan `cargo xtask test` lalu `cargo xtask build` di mesin build.
+
+## Fase 13: system_server kembali ke AndroidVMTools
+Alasan: di perangkat dengan LSPosed aktif, LSPlant dan ShadowHook milik modul ini di-load di `system_server` bersamaan dengan LSPlant milik LSPosed, dan boot macet di `Zygote:Preload End` (tanpa crash dan tanpa tombstone). Tanpa LSPosed boot normal dan heartbeat terdeteksi, jadi penyebabnya benturan dua mesin LSPlant. Phase 11 aman karena `system_server` memakai AndroidVMTools.
+
+Dikembalikan dari phase 11: `LegacyFrame.java`, modul Gradle `module/unsafe` dan `module/stub`, version catalog `androidvmtools`, source set `external/AndroidVMTools`, `cargo xtask setup` (dan langkah "siapkan AndroidVMTools" di `cargo xtask build`, kini 4 langkah), suite `unsafe`.
+
+Perubahan:
+- `SystemHooks` memasang hook lewat `Frames.hookSys` -> `LegacyFrame` (AndroidVMTools). Tidak memakai `LsNative`, `LsHook`, atau `Frames.hook`. Pencarian method dan field kembali memakai `com.v7878.unsafe.Reflection` sebagai cadangan.
+- `LegacyFrame` hanya menandai mesin rusak bila kelasnya gagal dimuat (`LinkageError`). Method yang gagal dihook tidak lagi mematikan pemasangan method lain.
+- Hook di app (`LocationHooks`, `SettingsGuard`, `PackageGuardLs`) tetap LSPlant saja; AndroidVMTools tidak disentuh di proses app.
+- `ZygoteEntry.premain()` tidak memuat library apa pun di `system_server` (LSPlant, ShadowHook, dan Rust). Config dan Fix di `system_server` memakai jalur Java.
+- Dibuang: `SysGuard`, `post-fs-data.sh` (penanda `.ls_sys_pending`, `ls_system_blocked`, `enable_ls_system`), `daemon/src/lsguard.rs` dan pemantau 60 detik di `service.rs`, perintah `gpsz.sh ls-system`, test `sysguard`. Pengaman itu hanya dibutuhkan selama LSPlant dimuat di `system_server`.
+- Dipertahankan: log `system hook lpm=.. lms=.. heartbeat=..` di `logcat -s GpsZ`, yang dibaca `gpsz.sh system status` dan `doctor`.
+
+Pengujian:
+- `cargo xtask test syshook`: tiga mode dengan mesin AndroidVMTools palsu: `ok` (10 hook, perilaku sama dengan sebelumnya), `broken` (kelas mesin tidak termuat: nol hook, tanpa crash), `partial` (satu method gagal, `onReportLocation` tidak terpasang, tidak dilaporkan hidup).
+- `cargo xtask test struktur` memeriksa AndroidVMTools hanya dirujuk `SystemHooks`, `Frames.hookSys`, `LegacyFrame`; `SystemHooks` tidak menyentuh `LsNative` atau `Frames.hook`; `premain()` tidak memuat library di `system_server`.
+- `cargo test` di `daemon/`: 13 tes lulus (7 tes `lsguard` dihapus bersama modulnya).
+
+Belum diverifikasi: build Gradle penuh (butuh `cargo xtask setup` untuk mengunduh AndroidVMTools pin `6fa2d5c`), build NDK, dan jalannya di perangkat. Memuat Rust di `system_server` sengaja tidak dicoba lagi sampai Fase 13 terbukti stabil di perangkat.
