@@ -44,6 +44,7 @@ final class PackageGuardLs {
     private static final int PERMISSION_DENIED = -1;
 
     static boolean install() {
+        if (ZygoteEntry.isSelf()) return false;
         if (!LsNative.isReady()) return false;
         hookFiles();
         try {

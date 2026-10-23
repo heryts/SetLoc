@@ -1,5 +1,4 @@
 import com.v7878.zygisk.gradle.ZygoteLoader
-import kotlin.io.path.Path
 import java.util.Properties
 
 plugins {
@@ -38,14 +37,6 @@ android {
     externalNativeBuild {
         cmake {
             path = file("../../native/hook/CMakeLists.txt")
-        }
-    }
-
-    sourceSets {
-        getByName("main") {
-            java {
-                directories.add(Path(rootDir.path, "external", "AndroidVMTools", "src", "main", "java").toString())
-            }
         }
     }
 
@@ -93,18 +84,8 @@ zygisk {
     isAddVariantToArchiveName = true
 }
 
-configurations.configureEach {
-    exclude(group = "io.github.vova7878", module = "SunUnsafeWrapper")
-}
-
 dependencies {
-    implementation(project(":unsafe"))
     implementation(libs.r8annotations)
     implementation(libs.lsplant)
     implementation(libs.shadowhook)
-
-    api(androidvmtools.panama.core)
-    api(androidvmtools.panama.unsafe)
-    api(androidvmtools.panama.llvm)
-    implementation(androidvmtools.sun.cleaner)
 }

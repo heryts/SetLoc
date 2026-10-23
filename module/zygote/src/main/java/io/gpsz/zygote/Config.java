@@ -8,8 +8,6 @@ import android.os.HandlerThread;
 import android.os.SystemClock;
 import android.provider.Settings;
 
-import com.v7878.unsafe.Reflection;
-
 import java.io.FileInputStream;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
@@ -791,12 +789,7 @@ final class Config {
     private static Application currentApplication() {
         try {
             Class<?> at = Class.forName("android.app.ActivityThread");
-            Method m;
-            try {
-                m = at.getDeclaredMethod("currentApplication");
-            } catch (Throwable t) {
-                m = Reflection.getDeclaredMethod(at, "currentApplication");
-            }
+            Method m = at.getDeclaredMethod("currentApplication");
             m.setAccessible(true);
             return (Application) m.invoke(null);
         } catch (Throwable t) {

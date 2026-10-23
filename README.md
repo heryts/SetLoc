@@ -26,7 +26,7 @@ Mode spoof:
 | System-wide | Semua app mendapat lokasi palsu |
 | Heartbeat | Sistem mengulang lokasi asli tiap 1 detik agar app yang menunggu callback (mis. Google Maps) tetap menerima pembaruan. App di daftar tetap dipalsukan, app lain tidak |
 
-System-wide dan Heartbeat butuh reboot kalau belum aktif. Kalau terjadi bootloop, buat file `disable` di folder modul dari recovery. Untuk mematikan hook native LSPlant saja (penyembunyian paket kembali ke jalur lama), buat file `disable_ls` di folder modul. Untuk mematikan LSPlant hanya pada `LocationHooks` (PackageGuard tetap LSPlant), buat file `disable_ls_loc`, dan untuk `SettingsGuard` saja `disable_ls_set`. Untuk mematikan library Rust (`configcore`, `lochooks`) dan kembali ke hitungan Java, buat file `disable_rs`. `SystemHooks` di `system_server` tetap memakai jalur lama kecuali Anda memilihnya sendiri: `gpsz.sh ls-system on`, lalu reboot (lihat `native/README.md`, Fase 7).
+System-wide dan Heartbeat butuh reboot kalau belum aktif. Kalau terjadi bootloop, buat file `disable` di folder modul dari recovery. Untuk mematikan semua hook LSPlant di app dan `system_server` (tidak ada jalur cadangan lagi, jadi modul praktis tidak memalsukan apa pun), buat file `disable_ls` di folder modul. Untuk mematikan hook `LocationHooks` saja (penyembunyian paket dan `SettingsGuard` tetap jalan), buat file `disable_ls_loc`, dan untuk `SettingsGuard` saja `disable_ls_set`. Untuk mematikan library Rust (`configcore`, `lochooks`) dan kembali ke hitungan Java, buat file `disable_rs`. `SystemHooks` di `system_server` tidak dipasang kecuali Anda memilihnya sendiri: `gpsz.sh ls-system on`, lalu reboot (lihat `native/README.md`, Fase 7).
 
 Saat memutar rute, daemon menulis jendela 24 detik (`gpsz_trk`) dan hook menginterpolasi posisi sendiri, jadi Settings hampir tidak ditulis selama rute berjalan. Kalau ada masalah, buat file `disable_trk` di folder modul untuk kembali ke mode lama (satu tulis per tick).
 
@@ -62,7 +62,7 @@ sh /data/adb/modules/setloc_zygisk/gpsz.sh pkg all on|off
 `pkg all on` menyuntikkan modul ke semua app. Pakai hati-hati.
 
 ## Build
-Butuh satu JDK 21 (dipakai app dan modul), Rust (`cargo`), Android NDK, `git`, dan koneksi internet (AndroidVMTools di-clone dan dependensi Gradle diunduh). Semua langkah build dijalankan oleh `tools/xtask` (Rust), bukan skrip shell.
+Butuh satu JDK 21 (dipakai app dan modul), Rust (`cargo`), Android NDK, `git`, dan koneksi internet (dependensi Gradle diunduh). Semua langkah build dijalankan oleh `tools/xtask` (Rust), bukan skrip shell.
 
 ```
 MAPS_API_KEY=... cargo xtask build
@@ -75,7 +75,6 @@ Hasilnya `module/zygote/build/outputs/magisk/release/SetLocZygisk-release.zip`.
 - `ROTATE_SALT=1` membuat salt baru.
 - `JAVA21_HOME` menunjuk JDK 21 tertentu kalau ada lebih dari satu JDK.
 - `RUST_TARGETS` daftar target daemon (default `aarch64-linux-android`).
-- `cargo xtask setup` hanya menyiapkan AndroidVMTools.
 - `REPO=~/proj/SetLoc cargo xtask update <zip-source-baru>` menyalin source baru ke repo lalu build dan memeriksa isi zip.
 - Tanpa `app/keystore.properties`, APK ditandatangani dengan debug key. Untuk rilis, buat keystore dengan `cargo xtask keystore <release-key.pem> <release-cert.pem>`.
 
@@ -87,4 +86,4 @@ Hasilnya `module/zygote/build/outputs/magisk/release/SetLocZygisk-release.zip`.
 - `cargo xtask test [bagian...]` uji sandbox untuk skrip, daemon, `Config`, dan hook
 
 ## Kredit
-Terinspirasi dari GPS Setter. Hook Java memakai [ZygoteLoader](https://github.com/aerath-stuff/ZygoteLoader) dan [AndroidVMTools](https://github.com/aerath-stuff/AndroidVMTools). Penyembunyian paket memakai [LSPlant](https://github.com/LSPosed/LSPlant) dan [ShadowHook](https://github.com/bytedance/android-inline-hook).
+Terinspirasi dari GPS Setter. Pemuatan modul memakai [ZygoteLoader](https://github.com/aerath-stuff/ZygoteLoader). Semua hook Java dan penyembunyian paket memakai [LSPlant](https://github.com/LSPosed/LSPlant) dan [ShadowHook](https://github.com/bytedance/android-inline-hook).

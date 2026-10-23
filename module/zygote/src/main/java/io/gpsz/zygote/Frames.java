@@ -5,8 +5,9 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Lapisan tipis di atas dua mesin hook (LSPlant dan AndroidVMTools) supaya satu
- * kode transformer bisa dipakai keduanya. Indeks: 0 = this, 1.. = argumen, RET = nilai kembali.
+ * Lapisan tipis di atas LSPlant supaya satu kode transformer bisa dipakai di semua hook.
+ * Indeks: 0 = this, 1.. = argumen, RET = nilai kembali. Tidak ada jalur cadangan: method yang
+ * gagal dipasang lewat LSPlant (engine belum siap, atau pemasangan satu method gagal) tidak dihook.
  */
 final class Frames {
     static final int RET = -1;
@@ -24,9 +25,6 @@ final class Frames {
     interface Tx {
         void run(Orig original, Fr frame) throws Throwable;
     }
-
-    /** Diisi LegacyFrame bila Hooks.hook melempar; setelah itu jalur lama tidak dicoba lagi. */
-    static volatile boolean legacyBroken;
 
     private static final Map<Class<?>, Class<?>> BOX = new HashMap<>();
     static {
@@ -84,19 +82,15 @@ final class Frames {
         return hook(m, LsNative.locEnabled(), tx);
     }
 
-    /** ls=false memaksa jalur lama untuk grup hook ini (file disable_ls_loc / disable_ls_set). */
+    /** ls=false melewatkan method ini sama sekali (file disable_ls_loc / disable_ls_set). */
     static boolean hook(Method m, boolean ls, Tx tx) {
-        if (ls && LsNative.isReady()) {
-            final Class<?> rt = m.getReturnType();
-            boolean ok = LsHook.hook(m, (args, original) -> {
-                final LsFrame f = new LsFrame(args);
-                tx.run(() -> f.ret = original.call(f.args), f);
-                return coerce(rt, f.ret);
-            });
-            if (ok) return true;
-        }
-        if (legacyBroken) return false;
-        return LegacyFrame.hook(m, tx);
+        if (!ls || !LsNative.isReady()) return false;
+        final Class<?> rt = m.getReturnType();
+        return LsHook.hook(m, (args, original) -> {
+            final LsFrame f = new LsFrame(args);
+            tx.run(() -> f.ret = original.call(f.args), f);
+            return coerce(rt, f.ret);
+        });
     }
 
     private Frames() { }

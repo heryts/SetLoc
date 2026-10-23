@@ -15,8 +15,6 @@ import android.os.SystemClock;
 import android.telephony.CellInfo;
 import android.telephony.TelephonyManager;
 
-import com.v7878.unsafe.Reflection;
-
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -99,7 +97,7 @@ final class LocationHooks {
         installAppOps();
         hookGetCurrentLocation();
         SettingsGuard.install();
-        PackageGuard.install();
+        PackageGuardLs.install();
         hookAll("android.net.wifi.WifiManager", "getScanResults", K_WIFI_SCAN);
         hookAll("android.net.wifi.WifiInfo", "getBSSID", K_BSSID);
         hookAll("android.net.wifi.WifiInfo", "getSSID", K_WIFI_SSID);
@@ -746,11 +744,6 @@ final class LocationHooks {
         try {
             Method m = c.getDeclaredMethod(name, ps);
             m.setAccessible(true);
-            return m;
-        } catch (Throwable ignored) { }
-        try {
-            Method m = Reflection.getDeclaredMethod(c, name, ps);
-            if (m != null) m.setAccessible(true);
             return m;
         } catch (Throwable ignored) { }
         return null;

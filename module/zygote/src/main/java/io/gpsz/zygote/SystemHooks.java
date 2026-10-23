@@ -6,8 +6,6 @@ import android.os.Binder;
 import android.os.IInterface;
 import android.os.SystemClock;
 
-import com.v7878.unsafe.Reflection;
-
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -75,13 +73,6 @@ final class SystemHooks {
             m.setAccessible(true);
             return m;
         } catch (Throwable ignored) { }
-        try {
-            Method m = Reflection.getDeclaredMethod(c, name, ps);
-            if (m != null) {
-                m.setAccessible(true);
-                return m;
-            }
-        } catch (Throwable ignored) { }
         return null;
     }
 
@@ -90,14 +81,6 @@ final class SystemHooks {
             Field f = c.getDeclaredField(name);
             f.setAccessible(true);
             return f;
-        } catch (Throwable ignored) { }
-        try {
-            Method m = Reflection.class.getMethod("getDeclaredField", Class.class, String.class);
-            Field f = (Field) m.invoke(null, c, name);
-            if (f != null) {
-                f.setAccessible(true);
-                return f;
-            }
         } catch (Throwable ignored) { }
         try {
             for (Field f : c.getDeclaredFields()) {
