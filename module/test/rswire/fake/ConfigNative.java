@@ -43,5 +43,23 @@ final class ConfigNative {
 
     static float nativeAccNow(float acc, float accJit) { throw new UnsupportedOperationException(); }
 
+    static double[] nativeParse(String s, double prevLat, double prevLng, float prevAcc) { throw new UnsupportedOperationException(); }
+
+    static double[] nativeParseTrack(String s, long[] hdr) { throw new UnsupportedOperationException(); }
+
+    static boolean nativeTrackSet(long gen, long t0, int tk, int n, double[] la, double[] lo, double[] al, float[] sp, float[] br) { throw new UnsupportedOperationException(); }
+
+    static void nativeTrackClear() { throw new UnsupportedOperationException(); }
+
+    static double[] nativeApplyTrack(long gen, long nowMs, int stale) { throw new UnsupportedOperationException(); }
+
+    static int nativeStaleLevel(long lateMs) { throw new UnsupportedOperationException(); }
+
+    static int nativeBeatCheck(String beat, boolean playing, long now) { throw new UnsupportedOperationException(); }
+
+    static void nativeBeatDisarm() { throw new UnsupportedOperationException(); }
+
+    static void nativeBeatReset() { throw new UnsupportedOperationException(); }
+
     private ConfigNative() { }
 }

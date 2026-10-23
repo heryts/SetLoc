@@ -1,4 +1,9 @@
 
+mod harness;
+mod jtest;
+mod keystore;
+
+use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -20,9 +25,11 @@ fn main() {
         Some("setup") => enter_root().and_then(|_| setup_vmtools().map(|m| println!("{}", m))),
         Some("update") => match args.get(1) {
             Some(z) => update(z),
-            None => Err("pakai: cargo xtask update <zip-source-baru>".into()),
+            None => enter_root().and_then(|_| build()),
         },
-        _ => Err("pakai: cargo xtask build | setup | update <zip>".into()),
+        Some("keystore") => keystore_cmd(&args[1..]),
+        Some("test") => enter_root().and_then(|_| harness::run(&args[1..])),
+        _ => Err("pakai: cargo xtask build | setup | update [zip-atau-folder] | keystore <key.pem> <cert.pem> [out.p12] | test [bagian...]".into()),
     };
     if let Err(e) = res {
         eprintln!("GAGAL: {}", e);
@@ -34,6 +41,30 @@ fn enter_root() -> R<()> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let root = root.canonicalize().map_err(|e| format!("root repo: {}", e))?;
     env::set_current_dir(&root).map_err(|e| format!("cd {}: {}", root.display(), e))
+}
+
+fn keystore_cmd(a: &[String]) -> R<()> {
+    if a.len() < 2 || a.len() > 3 {
+        return Err("pakai: cargo xtask keystore <release-key.pem> <release-cert.pem> [keluaran.p12]".into());
+    }
+    let cwd = env::current_dir().map_err(|e| e.to_string())?;
+    let abs = |s: &String| -> PathBuf {
+        let p = PathBuf::from(s);
+        if p.is_absolute() {
+            p
+        } else {
+            cwd.join(p)
+        }
+    };
+    let key = abs(&a[0]);
+    let cert = abs(&a[1]);
+    let out_arg = a.get(2).map(|s| abs(s));
+    enter_root()?;
+    let out = match out_arg {
+        Some(o) => o,
+        None => env::current_dir().map_err(|e| e.to_string())?.join("app/release.p12"),
+    };
+    keystore::run(&key, &cert, &out)
 }
 
 fn env_set(name: &str) -> Option<String> {
@@ -404,13 +435,85 @@ fn fix_crlf(dir: &Path) {
     }
 }
 
+fn is_repo(p: &Path) -> bool {
+    p.join("version.properties").is_file() && p.join("app").is_dir() && p.join("module").is_dir()
+}
+
+fn repo_dir() -> PathBuf {
+    if let Some(r) = env_set("REPO") {
+        return PathBuf::from(r);
+    }
+    if let Ok(cwd) = env::current_dir() {
+        let mut d: Option<&Path> = Some(cwd.as_path());
+        while let Some(p) = d {
+            if is_repo(p) {
+                return p.to_path_buf();
+            }
+            d = p.parent();
+        }
+    }
+    let own = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    if let Ok(c) = own.canonicalize() {
+        if is_repo(&c) {
+            return c;
+        }
+    }
+    PathBuf::from(format!("{}/proj/SetLoc", env::var("HOME").unwrap_or_default()))
+}
+
+fn collect_files(base: &Path, dir: &Path, out: &mut BTreeMap<String, Vec<u8>>) {
+    let rd = match fs::read_dir(dir) {
+        Ok(r) => r,
+        Err(_) => return,
+    };
+    for e in rd.filter_map(|e| e.ok()) {
+        let p = e.path();
+        if p.is_dir() {
+            collect_files(base, &p, out);
+        } else if let Ok(b) = fs::read(&p) {
+            let rel = p.strip_prefix(base).map(|r| r.to_string_lossy().to_string()).unwrap_or_default();
+            out.insert(rel, b);
+        }
+    }
+}
+
+fn xtask_tree(x: &Path) -> BTreeMap<String, Vec<u8>> {
+    let mut m: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    if let Ok(b) = fs::read(x.join("Cargo.toml")) {
+        m.insert("Cargo.toml".to_string(), b);
+    }
+    collect_files(x, &x.join("src"), &mut m);
+    m
+}
+
+fn reexec(z: &Path, src: &Path, repo: &Path) -> R<()> {
+    let w = tempdir("xtask")?;
+    rsync(&["--exclude=target/"], &z.join("tools"), &format!("{}/tools", w.0.display()))?;
+    let mut c = Command::new("cargo");
+    c.args(["run", "--release", "-q", "--manifest-path"])
+        .arg(w.0.join("tools/xtask/Cargo.toml"))
+        .arg("--")
+        .arg("update")
+        .arg(src)
+        .env("SETLOC_FRESH", "1")
+        .env("REPO", repo)
+        .env("CARGO_TARGET_DIR", w.0.join("target"))
+        .current_dir(repo);
+    status(&mut c, "xtask dari source baru")
+}
+
 fn update(zip: &str) -> R<()> {
     for c in ["rsync", "unzip"] {
         if which(c).is_none() {
             return Err(format!("butuh {}", c));
         }
     }
-    let src = Path::new(zip).canonicalize().map_err(|e| format!("{}: {}", zip, e))?;
+    let given = Path::new(zip);
+    let src = if given.exists() {
+        given.canonicalize().map_err(|e| format!("{}: {}", zip, e))?
+    } else {
+        Path::new(&format!("{}.zip", zip)).canonicalize().map_err(|e| format!("{}: {}", zip, e))?
+    };
     let t = tempdir("src")?;
     let z = if src.is_dir() {
         find_source_root(&src).or_else(|| if src.join("app").is_dir() && src.join("module").is_dir() { Some(src.clone()) } else { None })
@@ -423,11 +526,17 @@ fn update(zip: &str) -> R<()> {
         return Err("bukan source SetLoc".into());
     }
 
-    let repo = env_set("REPO").unwrap_or_else(|| format!("{}/proj/SetLoc", env::var("HOME").unwrap_or_default()));
-    env::set_current_dir(&repo).map_err(|e| format!("{}: {}", repo, e))?;
-    if !(Path::new("version.properties").is_file() && Path::new("app").is_dir() && Path::new("module").is_dir()) {
-        return Err(format!("{} bukan repo SetLoc", repo));
+    let repo = repo_dir();
+    if !is_repo(&repo) {
+        return Err(format!("{} bukan repo SetLoc", repo.display()));
     }
+    if env_set("SETLOC_FRESH").is_none() && z.join("tools/xtask/Cargo.toml").is_file() {
+        let own = Path::new(env!("CARGO_MANIFEST_DIR"));
+        if xtask_tree(own) != xtask_tree(&z.join("tools/xtask")) {
+            return reexec(&z, &src, &repo);
+        }
+    }
+    env::set_current_dir(&repo).map_err(|e| format!("{}: {}", repo.display(), e))?;
     if env_set("CHECK_CLEAN").is_some() {
         let st = out_of(Command::new("git").args(["status", "--porcelain", "app", "module"])).unwrap_or_default();
         if !st.is_empty() {
@@ -447,7 +556,7 @@ fn update(zip: &str) -> R<()> {
     if z.join("daemon").is_dir() {
         rsync(&ex, &z.join("daemon"), "daemon")?;
     }
-    for f in ["README.md", "make-keystore.sh", "update.sh", "setup.sh", ".gitignore", ".gitattributes", "version.properties", ".salt"] {
+    for f in ["README.md", ".gitignore", ".gitattributes", "version.properties", ".salt"] {
         if z.join(f).is_file() {
             fs::copy(z.join(f), f).map_err(|e| format!("salin {}: {}", f, e))?;
         }
@@ -459,6 +568,11 @@ fn update(zip: &str) -> R<()> {
     }
     if z.join("native").is_dir() {
         rsync(&["--exclude=target/", "--exclude=build/"], &z.join("native"), "native")?;
+    }
+    for f in ["make-keystore.sh", "setup.sh", "update.sh"] {
+        if Path::new(f).is_file() && fs::remove_file(f).is_ok() {
+            println!("dihapus: {} (diganti cargo xtask)", f);
+        }
     }
     fix_crlf(Path::new("."));
     let _ = fs::set_permissions("app/gradlew", fs::Permissions::from_mode(0o755));

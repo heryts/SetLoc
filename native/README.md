@@ -1,6 +1,6 @@
 # native/
 
-Status: `configcore` dan `lochooks` sudah dikompilasi dan diuji di host (cargo test, paritas Java vs Rust, dan JNI lewat JVM). `hook/` (Fase 4) lolos cek sintaks terhadap header asli LSPlant dan ShadowHook, dan logika Java-nya diuji di JVM dengan mesin hook palsu. Fase 5 dan 6 memindahkan `LocationHooks` dan `SettingsGuard` ke jalur LSPlant, dan Fase 7 `SystemHooks` (opt-in, di `system_server`); semuanya diuji di JVM dengan mesin hook palsu yang sama. Fase 8 menyambungkan `ConfigNative` dan `LocationNative` ke `Config` dan `Fix`, dengan cadangan ke Java. Belum ada yang dikompilasi untuk target Android atau diuji di perangkat.
+Status: `configcore` dan `lochooks` sudah dikompilasi dan diuji di host (cargo test, paritas Java vs Rust, dan JNI lewat JVM). `hook/` (Fase 4) lolos cek sintaks terhadap header asli LSPlant dan ShadowHook, dan logika Java-nya diuji di JVM dengan mesin hook palsu. Fase 5 dan 6 memindahkan `LocationHooks` dan `SettingsGuard` ke jalur LSPlant, dan Fase 7 `SystemHooks` (opt-in, di `system_server`); semuanya diuji di JVM dengan mesin hook palsu yang sama. Fase 8 menyambungkan `ConfigNative` dan `LocationNative` ke `Config` dan `Fix`, dengan cadangan ke Java. Fase 9 menambah ekspor JNI `parse`, `parseTrack`, `applyTrack`, dan beat di `configcore` dan menyambungkannya ke `Config`, dengan cadangan ke Java. Fase 11 memindahkan bagian murni `GnssFake` (kumpulan satelit, snapshot, kalimat NMEA, angka measurements) ke `lochooks`, dengan cadangan ke Java. Belum ada yang dikompilasi untuk target Android atau diuji di perangkat.
 
 ## hook (Fase 4)
 Target: pendaftaran hook ART lewat LSPlant, dipakai pertama untuk `PackageGuard`.
@@ -12,7 +12,7 @@ Target: pendaftaran hook ART lewat LSPlant, dipakai pertama untuk `PackageGuard`
 - Crate `pkgguard` dan `shim/` dihapus. LSPlant hanya punya API C++, jadi lapisan hook memang harus C++. Dua fungsi Rust-nya (`nativeIsOwn`, `nativeFilterStrings`) tidak pernah dipanggil dari Java dan lebih mahal lewat JNI daripada `String.equals`.
 
 ### Pengujian
-`sh module/test/lshook/run.sh`: menjalankan `PackageGuardLs` dan `LsHook` asli dengan stub `android.content.pm.*`, `ApplicationPackageManager` palsu, dan `LsNative` palsu yang mengembalikan method asli sebagai backup. Memeriksa 21 perilaku (exception paket sendiri, filter daftar, `checkPermission`/`checkSignatures`, UID, `resolveActivity`, dan `File.exists`/`isDirectory`/`lastModified` untuk path berisi nama paket).
+`cargo xtask test lshook`: menjalankan `PackageGuardLs` dan `LsHook` asli dengan stub `android.content.pm.*`, `ApplicationPackageManager` palsu, dan `LsNative` palsu yang mengembalikan method asli sebagai backup. Memeriksa 21 perilaku (exception paket sendiri, filter daftar, `checkPermission`/`checkSignatures`, UID, `resolveActivity`, dan `File.exists`/`isDirectory`/`lastModified` untuk path berisi nama paket).
 
 ### Batas dan risiko yang belum teruji
 - Cek sintaks `hook.cpp` memakai salinan sementara `shadowhook.h` dengan penjaga arsitektur dilonggarkan, karena header itu hanya mendefinisikan tipe CPU untuk arm dan arm64.
@@ -31,7 +31,7 @@ Target: hook di `LocationHooks` (Location, LocationManager, AppOps, Wi-Fi, selul
 - `LsHook`: dua perbaikan dari Fase 4. `backup` sekarang diisi sebelum `setAccessible` (sebelumnya kalau `setAccessible` melempar, hook sudah terpasang tetapi callback menunggu selamanya), dan penantian `backup` dibatasi 2 detik lalu melempar `IllegalStateException`, bukan spin tanpa batas.
 
 ### Pengujian
-`sh module/test/lochook/run.sh`: menjalankan `LocationHooks`, `Config`, `Fix`, dan `GnssFake` asli dengan stub Android dan `LsNative` palsu (55 pemeriksaan). Mencakup: 51 method terpasang lewat LSPlant pada stub uji, getter Location menghasilkan posisi palsu dengan tipe benar, `isLocationEnabled`/`isProviderEnabled`/`getProviders`, `getLastKnownLocation` (termasuk `SecurityException` dari method asli), AppOps, Wi-Fi/seluler/Bluetooth (termasuk penggantian argumen sebelum method asli), `createFromParcel`, `Location.set`, `getCurrentLocation`, serta semua jalur cadangan (`disable_ls_loc`, LSPlant tidak siap, satu method gagal, jalur lama gagal). Uji mutasi pada `coerce` dan penulisan argumen membuat tes gagal, jadi tesnya memang menangkap kesalahan itu.
+`cargo xtask test lochook`: menjalankan `LocationHooks`, `Config`, `Fix`, dan `GnssFake` asli dengan stub Android dan `LsNative` palsu (55 pemeriksaan). Mencakup: 51 method terpasang lewat LSPlant pada stub uji, getter Location menghasilkan posisi palsu dengan tipe benar, `isLocationEnabled`/`isProviderEnabled`/`getProviders`, `getLastKnownLocation` (termasuk `SecurityException` dari method asli), AppOps, Wi-Fi/seluler/Bluetooth (termasuk penggantian argumen sebelum method asli), `createFromParcel`, `Location.set`, `getCurrentLocation`, serta semua jalur cadangan (`disable_ls_loc`, LSPlant tidak siap, satu method gagal, jalur lama gagal). Uji mutasi pada `coerce` dan penulisan argumen membuat tes gagal, jadi tesnya memang menangkap kesalahan itu.
 
 ### Batas dan risiko yang belum teruji
 - Tes memakai `LsNative` palsu yang memanggil method asli langsung. Di perangkat, getter Location yang dipanggil dari dalam transformer (misalnya `getElapsedRealtimeNanos` di `fixSnap`) juga lewat hook; perlindungannya sama seperti jalur lama (`PARSING` dan `Mark`) tetapi belum terbukti di ART.
@@ -47,7 +47,7 @@ Target: 14 hook di `SettingsGuard` (kunci modul di `Settings.NameValueCache`, `C
 - Setelah Fase 5 dan 6, `LocationHooks` dan `SettingsGuard` tidak lagi memakai AndroidVMTools kalau LSPlant siap. `SystemHooks` (di `system_server`) dan `GnssFake` tidak memakai hook ART. Jalur lama baru dimuat bila LSPlant tidak siap atau salah satu flag `disable_*` ada.
 
 ### Pengujian
-`sh module/test/setguard/run.sh`: menjalankan `SettingsGuard` dan `Config` asli dengan stub (`Settings`, `ContentResolver`, `Cursor`, `Bundle`, dan lainnya) serta `LsNative` palsu: kunci di `NameValueCache` dan prefix, query (baris disaring, URI kunci jadi kursor kosong, selection berisi kunci, `Config.READING` melewatkan), call (`GET_`/`PUT_` kosong, `LIST_` dibersihkan, `ContentProviderProxy`), observer (argumen koleksi diganti sebelum method asli), `ProcessBuilder.start` (ditolak dengan `error=13`), `location_mode` untuk method statis, dan jalur cadangan.
+`cargo xtask test setguard`: menjalankan `SettingsGuard` dan `Config` asli dengan stub (`Settings`, `ContentResolver`, `Cursor`, `Bundle`, dan lainnya) serta `LsNative` palsu: kunci di `NameValueCache` dan prefix, query (baris disaring, URI kunci jadi kursor kosong, selection berisi kunci, `Config.READING` melewatkan), call (`GET_`/`PUT_` kosong, `LIST_` dibersihkan, `ContentProviderProxy`), observer (argumen koleksi diganti sebelum method asli), `ProcessBuilder.start` (ditolak dengan `error=13`), `location_mode` untuk method statis, dan jalur cadangan.
 
 ### Batas yang belum teruji / diketahui
 - `ContentProviderClient.call(method, arg, extras)` tidak punya argumen URI, jadi tidak pernah dianggap settings. Perilaku ini sama dengan jalur lama dan sengaja tidak diubah; tesnya mencatatnya.
@@ -71,10 +71,10 @@ Konfirmasi ada di daemon Rust (`daemon/src/lsguard.rs`, dijalankan dari `service
 Perintah: `gpsz.sh ls-system on|off|status|reset`. `on` menghapus blokir dan penanda lalu membuat `enable_ls_system` (perlu reboot); `off` menghapus ketiganya; `reset` hanya menghapus blokir dan penanda; `status` menampilkan `ls-system=off|on|pending|blocked`. `gpsz.sh doctor` juga mencetak barisnya. `enable_ls_system` sengaja tidak ikut dipertahankan saat pemasangan ulang modul (seperti `disable_ls*`).
 
 ### Pengujian
-- `sh module/test/syshook/run.sh`: menjalankan `SystemHooks`, `Config`, `Fix`, dan `GnssFake` asli dengan kelas palsu `LocationManagerService`, `LocationProviderManager`, `LocationResult`, dan `LsNative` palsu, dalam empat proses terpisah (`ls`, `off`, `notready`, `partial`). Mode `ls` (10 hook lewat LSPlant, nol lewat jalur lama) memeriksa: semua diteruskan saat config mati; mode penuh mengganti hasil `onReportLocation` dan `getLastLocation`, mengganti argumen `injectLocation`, memblokir batching, memberi pendengar GNSS palsu (dan `android` tetap diteruskan), `SecurityException` dari method asli tetap sampai ke pemanggil; darurat dan heartbeat tidak mengganti apa pun. Mode `off` dan `notready`: 10 method ke jalur lama. Mode `partial`: satu method gagal di LSPlant dan hanya itu yang jatuh ke jalur lama. Uji mutasi (hasil tidak diganti, exception ditelan, flag `sysEnabled` selalu true, method asli selalu dipanggil) membuat tes gagal.
-- `sh module/test/sysguard/run.sh`: urutan boot (tanpa opt-in, boot pertama, boot kedua tanpa dan dengan konfirmasi, reset, off) dan jalur gagal tertutup (penanda tidak bisa ditulis, jalur berupa folder, `File` null).
+- `cargo xtask test syshook`: menjalankan `SystemHooks`, `Config`, `Fix`, dan `GnssFake` asli dengan kelas palsu `LocationManagerService`, `LocationProviderManager`, `LocationResult`, dan `LsNative` palsu, dalam empat proses terpisah (`ls`, `off`, `notready`, `partial`). Mode `ls` (10 hook lewat LSPlant, nol lewat jalur lama) memeriksa: semua diteruskan saat config mati; mode penuh mengganti hasil `onReportLocation` dan `getLastLocation`, mengganti argumen `injectLocation`, memblokir batching, memberi pendengar GNSS palsu (dan `android` tetap diteruskan), `SecurityException` dari method asli tetap sampai ke pemanggil; darurat dan heartbeat tidak mengganti apa pun. Mode `off` dan `notready`: 10 method ke jalur lama. Mode `partial`: satu method gagal di LSPlant dan hanya itu yang jatuh ke jalur lama. Uji mutasi (hasil tidak diganti, exception ditelan, flag `sysEnabled` selalu true, method asli selalu dipanggil) membuat tes gagal.
+- `cargo xtask test sysguard`: urutan boot (tanpa opt-in, boot pertama, boot kedua tanpa dan dengan konfirmasi, reset, off) dan jalur gagal tertutup (penanda tidak bisa ditulis, jalur berupa folder, `File` null).
 - `cargo test` di `daemon/`: 7 tes `lsguard` (pending hanya dihapus setelah PID sama selama 60 detik, PID berubah mengulang hitungan, `system_server` hilang tidak mengonfirmasi, blokir membuang pending, perintah `on|off|reset`).
-Ketiganya dipanggil dari `module/test/run.sh` (dua pertama) dan `cargo xtask build`.
+Ketiganya dipanggil dari `cargo xtask test` (dua pertama) dan `cargo xtask build`.
 
 ### Batas dan risiko yang belum teruji
 - Belum dikompilasi untuk Android dan belum dijalankan di perangkat, sama seperti fase 4 sampai 6. Hook lewat LSPlant di `system_server` belum terbukti di ART.
@@ -106,7 +106,7 @@ Sengaja TIDAK disambungkan: `nativeRoute`, `nativeIsSnapKind`, `nativeExtValue`,
 `cargo xtask build` sekarang punya langkah `2b/4`: `cargo test` untuk `configcore` dan `lochooks` (kecuali `SKIP_TESTS`), lalu `cargo build --release --target` per `RUST_TARGETS` dan menyalin `lib<crate>.so` ke `module/zygote/src/main/jniLibs/<abi>/` (di-ignore git). Langkah ini sesudah `rotate-salt`, karena `build.rs` `configcore` menanam isi `.salt`.
 
 ### Pengujian
-`sh module/test/rswire/run.sh` (tanpa cargo): membangun dua pohon dari `Config.java` dan `Fix.java` asli. Pohon pertama memakai `ConfigNative`/`LocationNative` asli (library tidak termuat, jalur Java). Pohon kedua memakai kelas pengganti di `rswire/fake/` yang meniru kontrak Rust (port Java dari `codec.rs`, `fix.rs`, `snapshot.rs`, termasuk penolakan hex ganjil). Dibandingkan:
+`cargo xtask test rswire` (tanpa cargo): membangun dua pohon dari `Config.java` dan `Fix.java` asli. Pohon pertama memakai `ConfigNative`/`LocationNative` asli (library tidak termuat, jalur Java). Pohon kedua memakai kelas pengganti di `rswire/fake/` yang meniru kontrak Rust (port Java dari `codec.rs`, `fix.rs`, `snapshot.rs`, termasuk penolakan hex ganjil). Dibandingkan:
 1. `WireDump`: 31 baris codec (enc/dec/tag, hex ganjil, bertanda, non-ASCII, null) harus identik, juga bila fake dijalankan dengan salt yang sengaja salah.
 2. `ParityDump`: 108 baris `Fix.apply` (4 provider x 3 waktu x 5 variasi) dan snapshot (4 config x 12 waktu), toleransi 2e-5 relatif; selisih terbesar 3.8e-6.
 3. `WireCheck` dalam mode `java`, `native`, dan `badseed`: pemilihan jalur, jumlah panggilan native, `stamp` (monoton, umur, waktu dinding), `lastKnown` (memakai stempel terakhir < 5 dtk, sesudahnya tepat di grid fase).
@@ -120,6 +120,41 @@ Uji mutasi (13 kasus: argumen tertukar, bit flag salah, indeks array salah, `Con
 - Biaya per panggilan: `nativeApply` mengalokasikan `double[13]` dan `nativeStamp` `long[2]` per pemanggilan. Belum diukur; Java lama tanpa alokasi JNI.
 - Kalau `nativeStamp`/`nativeLastKnown` mengembalikan `null` di tengah jalan (gagal alokasi array), pemanggilan itu jatuh ke jalur Java yang keadaan stempelnya terpisah; satu stempel bisa tidak monoton terhadap stempel Rust sebelumnya. Sangat jarang, dan tidak ada yang bergantung pada monoton lintas dua jalur.
 - RNG berbeda: Rust memakai xorshift yang diinisialisasi dari waktu, Java `java.util.Random`. Distribusinya sama, urutannya tidak.
+
+## parse, track, dan beat lewat JNI (Fase 9)
+Target: `Config.parse`, `Config.parseTrack`, `Config.applyTrack`, dan `Config.checkBeat` memakai `configcore` bila library termuat, dengan jalur Java lama tetap ada sebagai cadangan. Tidak ada perubahan perilaku yang diharapkan.
+
+Ekspor baru di `ConfigNative` (semua di `exports.rs`):
+- `nativeParse(s, prevLat, prevLng, prevAcc)` -> `double[12]`: enabled, jitter, playing, tk (0/1), lat, lng, acc, spd, brg, alt, altv, rr. `Config.parse` tetap mengurus kasus `null`/`"null"` dan semua state (`tkMode`, `cfgEn`, `beatStale`, `pos`, dan seterusnya); hanya pembacaan field yang pindah.
+- `nativeParseTrack(s, hdr)` -> `double[5*n]` (la, lo, al, sp, br per baris) dan `hdr = {t0, wrote, tk, n}`.
+- `nativeTrackSet(gen, t0, tk, n, la, lo, al, sp, br)`, `nativeTrackClear()`, `nativeApplyTrack(gen, nowMs, stale)` -> `double[5]` (lat, lng, alt, spd, brg). Rust menyimpan satu salinan track. Tiap `Config.Track` punya `gen` unik; `applyTrack` hanya memanggil native bila `gen` track itu sama dengan `nativeGen` dan Rust juga mencocokkan `gen`, jadi track lama yang masih dipegang thread lain tidak pernah dihitung dengan data track baru (hasil `null`, lalu Java menghitung dari array miliknya). Track dengan lebih dari 200.000 titik tidak disalin ke Rust dan dihitung di Java.
+- `nativeBeatCheck(beat, playing, now)` -> `level | (freeze ? 4 : 0)`, atau -1 bila string gagal dibaca. `nativeBeatDisarm()` (dipanggil `parse(null)`, sama seperti `beatArmed = false`) dan `nativeBeatReset()`. Keadaan beat hidup di Rust bila jalur native dipakai, dan di field Java bila tidak; pilihan ditetapkan sekali saat `Config` dimuat.
+- `nativeStaleLevel(lateMs)`: diekspor dan diuji, tidak dipanggil dari Java (satu perbandingan; `trackStale` tetap di Java karena memakai `noteResume`).
+
+### Perubahan di Rust agar sama persis dengan Java
+- `parse_track`: pasangan tanpa `=` dilewati (sebelumnya membatalkan seluruh parse); kunci `a` dibaca (`wrote`, default `t0`); `t`, `a`, `k` yang rusak langsung membatalkan walau muncul lagi sesudahnya; `k` dibatasi `int`.
+- `apply_track`: interpolasi kecepatan memakai selisih float lalu dikalikan double, seperti Java (sebelumnya semua float, selisih di digit terakhir).
+- `parse`: kunci dan nilai dipotong dengan aturan `String.trim` Java (karakter <= spasi); `-0` pada `spd`, `altv`, dan `rr` menjadi `+0` seperti `Math.max(0f, x)`.
+- Mode ketat (`parse_strict`, `parse_track`): hanya bilangan desimal biasa (`[+-]digit[.digit][e[+-]digit]`) dan string ASCII. Yang lain (`5d`, `NaN`, `Infinity`, heks float, spasi di dalam angka, digit non-ASCII, nilai kosong) dikembalikan sebagai `null` dan Java yang memutuskan, karena grammar `Double.parseDouble` lebih longgar daripada Rust. Akibatnya Rust tidak pernah memberi hasil berbeda; paling buruk ia menyerahkan kasusnya ke Java.
+
+### Pengaman
+- `Config.verifyCfg()` memanggil tiap ekspor baru dengan masukan tetap dan membandingkan hasilnya dengan nilai yang sudah diketahui (termasuk penolakan `lat=5d`, `gen` yang tidak cocok, ambang beat). Library lama tanpa ekspor ini gagal di sini (`UnsatisfiedLinkError` ditangkap) dan semuanya memakai Java.
+- Setiap panggilan dibungkus `try/catch Throwable`; hasil `null` jatuh ke Java untuk panggilan itu. `nativeBeatCheck` yang mengembalikan -1 di tengah jalan memakai state beat Java yang terpisah (sangat jarang; nilai beat berupa angka ASCII).
+
+### Pengujian
+- `cargo test` di `native/configcore`: 37 tes (tata bahasa angka, `jtrim`, `-0`, kunci `a`, pasangan tanpa `=`, `k` di luar `int`, selisih float kecepatan, dan lainnya).
+- `cargo xtask test cfgwire` (butuh cargo, atau `CONFIGCORE_SO` menunjuk ke `libconfigcore.so` hasil build host): memuat library asli di JVM lewat `System.loadLibrary`, menjalankan `Config` asli, dan membandingkan jalur Java dengan jalur Rust sampai bit terakhir pada `CfgDump` (6.000 string config acak, 3.000 string track acak dan rusak, 60 putaran `refresh`+`tick` dengan 4.200 titik waktu, track 200.001 titik di atas batas salinan, 4.000 langkah beat acak, dan skenario beat terarah) serta `ParseTest`, `TrackTest`, `BeatTest`, `FileFieldsTest` yang sudah ada. `CfgDump` juga memastikan Rust menerima semua masukan valid (kalau Rust salah menolak, hasil tetap benar lewat Java, jadi ini tidak terlihat dari perbandingan hasil saja). Hasil: identik.
+- Uji mutasi pada Rust (9 kasus: selisih float kecepatan, tanpa `jtrim`, pasangan tanpa `=` membatalkan, ambang freeze, `lerp_angle`, batas `rr`, `nativeBeatDisarm` kosong, wrap bujur dibuang, kolom enabled/jitter tertukar): semuanya membuat tes gagal. Dua yang pertama kali lolos (pasangan tanpa `=` dan `nativeBeatDisarm`) menambah pemeriksaan penerimaan dan skenario beat terarah di `CfgDump`.
+- `cargo xtask test rswire`: fake `ConfigNative` melempar di ekspor baru (meniru library lama), dan `WireCheck` memeriksa `cfgNative()` mati serta `parse` tetap benar lewat Java.
+- `parity`, `lochook`, `setguard`, `syshook`, `sysguard`, `lshook`: tetap lulus (dicatat pada Fase 9). Pada `beat`, `cfgwire` menjalankan `ParseTest`, `TrackTest`, `BeatTest`, dan `FileFieldsTest` sendiri-sendiri.
+
+### Batas dan risiko yang belum teruji
+- Belum dikompilasi untuk Android dan belum dijalankan di perangkat. JNI diuji lewat JVM host (x86_64), bukan ART.
+- `Float.parseFloat`/`Double.parseDouble` di ART (libcore) bisa berbeda satu ulp dari Rust untuk angka desimal sangat panjang; di JVM host hasilnya identik. Config dari aplikasi SetLoc memakai angka pendek.
+- Profil rilis memakai `panic = "abort"`: panic di fungsi baru mematikan proses aplikasi target. Jalur yang bisa panic sudah dijaga (indeks interpolasi, `wrapping_sub` untuk selisih waktu, batas alokasi `nativeTrackSet`), tetapi kalau muncul gejala crash, `disable_rs` mematikan library Rust tanpa membangun ulang.
+- Track yang disalin ke Rust (maksimal 200.000 titik, sekitar 6 MB) menambah memori di proses target; di bawah itu biasanya hanya beberapa KB.
+- Per panggilan `applyTrack` memakai satu `double[5]` dan satu panggilan JNI (tiap 50 ms paling sering); belum diukur dibanding Java.
+- `loadTrackFile`, `withFile`, `trackStale`, `refresh`, dan `tkOn` tetap di Java: file I/O, state Android, dan `noteResume`.
 
 ## configcore (Fase 2)
 Target: bagian `Config.java` yang murni perhitungan, tanpa hook ART dan tanpa LSPlant.
@@ -153,13 +188,13 @@ Kode `ExtValue` (`nativeExtValue`): PassThrough 0, Bssid 1, Null 2, Void 3, Int0
 `nativeSnapshot` mengembalikan double[7]: lat, lng, at, spd, brg, alt, accJit.
 
 ### Pengujian
-`sh module/test/parity/run.sh`:
+`cargo xtask test parity`:
 1. `ParityDump.java` menjalankan `Config` dan `Fix` Java asli (dengan stub Android) dan mencetak 263 baris nilai. `examples/parity.rs` menghitung hal yang sama di Rust lalu membandingkan dengan toleransi 1e-12 (nilai turunan float: 2e-6). Hasil: 0 beda.
 2. `JniCheck.java` memuat `liblochooks.so` hasil build host lewat `System.load` dan memeriksa `nativeApply`, `nativeSnapshot`, `nativeStamp`, `nativeMergeProviders`, dan lainnya terhadap Java.
-Keduanya juga dipanggil dari `module/test/run.sh`.
+Keduanya juga dipanggil dari `cargo xtask test`.
 
 ### Yang sengaja TIDAK dipindah di Fase 3
-Pendaftaran hook (`Hooks.hook`, `EmulatedStackFrame`), baca argumen dan isi return value frame ART, bagian `fixSnap` yang memanggil `Location.set`/`setTime`, `fakeWifiScan`/`newScanResult`, `GnssFake`, `feed*`, `hookCreator`, `installAppOps`. Semuanya terikat objek Android hidup dan refleksi ART. Memindahkannya butuh LSPlant yang berjalan di perangkat (Fase 4), dan itu tidak bisa diuji di sandbox.
+Pendaftaran hook (`Hooks.hook`, `EmulatedStackFrame`), baca argumen dan isi return value frame ART, bagian `fixSnap` yang memanggil `Location.set`/`setTime`, `fakeWifiScan`/`newScanResult`, `feed*`, `hookCreator`, `installAppOps`. Semuanya terikat objek Android hidup dan refleksi ART. Memindahkannya butuh LSPlant yang berjalan di perangkat (Fase 4), dan itu tidak bisa diuji di sandbox.
 
 ## SettingsGuard dan SystemHooks: tidak dipindah
 Keduanya dibaca penuh. Isinya didominasi oleh:
@@ -173,8 +208,47 @@ Di SystemHooks, bagian seperti `isGnssBlockTarget`/`feedKind`/`isUnfeedTarget` m
 
 Kesimpulan: tidak ada pemindahan yang berarti di sini tanpa membawa sebagian besar ART/JNI plumbing ke Rust juga — itu menambah permukaan risiko di `system_server` tanpa manfaat nyata. Kalau kamu mau lanjut ke sini juga, perlu dibahas dulu apa targetnya, karena ini beda kategori dari Fase 1/2.
 
+## GnssFake: bagian murni ke Rust (Fase 11)
+Target: perhitungan di `GnssFake` yang tidak menyentuh objek Android pindah ke `lochooks/src/gnss.rs`; Java tetap memegang refleksi `GnssStatus`/`GnssMeasurement`/`GnssAntennaInfo`, penjadwal (`feed*`, `schedule`, `stop`), dan `Fix.apply` pada `Location`. Tidak ada perubahan perilaku yang diharapkan.
+
+Yang dipindah (tiga ekspor baru di `LocationNative`, satu panggilan JNI per pekerjaan yang cukup besar, sekali per detik per umpan):
+- `nativeGnssSnapshot(nowSec, fixed)` -> `double[1 + 9n]`: `n`, lalu per satelit `type, svid, cn0, elev, az, carrier, used, flags, baseband`. Isinya: kumpulan 29 satelit (11 GPS, 6 GLONASS, 6 Galileo, 6 BeiDou) dari `java.util.Random(seed)` yang ditiru persis di Rust (`JRandom`: LCG 48 bit, `nextInt(bound)` dengan loop tolak, `nextBoolean`, `nextDouble`, dan `Collections.shuffle`), elevasi, urutan, pemilihan satelit terpakai, C/N0, azimut, frekuensi carrier, serta `flags` dan `baseband`. Nilai float dihitung sebagai `f32` di Rust supaya sama dengan cast Java.
+- `nativeGnssNmea(snap, ms, lat, lng, acc, hasSpd, spd, hasBrg, brg, hasAlt, alt)` -> `String[]` (GGA, GSA per konstelasi, GSV per halaman, RMC). `java_fixed` meniru `String.format("%.Nf")` Java: digit terpendek (`{:e}` Rust) lalu pembulatan setengah-ke-atas pada digit berikutnya, `-0.0` tetap `-0.0`. Tanggal dan jam dihitung dari epoch (`civil_from_days`), pembulatan `Math.round` dengan `floor(x + 0.5)` eksak.
+- `nativeGnssMeas(snap, nowMs, timeNs)` -> `long[2 + 2n]`: `gpsNs`, `tow`, lalu per satelit `travelNs` dan bit `double` dari `pseudorangeRate`.
+Tetap di Java: `Config.gnssExtrasAt` (dipakai jalur Java; Rust memakai `jitter::gnss_extras`), `Snapshot` sebagai wadah, semua pembuatan objek Android lewat refleksi.
+
+Perubahan kecil di Java agar bisa diuji: `Config.gnssExtras()` sekarang memanggil `gnssExtrasAt(t)` dan `GnssFake.snapshot()` membaca jam sekali (sebelumnya dua kali, `gnssExtras` dan `nowSec`). `GnssFake.snapshotJava`, `nmeaJava`, dan `measJava` adalah jalur Java lama tanpa perubahan logika, hanya dipisah dari pembacaan jam dan `Location`.
+
+### Pengaman
+- `GnssFake.NATIVE` ditetapkan sekali saat kelas dimuat: aktif hanya bila `Config.locNative()` (seed sama), lalu `snapshotNative` sama dengan `snapshotJava` di 12 kasus (6 waktu x fixed/tidak: type, svid, used, flags persis; cn0/elev/az/baseband dalam toleransi), NMEA native sama persis dengan Java di 5 masukan (termasuk `-0.04`, `0.25`, `1234.55`, akurasi 0, tanpa speed/bearing/altitude) dan `measNative` sama persis. Library lama tanpa ekspor ini (`UnsatisfiedLinkError`) atau yang hasilnya beda jatuh ke Java tanpa crash.
+- Setiap panggilan dibungkus `try/catch Throwable`; hasil `null`, array salah ukuran, atau string `null` jatuh ke Java untuk panggilan itu. `read_snap` di Rust menolak array dengan `n` di luar 0..64, `n` bukan bilangan bulat, atau panjang tidak cocok (hasil `null`).
+- `disable_rs` mematikan library Rust seperti sebelumnya, dan `GnssFake` otomatis memakai Java.
+
+### Pengujian
+- `cargo test` di `native/lochooks` (`gnss.rs`, 10 tes baru): vektor `java.util.Random(42)` (-1170105035, 234785527), bentuk pool, `java_fixed` (0.25, 0.15, 9.96, 99.995, 1234.55, -0.04, -0.0, NaN, Infinity), `Math.round`, tanggal, invarian snapshot, pack/unpack dan penolakan masukan rusak, flags/baseband, struktur NMEA dan checksum, tata letak measurements.
+- `cargo xtask test gnssfake` (tanpa cargo): `GnssFake` asli dengan stub dan `LocationNative` palsu yang mengikuti kontrak (`gnsswire/fake`). Memeriksa 18 hal: verifikasi lolos, paritas 400 snapshot dan 600 NMEA dan 600 measurements, native dipakai (hitungan panggilan), hasil sama dengan Java, kalimat valid; serta cadangan saat native mengembalikan `null`, melempar, atau array salah ukuran; dan mode `fake.bad` (satu keluaran beda) membuat verifikasi gagal dan native tidak dipanggil lagi. Uji mutasi (`used` terbalik, indeks `flags` salah, `hasAlt` tertukar, cek `null` dibuang) membuat tes gagal.
+- `cargo xtask test gnsswire` (butuh cargo atau `LOCHOOKS_SO`): `GnssWire` yang sama, tetapi dengan `liblochooks.so` asli lewat `System.loadLibrary`.
+- Tes lama yang memakai `GnssFake` (`lochook`, `syshook` empat mode) dan `rswire` tetap lulus.
+- Port Python dari `gnss.rs` (bukan kode Rust-nya) dibandingkan dengan keluaran Java asli: 16 snapshot, 400 kasus NMEA, 50 kasus measurements, dan 3.020 angka untuk `%.1f`/`%.2f`: 0 beda.
+
+### Batas dan risiko yang belum teruji
+- `gnss.rs` dan ekspor barunya BELUM dikompilasi: tidak ada cargo di lingkungan tempat ini ditulis. Yang terbukti hanya logikanya (port Python vs Java) dan sisi Java (lewat native palsu). Jalankan `cargo test --manifest-path native/lochooks/Cargo.toml` dan `cargo xtask test gnsswire` dulu; kalau ada galat kompilasi, kemungkinan di tanda tangan `jni` 0.21 pada `read_snap`/`nativeGnssNmea`.
+- `sin` Java (`Math.sin`) dan Rust bisa beda satu ulp. Dampaknya hanya pada digit terakhir `elev`/`cn0`; urutan satelit baru berubah bila dua skor selisih kurang dari satu ulp (praktis tidak pernah). Verifikasi memakai toleransi untuk float, persis untuk integer.
+- Pembulatan `%.1f` meniru `Formatter` Java (digit terpendek lalu setengah-ke-atas). Di JVM host 21 sama persis pada 3.020 angka; di ART (libcore) algoritma digit terpendeknya bisa beda pada kasus langka, dan verifikasi saat memuat hanya mencoba 5 masukan. Kalau beda, tampilan NMEA bergeser satu digit desimal, tidak lebih.
+- Profil rilis `panic = "abort"`: panic di ekspor baru mematikan proses target. Jalur yang bisa panic dijaga (batas `n`, panjang array, `wrapping_*` untuk waktu, tanpa indeks di luar batas).
+- Overhead: tiap detik satu `double[1+9n]` (n sampai 29) dan satu `String[]` per umpan; belum diukur di perangkat.
+
 ## Langkah di sisi kamu
-1. Jalankan `sh module/test/run.sh` dan `sh module/test/parity/run.sh` di mesin build kamu (butuh cargo dan java).
+1. Jalankan `cargo xtask test` dan `cargo xtask test parity` di mesin build kamu (butuh cargo dan java).
 2. Untuk Android: `cargo build --release --target aarch64-linux-android` di `native/lochooks` dan `native/configcore`, taruh `.so` di `jniLibs`, lalu uji `LocationNative.ensureLoaded()` di perangkat cadangan sebelum menyambungkan ke `LocationHooks`, `Fix`, atau `Config`.
 3. Bangun modul lewat `cargo xtask build` (sekarang juga membangun `configcore` dan `lochooks` untuk Android; lihat Fase 8) (Gradle mengunduh LSPlant dan ShadowHook, NDK membangun `libgpsz_hook.so`), flash di perangkat cadangan, lalu cek `logcat` dan `gpsz.sh doctor`. Untuk mematikan library Rust tanpa membangun ulang, buat file `disable_rs` di folder modul. Untuk mematikan jalur LSPlant tanpa membangun ulang, buat file `disable_ls` di folder modul (atau `disable_ls_loc` untuk `LocationHooks` saja).
 4. Untuk mencoba Fase 7 (hanya setelah fase 5 dan 6 terbukti stabil): `gpsz.sh ls-system on`, reboot, lalu `gpsz.sh ls-system status` (harus `on` setelah sekitar 60 detik, bukan `pending` atau `blocked`) dan `logcat -s GpsZ`. Kalau boot gagal, reboot sekali lagi: percobaan kedua otomatis diblokir dan jalur lama dipakai.
+
+## Fase 10: skrip dipindah ke xtask
+`make-keystore.sh`, `setup.sh`, `update.sh`, dan harness tes shell (`module/test/run.sh` serta `run.sh` di tiap subfolder) diganti perintah `cargo xtask` (Rust, tanpa dependensi):
+- `cargo xtask keystore <key.pem> <cert.pem> [out.p12]` membuat PKCS12 dan `app/keystore.properties`; password dibaca dari terminal tanpa echo dan diteruskan ke `openssl` lewat env.
+- `cargo xtask setup` menyiapkan AndroidVMTools (sudah ada sebelumnya).
+- `cargo xtask update [zip-atau-folder]` seperti sebelumnya; kalau `tools/xtask` di source baru berbeda dari yang sedang berjalan, xtask baru dibangun dari source baru dulu (sama seperti shim `update.sh` lama). `make-keystore.sh`, `setup.sh`, dan `update.sh` yang masih ada di repo dihapus.
+- `cargo xtask test [bagian...]` menjalankan harness: `sintaks`, `daemon`, `supervisor`, `keystore`, `install`, `service`, `kunci`, `struktur`, `webui`, `native` (cargo test configcore dan lochooks), serta suite Java `beat`, `unsafe`, `idmap`, `lshook`, `lochook`, `setguard`, `syshook`, `sysguard`, `rswire`, `parity`, `cfgwire`. Grup `java` dan `native` menjalankan semua suite di grupnya. Binary daemon dari `SETLOCD_BIN` atau dibangun dengan `cargo build --release` di `daemon/`; `CONFIGCORE_SO` menunjuk ke `libconfigcore.so` host untuk `cfgwire`.
+- Salt dan tag kunci dibaca dari `.salt` (bukan lagi ditulis ulang ke `run.sh`), jadi `rotate-salt` tidak menyentuh file tes lagi. Kunci `Config` untuk `beat` dihitung dari salt, bukan dibaca dari `bridge.sh`/`gpsz.sh` yang kini hanya stub.
+- Kode xtask belum pernah dikompilasi atau dijalankan di lingkungan tempat ini ditulis (tidak ada cargo); jalankan `cargo test --manifest-path tools/xtask/Cargo.toml` dan `cargo xtask test` di mesin build.

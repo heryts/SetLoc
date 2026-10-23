@@ -76,16 +76,15 @@ Hasilnya `module/zygote/build/outputs/magisk/release/SetLocZygisk-release.zip`.
 - `JAVA21_HOME` menunjuk JDK 21 tertentu kalau ada lebih dari satu JDK.
 - `RUST_TARGETS` daftar target daemon (default `aarch64-linux-android`).
 - `cargo xtask setup` hanya menyiapkan AndroidVMTools.
-- `setup.sh` dan `update.sh` hanya shim kompatibilitas untuk `rilis.sh` lama; keduanya memanggil `cargo xtask` (`update.sh` menerima zip atau folder source).
 - `REPO=~/proj/SetLoc cargo xtask update <zip-source-baru>` menyalin source baru ke repo lalu build dan memeriksa isi zip.
-- Tanpa `app/keystore.properties`, APK ditandatangani dengan debug key. Untuk rilis, buat keystore dengan `sh make-keystore.sh <release-key.pem> <release-cert.pem>`.
+- Tanpa `app/keystore.properties`, APK ditandatangani dengan debug key. Untuk rilis, buat keystore dengan `cargo xtask keystore <release-key.pem> <release-cert.pem>`.
 
 ## Struktur
 - `app/` app Android (peta, favorit, rute, pengaturan)
 - `module/` modul Zygisk: hook Java, stub skrip Magisk, WebUI
 - `daemon/` `setlocd` (Rust): daemon, CLI `gpsz`, installer modul (`modinstall`)
 - `tools/` `xtask` (build/update) dan `rotate-salt`, keduanya Rust
-- `module/test/run.sh` uji sandbox untuk skrip dan `Config`
+- `cargo xtask test [bagian...]` uji sandbox untuk skrip, daemon, `Config`, dan hook
 
 ## Kredit
 Terinspirasi dari GPS Setter. Hook Java memakai [ZygoteLoader](https://github.com/aerath-stuff/ZygoteLoader) dan [AndroidVMTools](https://github.com/aerath-stuff/AndroidVMTools). Penyembunyian paket memakai [LSPlant](https://github.com/LSPosed/LSPlant) dan [ShadowHook](https://github.com/bytedance/android-inline-hook).

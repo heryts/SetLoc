@@ -1,5 +1,8 @@
+use crate::num::{plain_decimal, plain_integer};
+
 pub struct Track {
     pub t0: i64,
+    pub wrote: i64,
     pub tk: i64,
     pub la: Vec<f64>,
     pub lo: Vec<f64>,
@@ -15,14 +18,37 @@ impl Track {
 }
 
 pub fn parse_track(s: &str) -> Option<Track> {
+    if !s.is_ascii() {
+        return None;
+    }
     let mut t0: Option<i64> = None;
+    let mut wrote: Option<i64> = None;
     let mut tk: i64 = 0;
     let mut d: Option<&str> = None;
     for kv in s.split(';') {
-        let (k, v) = kv.split_once('=')?;
+        let (k, v) = match kv.split_once('=') {
+            Some(p) => p,
+            None => continue,
+        };
         match k {
-            "t" => t0 = v.parse().ok(),
-            "k" => tk = v.parse().ok()?,
+            "t" => {
+                if !plain_integer(v) {
+                    return None;
+                }
+                t0 = Some(v.parse().ok()?);
+            }
+            "a" => {
+                if !plain_integer(v) {
+                    return None;
+                }
+                wrote = Some(v.parse().ok()?);
+            }
+            "k" => {
+                if !plain_integer(v) {
+                    return None;
+                }
+                tk = v.parse::<i32>().ok()? as i64;
+            }
             "d" => d = Some(v),
             _ => {}
         }
@@ -43,20 +69,25 @@ pub fn parse_track(s: &str) -> Option<Track> {
         if row.is_empty() {
             continue;
         }
-        let f: Vec<&str> = row.split(',').collect();
-        if f.len() < 5 {
-            return None;
-        }
-        la.push(f[0].parse().ok()?);
-        lo.push(f[1].parse().ok()?);
-        sp.push(f[2].parse().ok()?);
-        br.push(f[3].parse().ok()?);
-        al.push(f[4].parse().ok()?);
+        let mut f = row.split(',');
+        let mut field = || -> Option<&str> {
+            let x = f.next()?;
+            if plain_decimal(x) {
+                Some(x)
+            } else {
+                None
+            }
+        };
+        la.push(field()?.parse().ok()?);
+        lo.push(field()?.parse().ok()?);
+        sp.push(field()?.parse().ok()?);
+        br.push(field()?.parse().ok()?);
+        al.push(field()?.parse().ok()?);
     }
     if la.is_empty() {
         return None;
     }
-    Some(Track { t0, tk, la, lo, al, sp, br })
+    Some(Track { t0, wrote: wrote.unwrap_or(t0), tk, la, lo, al, sp, br })
 }
 
 pub fn lerp_angle(a: f32, b: f32, f: f64) -> f32 {
@@ -74,12 +105,13 @@ pub struct Applied {
 
 pub fn apply_track(t: &Track, now_ms: i64, stale: i32) -> Applied {
     let n = t.n();
-    let rel = now_ms - t.t0;
+    let rel = now_ms.wrapping_sub(t.t0);
     let at = if rel <= 0 { 0.0 } else { rel as f64 / t.tk as f64 };
     let (i, f) = if at >= (n - 1) as f64 {
         (n - 1, 0.0)
     } else {
-        (at as usize, at - at.floor())
+        let i = at as usize;
+        (i, at - i as f64)
     };
     let j = if f > 0.0 { i + 1 } else { i };
     let tla = t.la[i] + (t.la[j] - t.la[i]) * f;
@@ -99,7 +131,7 @@ pub fn apply_track(t: &Track, now_ms: i64, stale: i32) -> Applied {
     let spd = if stale >= 1 {
         0.0
     } else {
-        (t.sp[i] + (t.sp[j] - t.sp[i]) * f as f32).max(0.0)
+        crate::num::max0((t.sp[i] as f64 + (t.sp[j] - t.sp[i]) as f64 * f) as f32)
     };
     let brg = lerp_angle(t.br[i], t.br[j], f);
     Applied { lat: tla, lng: lo, alt, spd, brg }
@@ -162,6 +194,47 @@ mod tests {
     #[test]
     fn lerp_angle_wraps_shortest_path() {
         assert!((lerp_angle(350.0, 10.0, 0.5) - 0.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn wrote_defaults_to_t0_and_reads_a() {
+        assert_eq!(sample().wrote, 1000);
+        let t = parse_track("t=1000;a=900;k=1000;d=1,2,3,4,5").unwrap();
+        assert_eq!(t.wrote, 900);
+    }
+
+    #[test]
+    fn pairs_without_equals_are_skipped_like_java() {
+        assert!(parse_track("junk;t=1000;k=1000;d=1,2,3,4,5").is_some());
+    }
+
+    #[test]
+    fn first_bad_number_wins_even_if_repeated() {
+        assert!(parse_track("t=abc;t=5;k=1000;d=1,2,3,4,5").is_none());
+        assert!(parse_track("t=5;k=3000000000;d=1,2,3,4,5").is_none());
+        assert!(parse_track("t=5;k=0;d=1,2,3,4,5").is_none());
+    }
+
+    #[test]
+    fn non_plain_numbers_and_non_ascii_are_handed_back() {
+        assert!(parse_track("t=5;k=1000;d=1,2,3,4,5d").is_none());
+        assert!(parse_track("t=5;k=1000;d= 1,2,3,4,5").is_none());
+        assert!(parse_track("t=5;k=1000;d=1,2,3,4,\u{661}").is_none());
+    }
+
+    #[test]
+    fn extra_fields_and_trailing_comma_are_fine() {
+        let t = parse_track("t=5;k=1000;d=,1,2,3,4,5,9,9|,6,7,8,9,10,|").unwrap();
+        assert_eq!(t.n(), 2);
+        assert_eq!(t.al, vec![5.0, 10.0]);
+    }
+
+    #[test]
+    fn speed_interpolation_uses_float_difference_like_java() {
+        let t = parse_track("t=0;k=1000;d=0,0,0.1,0,0|0,0,0.7,0,0").unwrap();
+        let a = apply_track(&t, 333, 0);
+        let want = (0.1f32 as f64 + (0.7f32 - 0.1f32) as f64 * 0.333) as f32;
+        assert_eq!(a.spd, want);
     }
 
     #[test]

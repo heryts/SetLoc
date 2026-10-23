@@ -1,10 +1,11 @@
 pub mod fix;
+pub mod gnss;
 pub mod kind;
 pub mod providers;
 pub mod snap;
 pub mod snapshot;
 
-use jni::objects::{JClass, JObject, JObjectArray, JString};
+use jni::objects::{JClass, JDoubleArray, JObject, JObjectArray, JString};
 use jni::sys::{jboolean, jdouble, jdoubleArray, jfloat, jint, jlong, jlongArray, jobjectArray, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 use std::sync::{Mutex, OnceLock};
@@ -63,6 +64,34 @@ fn long_pair(env: &JNIEnv, a: i64, c: i64) -> jlongArray {
         }
         Err(_) => std::ptr::null_mut(),
     }
+}
+
+fn long_array(env: &JNIEnv, v: &[i64]) -> jlongArray {
+    match env.new_long_array(v.len() as i32) {
+        Ok(arr) => {
+            let _ = env.set_long_array_region(&arr, 0, v);
+            arr.into_raw()
+        }
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+fn read_snap(env: &JNIEnv, a: &JDoubleArray) -> Option<gnss::Snap> {
+    if a.as_raw().is_null() {
+        return None;
+    }
+    let len = env.get_array_length(a).ok()?;
+    if len < 1 || len as usize > 1 + gnss::MAX_SATS * gnss::STRIDE_IN {
+        return None;
+    }
+    let mut buf = vec![0.0f64; len as usize];
+    env.get_double_array_region(a, 0, &mut buf).ok()?;
+    gnss::unpack_in(&buf)
+}
+
+fn gnss_pool() -> &'static Vec<gnss::SatDef> {
+    static POOL: OnceLock<Vec<gnss::SatDef>> = OnceLock::new();
+    POOL.get_or_init(|| gnss::build_pool(seed() as i64))
 }
 
 fn double_array(env: &JNIEnv, v: &[f64]) -> jdoubleArray {
@@ -277,4 +306,64 @@ pub extern "system" fn Java_io_gpsz_zygote_LocationNative_nativeSnapshot(
 #[no_mangle]
 pub extern "system" fn Java_io_gpsz_zygote_LocationNative_nativeSnapFresh(_e: JNIEnv, _c: JClass, at: jlong, now_ms: jlong) -> jboolean {
     b(snapshot::fresh(at, now_ms))
+}
+
+#[no_mangle]
+pub extern "system" fn Java_io_gpsz_zygote_LocationNative_nativeGnssSnapshot(env: JNIEnv, _c: JClass, now_sec: jlong, fixed: jboolean) -> jdoubleArray {
+    let s = gnss::snapshot(seed(), gnss_pool(), now_sec, fixed != JNI_FALSE);
+    double_array(&env, &gnss::pack_out(&s))
+}
+
+#[no_mangle]
+pub extern "system" fn Java_io_gpsz_zygote_LocationNative_nativeGnssNmea(
+    mut env: JNIEnv,
+    _c: JClass,
+    snap: JDoubleArray,
+    ms: jlong,
+    lat: jdouble,
+    lng: jdouble,
+    acc: jfloat,
+    has_spd: jboolean,
+    spd: jfloat,
+    has_brg: jboolean,
+    brg: jfloat,
+    has_alt: jboolean,
+    alt: jdouble,
+) -> jobjectArray {
+    let s = match read_snap(&env, &snap) {
+        Some(s) => s,
+        None => return std::ptr::null_mut(),
+    };
+    let f = gnss::FixIn {
+        lat,
+        lng,
+        acc,
+        spd: if has_spd != JNI_FALSE { Some(spd) } else { None },
+        brg: if has_brg != JNI_FALSE { Some(brg) } else { None },
+        alt: if has_alt != JNI_FALSE { Some(alt) } else { None },
+    };
+    let lines = gnss::nmea(&s, &f, ms);
+    let out = match env.new_object_array(lines.len() as i32, "java/lang/String", JObject::null()) {
+        Ok(a) => a,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    for (i, l) in lines.iter().enumerate() {
+        match env.new_string(l) {
+            Ok(js) => {
+                if env.set_object_array_element(&out, i as i32, &js).is_err() {
+                    return std::ptr::null_mut();
+                }
+            }
+            Err(_) => return std::ptr::null_mut(),
+        }
+    }
+    out.into_raw()
+}
+
+#[no_mangle]
+pub extern "system" fn Java_io_gpsz_zygote_LocationNative_nativeGnssMeas(env: JNIEnv, _c: JClass, snap: JDoubleArray, now_ms: jlong, time_ns: jlong) -> jlongArray {
+    match read_snap(&env, &snap) {
+        Some(s) => long_array(&env, &gnss::meas(seed(), &s, now_ms, time_ns)),
+        None => std::ptr::null_mut(),
+    }
 }

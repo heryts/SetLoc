@@ -47,5 +47,11 @@ final class LocationNative {
 
     static native boolean nativeSnapFresh(long at, long nowMs);
 
+    static native double[] nativeGnssSnapshot(long nowSec, boolean fixed);
+
+    static native String[] nativeGnssNmea(double[] snap, long ms, double lat, double lng, float acc, boolean hasSpd, float spd, boolean hasBrg, float brg, boolean hasAlt, double alt);
+
+    static native long[] nativeGnssMeas(double[] snap, long nowMs, long timeNs);
+
     private LocationNative() { }
 }

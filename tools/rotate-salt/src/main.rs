@@ -11,7 +11,6 @@ const CONFIG: &str = "module/zygote/src/main/java/io/gpsz/zygote/Config.java";
 const PREF: &str = "app/app/src/main/java/com/heryts/setloc/utils/PrefManager.kt";
 const OLDKEYS: &str = "daemon/oldkeys.txt";
 const WEB: &str = "module/zygote/src/main/assets/webroot/index.html";
-const TEST: &str = "module/test/run.sh";
 const SALT_FILE: &str = ".salt";
 
 fn tag(salt: &str, logical: &str) -> String {
@@ -99,10 +98,6 @@ fn line_sub<F: Fn(&str) -> Option<usize>>(text: &str, matcher: F, replacement: &
     None
 }
 
-fn hexrun(s: &str) -> usize {
-    s.bytes().take_while(|&b| matches!(b, b'0'..=b'9' | b'a'..=b'f')).count()
-}
-
 fn m_web_salt(line: &str) -> Option<usize> {
     let p = "const SALT = '";
     let rest = line.strip_prefix(p)?;
@@ -120,37 +115,6 @@ fn m_web_sk(line: &str) -> Option<usize> {
     let body = rest.trim_end_matches(|c: char| c == '\n' || c == '\r');
     let n = body.rfind("};")?;
     Some(p.len() + n + 2)
-}
-
-fn m_test_salt(line: &str) -> Option<usize> {
-    let p = "SALT=\"";
-    let rest = line.strip_prefix(p)?;
-    let n = rest.find('"')?;
-    if n >= 1 {
-        Some(p.len() + n + 1)
-    } else {
-        None
-    }
-}
-
-fn m_test_tags(line: &str) -> Option<usize> {
-    let first = "SYSTAG=";
-    let mut rest = line.strip_prefix(first)?;
-    let mut used = first.len();
-    for next in ["; TRKTAG=", "; BEATTAG="] {
-        let n = hexrun(rest);
-        if n == 0 {
-            return None;
-        }
-        rest = rest[n..].strip_prefix(next)?;
-        used += n + next.len();
-    }
-    let n = hexrun(rest);
-    if n == 0 {
-        None
-    } else {
-        Some(used + n)
-    }
 }
 
 fn run(fresh: bool) -> Result<String, String> {
@@ -200,21 +164,6 @@ fn run(fresh: bool) -> Result<String, String> {
     );
     let web = line_sub(&web, m_web_sk, &sk).ok_or_else(|| missing(WEB, "^const SK = \\{.*\\};"))?;
 
-    let test_text = read(TEST)?;
-    let test = line_sub(&test_text, m_test_salt, &format!("SALT=\"{}\"", salt))
-        .ok_or_else(|| missing(TEST, "^SALT=\"[^\"]+\""))?;
-    let test = line_sub(
-        &test,
-        m_test_tags,
-        &format!(
-            "SYSTAG={}; TRKTAG={}; BEATTAG={}",
-            tag(&salt, "sys"),
-            tag(&salt, "trk"),
-            tag(&salt, "beat")
-        ),
-    )
-    .ok_or_else(|| missing(TEST, "^SYSTAG=[0-9a-f]+; TRKTAG=[0-9a-f]+; BEATTAG=[0-9a-f]+"))?;
-
     write(CONFIG, &config)?;
     write(PREF, &pref)?;
     if let Some(d) = Path::new(OLDKEYS).parent() {
@@ -222,7 +171,6 @@ fn run(fresh: bool) -> Result<String, String> {
     }
     write(OLDKEYS, &legacy_line)?;
     write(WEB, &web)?;
-    write(TEST, &test)?;
     Ok(format!(
         "salt {}, key: {}",
         if old_salt == salt { "tetap" } else { "diganti" },
@@ -267,14 +215,5 @@ mod tests {
         let t = "x\nconst SK = { cfg: '1' };\r\ny\n";
         let out = line_sub(t, m_web_sk, "const SK = { };").unwrap();
         assert_eq!(out, "x\nconst SK = { };\r\ny\n");
-    }
-
-    #[test]
-    fn test_script_lines_are_matched() {
-        assert_eq!(m_test_salt("SALT=\"abc\"\n"), Some(10));
-        assert_eq!(m_test_salt("SALT=\"\"\n"), None);
-        let line = "SYSTAG=db078e; TRKTAG=c724d0; BEATTAG=c1e67d\n";
-        assert_eq!(m_test_tags(line), Some(line.len() - 1));
-        assert_eq!(m_test_tags("SYSTAG=; TRKTAG=1; BEATTAG=2\n"), None);
     }
 }

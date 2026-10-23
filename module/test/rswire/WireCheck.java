@@ -24,6 +24,9 @@ public class WireCheck {
         SystemClock.fake = 700_000;
         Config.parse("enabled=1;lat=-7.7;lng=110.4;acc=10;random=1;rr=8;spd=5;alt=100;altv=3;brg=45");
         ok("locNative() sesuai mode " + a[0], Config.locNative() == wantNative);
+        ok("ekspor parse/track/beat tidak ada di library: cfgNative() mati, Java dipakai", !Config.cfgNative());
+        Config.parse("enabled=1;lat=-7.7;lng=110.4;spd=5;brg=45;pl=1");
+        ok("parse tetap benar lewat Java", Config.enabled && Config.pos.lat == -7.7 && Config.spd == 5f && Config.brg == 45f && Config.playing);
 
         int before = counter("LocationNative");
         Config.snap = null;

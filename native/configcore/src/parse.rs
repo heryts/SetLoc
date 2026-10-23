@@ -1,3 +1,5 @@
+use crate::num::{jtrim, max0, min100, plain_decimal};
+
 pub struct Prev {
     pub lat: f64,
     pub lng: f64,
@@ -27,27 +29,42 @@ fn in_range(v: f64, limit: f64, fallback: f64) -> f64 {
     }
 }
 
+fn defaults(prev: &Prev) -> Parsed {
+    Parsed {
+        enabled: false,
+        jitter: false,
+        playing: false,
+        tk: false,
+        lat: prev.lat,
+        lng: prev.lng,
+        acc: prev.acc,
+        spd: 0.0,
+        brg: f32::NAN,
+        alt: 0.0,
+        altv: 0.0,
+        rr: 8.0,
+    }
+}
+
 pub fn parse(s: Option<&str>, prev: &Prev) -> Parsed {
     let s = match s {
         None => "",
         Some(v) if v == "null" => "",
         Some(v) => v,
     };
+    parse_inner(s, prev, false).unwrap_or_else(|| defaults(prev))
+}
+
+pub fn parse_strict(s: &str, prev: &Prev) -> Option<Parsed> {
+    if !s.is_ascii() {
+        return None;
+    }
+    parse_inner(s, prev, true)
+}
+
+fn parse_inner(s: &str, prev: &Prev, strict: bool) -> Option<Parsed> {
     if s.is_empty() {
-        return Parsed {
-            enabled: false,
-            jitter: false,
-            playing: false,
-            tk: false,
-            lat: prev.lat,
-            lng: prev.lng,
-            acc: prev.acc,
-            spd: 0.0,
-            brg: f32::NAN,
-            alt: 0.0,
-            altv: 0.0,
-            rr: 8.0,
-        };
+        return Some(defaults(prev));
     }
     let mut en = false;
     let mut jit = false;
@@ -66,6 +83,12 @@ pub fn parse(s: Option<&str>, prev: &Prev) -> Parsed {
             Some(p) => p,
             None => continue,
         };
+        let k = jtrim(k);
+        let v = jtrim(v);
+        let numeric = matches!(k, "lat" | "lng" | "acc" | "spd" | "brg" | "alt" | "altv" | "rr");
+        if strict && numeric && !plain_decimal(v) {
+            return None;
+        }
         match k {
             "enabled" => en = v == "1",
             "lat" => {
@@ -86,7 +109,7 @@ pub fn parse(s: Option<&str>, prev: &Prev) -> Parsed {
             "random" => jit = v == "1",
             "spd" => {
                 if let Ok(x) = v.parse::<f32>() {
-                    sp = (in_range(x as f64, 1e4, 0.0) as f32).max(0.0);
+                    sp = max0(in_range(x as f64, 1e4, 0.0) as f32);
                 }
             }
             "brg" => {
@@ -101,12 +124,12 @@ pub fn parse(s: Option<&str>, prev: &Prev) -> Parsed {
             }
             "altv" => {
                 if let Ok(x) = v.parse::<f32>() {
-                    av = (in_range(x as f64, 1e4, 0.0) as f32).max(0.0);
+                    av = max0(in_range(x as f64, 1e4, 0.0) as f32);
                 }
             }
             "rr" => {
                 if let Ok(x) = v.parse::<f32>() {
-                    rad = (in_range(x as f64, 1e4, 8.0) as f32).max(0.0).min(100.0);
+                    rad = max0(min100(in_range(x as f64, 1e4, 8.0) as f32));
                 }
             }
             "pl" => pl = v == "1",
@@ -114,7 +137,7 @@ pub fn parse(s: Option<&str>, prev: &Prev) -> Parsed {
             _ => {}
         }
     }
-    Parsed { enabled: en, jitter: jit, playing: pl, tk, lat: la, lng: lo, acc: ac, spd: sp, brg: br, alt: al, altv: av, rr: rad }
+    Some(Parsed { enabled: en, jitter: jit, playing: pl, tk, lat: la, lng: lo, acc: ac, spd: sp, brg: br, alt: al, altv: av, rr: rad })
 }
 
 pub struct BeatState {
@@ -185,6 +208,55 @@ mod tests {
     fn out_of_range_falls_back() {
         let p = parse(Some("lat=999"), &Prev { lat: 5.0, lng: 0.0, acc: 0.0 });
         assert_eq!(p.lat, 5.0);
+    }
+
+    fn prev() -> Prev {
+        Prev { lat: 1.0, lng: 2.0, acc: 10.0 }
+    }
+
+    #[test]
+    fn strict_hands_back_non_plain_numbers() {
+        for bad in ["lat=5d", "acc=NaN", "spd=Infinity", "alt=0x1p3", "rr=", "brg=abc", "lng=1_0"] {
+            assert!(parse_strict(bad, &prev()).is_none(), "{}", bad);
+        }
+        assert!(parse_strict("enabled=1;lat=5", &prev()).is_some());
+        assert!(parse_strict("lat=5;x=abc;enabled=1", &prev()).is_some());
+    }
+
+    #[test]
+    fn strict_rejects_non_ascii() {
+        assert!(parse_strict("enabled=1;x=\u{e9}", &prev()).is_none());
+    }
+
+    #[test]
+    fn keys_and_values_are_trimmed_like_java() {
+        let p = parse_strict(" enabled = 1 ; lat = -7.5 ;pl=1", &prev()).unwrap();
+        assert!(p.enabled && p.playing);
+        assert_eq!(p.lat, -7.5);
+    }
+
+    #[test]
+    fn empty_and_junk_use_defaults() {
+        let p = parse_strict("", &prev()).unwrap();
+        assert!(!p.enabled && p.brg.is_nan() && p.rr == 8.0 && p.lat == 1.0 && p.acc == 10.0);
+        let q = parse_strict(" null", &prev()).unwrap();
+        assert!(!q.enabled && q.lat == 1.0);
+    }
+
+    #[test]
+    fn clamps_and_bearing_rules() {
+        let p = parse_strict("spd=-5;brg=725;altv=-1;rr=250;acc=1e9;lat=95", &prev()).unwrap();
+        assert_eq!(p.spd, 0.0);
+        assert!(p.spd.is_sign_positive());
+        assert_eq!(p.brg, 5.0);
+        assert_eq!(p.altv, 0.0);
+        assert_eq!(p.rr, 100.0);
+        assert_eq!(p.acc, 10.0);
+        assert_eq!(p.lat, 1.0);
+        let n = parse_strict("brg=-1", &prev()).unwrap();
+        assert!(n.brg.is_nan());
+        let big = parse_strict("brg=1e40", &prev()).unwrap();
+        assert!(big.brg.is_nan());
     }
 
     #[test]

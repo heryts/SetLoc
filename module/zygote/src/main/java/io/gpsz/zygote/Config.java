@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.StringTokenizer;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 
 final class Config {
@@ -38,6 +39,43 @@ final class Config {
         } catch (Throwable t) {
             return false;
         }
+    }
+
+    private static final AtomicLong TRACK_GEN = new AtomicLong();
+    private static final int NATIVE_TRACK_MAX_N = 200_000;
+
+    private static final boolean CFG_NATIVE = verifyCfg();
+
+    private static boolean verifyCfg() {
+        if (!ConfigNative.ready()) return false;
+        try {
+            double[] p = ConfigNative.nativeParse("enabled=1;lat=-7.5;lng=110.5;acc=12;random=1;spd=3;brg=90;alt=5;altv=2;rr=10;pl=1;tk=1", 1.0, 2.0, 3f);
+            if (p == null || p.length != 12 || p[0] != 1 || p[1] != 1 || p[2] != 1 || p[3] != 1 || p[4] != -7.5 || p[5] != 110.5
+                    || p[6] != 12 || p[7] != 3 || p[8] != 90 || p[9] != 5 || p[10] != 2 || p[11] != 10) return false;
+            if (ConfigNative.nativeParse("lat=5d", 1.0, 2.0, 3f) != null) return false;
+            long[] h = new long[4];
+            double[] d = ConfigNative.nativeParseTrack("t=1000;a=900;k=1000;d=,1,2,3,4,5|,6,7,8,9,10|", h);
+            if (d == null || d.length != 10 || d[2] != 5 || d[3] != 3 || d[4] != 4 || d[7] != 10 || d[8] != 8 || h[0] != 1000 || h[1] != 900 || h[2] != 1000 || h[3] != 2) return false;
+            long g = TRACK_GEN.incrementAndGet();
+            if (!ConfigNative.nativeTrackSet(g, 1000, 1000, 2, new double[]{1, 6}, new double[]{2, 7}, new double[]{5, 10}, new float[]{3f, 8f}, new float[]{4f, 9f})) return false;
+            double[] a = ConfigNative.nativeApplyTrack(g, 1500, 0);
+            boolean ok = a != null && a.length == 5 && a[0] == 3.5 && a[1] == 4.5 && a[2] == 7.5 && a[3] == 5.5 && Math.abs(a[4] - 6.5) < 1e-4
+                    && ConfigNative.nativeApplyTrack(g + 1, 1500, 0) == null;
+            ConfigNative.nativeTrackClear();
+            if (!ok || ConfigNative.nativeApplyTrack(g, 1500, 0) != null) return false;
+            if (ConfigNative.nativeStaleLevel(59_999) != 1 || ConfigNative.nativeStaleLevel(60_000) != 2) return false;
+            ConfigNative.nativeBeatReset();
+            int b0 = ConfigNative.nativeBeatCheck("1", true, 0);
+            int b1 = ConfigNative.nativeBeatCheck("1", true, 10_001);
+            ConfigNative.nativeBeatReset();
+            return b0 == 0 && b1 == (1 | 4);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    static boolean cfgNative() {
+        return CFG_NATIVE;
     }
 
     static String tag(String logical) {
@@ -179,6 +217,7 @@ final class Config {
     }
 
     static final class Track {
+        final long gen = TRACK_GEN.incrementAndGet();
         final long t0, wrote;
         final int tk, n;
         final double[] la, lo, al;
@@ -326,7 +365,10 @@ final class Config {
     }
 
     static int[] gnssExtras() {
-        long t = SystemClock.elapsedRealtime() / 1000;
+        return gnssExtrasAt(SystemClock.elapsedRealtime() / 1000);
+    }
+
+    static int[] gnssExtrasAt(long t) {
         double p1 = hashUnit(11, 0) * 2 * Math.PI, p2 = hashUnit(12, 0) * 2 * Math.PI;
         double p3 = hashUnit(13, 0) * 2 * Math.PI, p4 = hashUnit(14, 0) * 2 * Math.PI;
         int sat = 9 + (int) Math.round(2.2 * Math.sin(t / 53.0 + p1) + 1.6 * Math.sin(t / 17.0 + p2));
@@ -398,8 +440,46 @@ final class Config {
         } catch (Throwable ignored) { }
     }
 
+    private static Track parseTrackNative(String s) {
+        try {
+            long[] h = new long[4];
+            double[] d = ConfigNative.nativeParseTrack(s, h);
+            if (d == null || h[3] < 1 || h[3] > Integer.MAX_VALUE / 5 || h[2] <= 0 || h[2] > Integer.MAX_VALUE || d.length != h[3] * 5) return null;
+            int n = (int) h[3];
+            double[] la = new double[n], lo = new double[n], al = new double[n];
+            float[] sp = new float[n], br = new float[n];
+            for (int i = 0; i < n; i++) {
+                la[i] = d[5 * i];
+                lo[i] = d[5 * i + 1];
+                al[i] = d[5 * i + 2];
+                sp[i] = (float) d[5 * i + 3];
+                br[i] = (float) d[5 * i + 4];
+            }
+            return new Track(h[0], h[1], (int) h[2], n, la, lo, al, sp, br);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static volatile long nativeGen;
+
+    private static void setTrack(Track t) {
+        track = t;
+        if (!CFG_NATIVE) return;
+        long g = 0;
+        try {
+            if (t == null) ConfigNative.nativeTrackClear();
+            else if (t.n <= NATIVE_TRACK_MAX_N && ConfigNative.nativeTrackSet(t.gen, t.t0, t.tk, t.n, t.la, t.lo, t.al, t.sp, t.br)) g = t.gen;
+        } catch (Throwable ignored) { }
+        nativeGen = g;
+    }
+
     static Track parseTrack(String s) {
         if (s == null) return null;
+        if (CFG_NATIVE && isAscii(s)) {
+            Track nt = parseTrackNative(s);
+            if (nt != null) return nt;
+        }
         long t0 = Long.MIN_VALUE, a = Long.MIN_VALUE;
         int tk = 0;
         String d = null;
@@ -556,6 +636,18 @@ final class Config {
         enabled = cfgEn && st < 2;
         Track t = track;
         if (t == null) return;
+        if (CFG_NATIVE && t.gen == nativeGen) {
+            try {
+                double[] r = ConfigNative.nativeApplyTrack(t.gen, now, st);
+                if (r != null && r.length >= 5) {
+                    pos = new Pos(r[0], r[1]);
+                    alt = r[2];
+                    spd = (float) r[3];
+                    brg = (float) r[4];
+                    return;
+                }
+            } catch (Throwable ignored) { }
+        }
         long rel = now - t.t0;
         double at = rel <= 0 ? 0.0 : (double) rel / t.tk;
         int i;
@@ -591,6 +683,9 @@ final class Config {
             cfgEn = false;
             beatStale = 0;
             beatArmed = false;
+            if (CFG_NATIVE) {
+                try { ConfigNative.nativeBeatDisarm(); } catch (Throwable ignored) { }
+            }
             system = false;
             sysHeartbeat = false;
             hideNet = true;
@@ -602,7 +697,19 @@ final class Config {
         double la = q0.lat, lo = q0.lng;
         float ac = acc, sp = 0f, br = Float.NaN, av = 0f, rad = 8f;
         double al = 0.0;
-        for (String kv : s.split(";")) {
+        boolean done = false;
+        if (CFG_NATIVE && isAscii(s)) {
+            try {
+                double[] r = ConfigNative.nativeParse(s, la, lo, ac);
+                if (r != null && r.length >= 12) {
+                    en = r[0] != 0; jit = r[1] != 0; pl = r[2] != 0; tk = r[3] != 0;
+                    la = r[4]; lo = r[5]; ac = (float) r[6]; sp = (float) r[7]; br = (float) r[8];
+                    al = r[9]; av = (float) r[10]; rad = (float) r[11];
+                    done = true;
+                }
+            } catch (Throwable ignored) { }
+        }
+        if (!done) for (String kv : s.split(";")) {
             int i = kv.indexOf('=');
             if (i < 0) continue;
             String k = kv.substring(0, i).trim();
@@ -639,6 +746,24 @@ final class Config {
 
     static void checkBeat(String beat) {
         long now = SystemClock.elapsedRealtime();
+        if (CFG_NATIVE) {
+            try {
+                int c = ConfigNative.nativeBeatCheck(beat, playing, now);
+                if (c >= 0) {
+                    int level = c & 3;
+                    if (level == 2) {
+                        beatStale = 2;
+                        enabled = false;
+                    } else if (level == 1 && (c & 4) != 0) {
+                        beatStale = 1;
+                        spd = 0f;
+                    } else {
+                        beatStale = 0;
+                    }
+                    return;
+                }
+            } catch (Throwable ignored) { }
+        }
         boolean gap = lastPollAt != 0 && now - lastPollAt > GAP_MS;
         lastPollAt = now;
         if (!playing) {
@@ -695,10 +820,10 @@ final class Config {
                     boolean fresh = !Objects.equals(ts, trkSeen);
                     if (fresh) { trkSeen = ts; winTrack = parseTrack(ts); }
                     boolean fileNew = reloadTrackFile(rt, fresh);
-                    if (fresh || fileNew) track = withFile(winTrack);
+                    if (fresh || fileNew) setTrack(withFile(winTrack));
                     trkStale = trackStale(rt);
                 } else {
-                    track = null;
+                    setTrack(null);
                     winTrack = null;
                     fileTrack = null;
                     fileTrackSig = null;
