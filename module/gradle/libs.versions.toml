@@ -3,7 +3,7 @@ agp = "9.4.0"
 zygoteloader = "2a2160f"
 r8_annotations = "v1.0.1"
 lsplant = "6.4"
-shadowhook = "1.1.1"
+shadowhook = "1.0.10"
 
 [plugins]
 agp-app = { id = "com.android.application", version.ref = "agp" }
