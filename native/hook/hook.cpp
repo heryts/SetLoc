@@ -53,7 +53,11 @@ bool inline_unhook(void *target) {
 }
 
 void *resolve(std::string_view name) {
-    void *p = shadowhook_dlsym(art, std::string(name).c_str());
+    std::string n(name);
+    void *p = shadowhook_dlsym(art, n.c_str());
+    if (p == nullptr) {
+        p = shadowhook_dlsym_symtab(art, n.c_str());
+    }
     if (p == nullptr) {
         __android_log_print(ANDROID_LOG_ERROR, "gpsz_hook", "simbol tidak ada %s", std::string(name).c_str());
     }
