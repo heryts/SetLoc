@@ -5,6 +5,7 @@ use std::path::Path;
 pub const ENABLE: &str = "enable_ls_system";
 pub const PENDING: &str = ".ls_sys_pending";
 pub const BLOCKED: &str = "ls_system_blocked";
+pub const OFF: &str = "ls_system_off";
 pub const STABLE_S: i64 = 60;
 const POLL_IDLE_MS: u64 = 10_000;
 const POLL_WATCH_MS: u64 = 5_000;
@@ -65,6 +66,7 @@ pub fn state(moddir: &Path) -> &'static str {
 pub fn enable(moddir: &Path) -> bool {
     let _ = fs::remove_file(moddir.join(BLOCKED));
     let _ = fs::remove_file(moddir.join(PENDING));
+    let _ = fs::remove_file(moddir.join(OFF));
     fs::write(moddir.join(ENABLE), "").is_ok()
 }
 
@@ -72,6 +74,7 @@ pub fn disable(moddir: &Path) {
     for f in [ENABLE, PENDING, BLOCKED] {
         let _ = fs::remove_file(moddir.join(f));
     }
+    let _ = fs::write(moddir.join(OFF), "");
 }
 
 pub fn reset(moddir: &Path) {

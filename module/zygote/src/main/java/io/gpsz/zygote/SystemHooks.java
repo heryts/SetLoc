@@ -33,7 +33,6 @@ final class SystemHooks {
     private static boolean generatorStarted = false;
     private static int lpmHooks = 0, lmsHooks = 0, lmsTries = 0;
     private static int scanFailures = 0;
-    private static int hookFailures = 0;
     private static String lastStatus = "";
     private static Class<?> resultClass;
     private static Method resultMap, resultSize, resultGet, resultWrap;
@@ -65,7 +64,7 @@ final class SystemHooks {
         } catch (Throwable t) {
             note("error " + t);
         }
-        note("lpm=" + lpmHooks + " lms=" + lmsHooks + " gagal=" + hookFailures + " heartbeat=" + Config.sysHeartbeat
+        note("lpm=" + lpmHooks + " lms=" + lmsHooks + " ready=" + LsNative.isReady() + " sys=" + LsNative.sysEnabled() + " heartbeat=" + Config.sysHeartbeat
                 + " reflect=" + (lpmOnReport != null) + "/" + (resultWrap != null));
         return isLive();
     }
@@ -184,10 +183,7 @@ final class SystemHooks {
             if (kind < 0) continue;
             try {
                 if (Frames.hook(m, LsNative.sysEnabled(), transformer(kind, argIdx, lstIdx, ret == boolean.class))) hooked++;
-                else hookFailures++;
-            } catch (Throwable ignored) {
-                hookFailures++;
-            }
+            } catch (Throwable ignored) { }
         }
         return hooked;
     }

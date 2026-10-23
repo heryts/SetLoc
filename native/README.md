@@ -63,7 +63,7 @@ Default MATI. Tanpa file `enable_ls_system`, `system_server` berjalan persis sep
 
 ### Pengaman boot
 Semua penanda ada di folder modul. Penanda ditulis oleh `post-fs-data.sh` (root, sebelum zygote), bukan oleh `system_server`, karena proses yang di-fork dari zygote tidak boleh menulis di `/data/adb` (SELinux). `premain()` hanya membaca lewat `SysGuard.arm`:
-1. `post-fs-data.sh`: tanpa `enable_ls_system` tidak melakukan apa pun; `ls_system_blocked` ada: tidak melakukan apa pun; `.ls_sys_pending` ada (percobaan sebelumnya tidak pernah dikonfirmasi): membuat `ls_system_blocked` dan menghapus pending; selain itu membuat `.ls_sys_pending`.
+1. `post-fs-data.sh`: membuat `enable_ls_system` bila belum ada kecuali ada `ls_system_off` (dibuat oleh `ls-system off`; default sejak 12m: aktif); `ls_system_blocked` ada: tidak melakukan apa pun; `.ls_sys_pending` ada (percobaan sebelumnya tidak pernah dikonfirmasi): membuat `ls_system_blocked` dan menghapus pending; selain itu membuat `.ls_sys_pending`.
 2. `SysGuard.arm`: tanpa `enable_ls_system` OFF; `ls_system_blocked` ada BLOCKED_NOW; `.ls_sys_pending` ada ARMED (LSPlant dimuat); selain itu FAILED (LSPlant tidak dimuat).
 3. `premain()` mencatat `system hook premain arm=<0..3> lsplant=<bool> err=<pesan>` ke `logcat -s GpsZ`, dan `SystemHooks` mencatat `system hook lpm=.. lms=.. gagal=..` setiap kali hasilnya berubah.
 
