@@ -62,11 +62,11 @@ Target: 10 hook di `system_server` (`LocationProviderManager.onReportLocation`; 
 Default MATI. Tanpa file `enable_ls_system`, `system_server` berjalan persis seperti sebelum fase ini (AndroidVMTools, LSPlant tidak dimuat).
 
 ### Pengaman boot
-Semua penanda ada di folder modul. `SysGuard.arm` dipanggil di `premain()` (sebelum specialize), sebelum `libgpsz_hook.so` dimuat:
-1. `enable_ls_system` tidak ada: tidak ada yang disentuh, jalur lama.
-2. `ls_system_blocked` ada: jalur lama.
-3. `.ls_sys_pending` ada (percobaan sebelumnya tidak pernah dikonfirmasi): `ls_system_blocked` dibuat, jalur lama. Sesudahnya semua boot tetap jalur lama sampai `gpsz.sh ls-system reset` atau `on`.
-4. Selain itu `.ls_sys_pending` dibuat dulu, baru LSPlant dimuat. Kalau penanda tidak bisa ditulis (misalnya SELinux), LSPlant tidak dimuat (gagal tertutup).
+Semua penanda ada di folder modul. Penulisnya daemon (root), bukan `premain()`: `post-fs-data.sh` menjalankan `setlocd lsarm` sebelum zygote mulai, dan `SysGuard.arm` di `premain()` hanya membaca, sebelum `libgpsz_hook.so` dimuat:
+1. `enable_ls_system` tidak ada: tidak ada yang disentuh, tidak ada hook sistem.
+2. `lsarm`: `ls_system_blocked` ada: `.ls_sys_pending` dibuang, tetap diblokir.
+3. `lsarm`: `.ls_sys_pending` ada (percobaan sebelumnya tidak pernah dikonfirmasi): `ls_system_blocked` dibuat dan `.ls_sys_pending` dibuang. Sesudahnya semua boot tetap diblokir sampai `gpsz.sh ls-system reset` atau `on`.
+4. Selain itu `lsarm` membuat `.ls_sys_pending`. `SysGuard.arm` mengembalikan `ARMED` hanya bila `enable_ls_system` ada, `ls_system_blocked` tidak ada, dan `.ls_sys_pending` ada; selain itu LSPlant tidak dimuat (gagal tertutup). Hasilnya dicatat ke logcat dengan tag `GpsZ` (`system hook arm=0|1|2|3`: `OFF|ARMED|BLOCKED_NOW|FAILED`).
 
 Konfirmasi ada di daemon Rust (`daemon/src/lsguard.rs`, dijalankan dari `service.rs` hanya bila `enable_ls_system` ada): setelah `sys.boot_completed`, bila `.ls_sys_pending` ada dan PID `system_server` tidak berubah selama 60 detik, penanda dihapus. PID berubah (system_server mati dan dimulai ulang) menghitung ulang dari nol. Kalau `ls_system_blocked` ada, `.ls_sys_pending` dibuang tanpa menunggu.
 
@@ -74,15 +74,15 @@ Perintah: `gpsz.sh ls-system on|off|status|reset`. `on` menghapus blokir dan pen
 
 ### Pengujian
 - `cargo xtask test syshook`: menjalankan `SystemHooks`, `Config`, `Fix`, dan `GnssFake` asli dengan kelas palsu `LocationManagerService`, `LocationProviderManager`, `LocationResult`, dan `LsNative` palsu, dalam empat proses terpisah (`ls`, `off`, `notready`, `partial`). Mode `ls` (10 hook lewat LSPlant, nol lewat jalur lama) memeriksa: semua diteruskan saat config mati; mode penuh mengganti hasil `onReportLocation` dan `getLastLocation`, mengganti argumen `injectLocation`, memblokir batching, memberi pendengar GNSS palsu (dan `android` tetap diteruskan), `SecurityException` dari method asli tetap sampai ke pemanggil; darurat dan heartbeat tidak mengganti apa pun. Mode `off` dan `notready`: 10 method ke jalur lama. Mode `partial`: satu method gagal di LSPlant dan hanya itu yang jatuh ke jalur lama. Uji mutasi (hasil tidak diganti, exception ditelan, flag `sysEnabled` selalu true, method asli selalu dipanggil) membuat tes gagal.
-- `cargo xtask test sysguard`: urutan boot (tanpa opt-in, boot pertama, boot kedua tanpa dan dengan konfirmasi, reset, off) dan jalur gagal tertutup (penanda tidak bisa ditulis, jalur berupa folder, `File` null).
-- `cargo test` di `daemon/`: 7 tes `lsguard` (pending hanya dihapus setelah PID sama selama 60 detik, PID berubah mengulang hitungan, `system_server` hilang tidak mengonfirmasi, blokir membuang pending, perintah `on|off|reset`).
+- `cargo xtask test sysguard`: `SysGuard` hanya membaca (tanpa opt-in, tanpa pending, pending dari daemon, blokir, reset, off) dan jalur gagal tertutup (jalur berupa folder, `File` null, folder tidak ada).
+- `cargo test` di `daemon/`: 9 tes `lsguard` (termasuk urutan boot `arm_boot`) (pending hanya dihapus setelah PID sama selama 60 detik, PID berubah mengulang hitungan, `system_server` hilang tidak mengonfirmasi, blokir membuang pending, perintah `on|off|reset`).
 Ketiganya dipanggil dari `cargo xtask test` (dua pertama) dan `cargo xtask build`.
 
 ### Batas dan risiko yang belum teruji
 - Belum dikompilasi untuk Android dan belum dijalankan di perangkat, sama seperti fase 4 sampai 6. Hook lewat LSPlant di `system_server` belum terbukti di ART.
-- Semua yang dibaca dan ditulis `premain()` (folder modul) bergantung pada izin SELinux proses yang sedang di-fork. Pembacaan sudah dipakai fase 4 sampai 6; penulisan `.ls_sys_pending` belum. Kalau ditolak, hasilnya LSPlant tidak dimuat di `system_server` (aman, tetapi fase ini tidak akan pernah aktif). `gpsz.sh ls-system status` akan menunjukkan `on` tanpa pernah `pending`.
+- `premain()` hanya membaca penanda; penulisan dilakukan `post-fs-data.sh` sebagai root. Kalau `post-fs-data.sh` tidak jalan atau `setlocd lsarm` gagal, `SysGuard.arm` memberi `FAILED` (`system hook arm=3`) dan LSPlant tidak dimuat di `system_server`. `gpsz.sh ls-system status` akan menunjukkan `on` tanpa pernah `pending`.
 - Pengaman hanya menutup crash dalam 60 detik pertama sesudah `boot_completed` dan sebelum itu. Crash `system_server` yang terjadi lebih lama sesudah dinyatakan stabil tidak memblokir apa pun.
-- Reboot manual dalam 60 detik pertama sesudah boot selesai meninggalkan `.ls_sys_pending`, sehingga boot berikutnya memblokir (jalur lama). Pulihkan dengan `gpsz.sh ls-system reset`.
+- Reboot manual dalam 60 detik pertama sesudah boot selesai meninggalkan `.ls_sys_pending`, sehingga boot berikutnya memblokir. Pulihkan dengan `gpsz.sh ls-system reset`.
 - LSPlant dan AndroidVMTools bisa hidup bersamaan di `system_server` hanya lewat jalur cadangan per method (mode `partial`).
 - `System.loadLibrary("gpsz_hook")` dari `premain()` di `system_server` bergantung pada jalur library dan namespace linker, sama dengan fase 4 tetapi untuk proses lain.
 - Overhead per panggilan `onReportLocation` naik (alokasi `Object[]` dan `Method.invoke`); belum diukur.

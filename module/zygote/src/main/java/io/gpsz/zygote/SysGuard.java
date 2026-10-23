@@ -16,22 +16,9 @@ final class SysGuard {
         try {
             if (!enable.exists()) return OFF;
             if (blocked.exists()) return BLOCKED_NOW;
-            if (pending.exists()) {
-                create(blocked);
-                return BLOCKED_NOW;
-            }
-            return create(pending) ? ARMED : FAILED;
+            return pending.exists() ? ARMED : FAILED;
         } catch (Throwable t) {
             return FAILED;
-        }
-    }
-
-    private static boolean create(File f) {
-        try {
-            f.createNewFile();
-            return f.exists();
-        } catch (Throwable t) {
-            return false;
         }
     }
 

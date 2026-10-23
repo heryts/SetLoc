@@ -62,6 +62,27 @@ pub fn state(moddir: &Path) -> &'static str {
     }
 }
 
+pub fn arm_boot(moddir: &Path) -> &'static str {
+    let pending = moddir.join(PENDING);
+    if !moddir.join(ENABLE).exists() {
+        return "off";
+    }
+    if moddir.join(BLOCKED).exists() {
+        let _ = fs::remove_file(&pending);
+        return "blocked";
+    }
+    if pending.exists() {
+        let _ = fs::write(moddir.join(BLOCKED), "");
+        let _ = fs::remove_file(&pending);
+        return "blocked";
+    }
+    if fs::write(&pending, "").is_ok() {
+        "armed"
+    } else {
+        "failed"
+    }
+}
+
 pub fn enable(moddir: &Path) -> bool {
     let _ = fs::remove_file(moddir.join(BLOCKED));
     let _ = fs::remove_file(moddir.join(PENDING));
@@ -193,6 +214,40 @@ mod tests {
         assert!(!w.step(&d, 0, Some("1".into())));
         assert!(!w.step(&d, 1000, Some("1".into())));
         let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn arm_boot_follows_the_boot_sequence() {
+        let d = tmp("armboot");
+        assert_eq!(arm_boot(&d), "off");
+        assert!(!d.join(PENDING).exists());
+        touch(&d, PENDING);
+        touch(&d, BLOCKED);
+        assert_eq!(arm_boot(&d), "off");
+        assert!(d.join(PENDING).exists());
+        fs::remove_file(d.join(PENDING)).unwrap();
+        fs::remove_file(d.join(BLOCKED)).unwrap();
+        touch(&d, ENABLE);
+        assert_eq!(arm_boot(&d), "armed");
+        assert!(d.join(PENDING).exists() && !d.join(BLOCKED).exists());
+        assert_eq!(arm_boot(&d), "blocked");
+        assert!(d.join(BLOCKED).exists() && !d.join(PENDING).exists());
+        assert_eq!(arm_boot(&d), "blocked");
+        assert!(!d.join(PENDING).exists());
+        reset(&d);
+        assert_eq!(arm_boot(&d), "armed");
+        let mut w = Watch::default();
+        assert!(!w.step(&d, 0, Some("1".into())));
+        assert!(w.step(&d, STABLE_S, Some("1".into())));
+        assert_eq!(arm_boot(&d), "armed");
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn arm_boot_missing_dir_is_off() {
+        let g = std::env::temp_dir().join(format!("lsguard-ghost-{}", std::process::id()));
+        assert_eq!(arm_boot(&g), "off");
+        assert!(!g.exists());
     }
 
     #[test]
