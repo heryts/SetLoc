@@ -8,6 +8,7 @@ final class LsNative {
     static synchronized boolean ensureLoaded() {
         if (ready) return true;
         try {
+            System.loadLibrary("shadowhook_nothing");
             System.loadLibrary("shadowhook");
             System.loadLibrary("lsplant");
             System.loadLibrary("gpsz_hook");
