@@ -21,7 +21,7 @@ pub fn run() -> i32 {
         sysdefault();
         let _ = fs::write(&marker, "");
     }
-    if moddir.join(lsguard::ENABLE).exists() {
+    if lsguard::enabled(&moddir) {
         lsguard::watch(&moddir);
     }
     0

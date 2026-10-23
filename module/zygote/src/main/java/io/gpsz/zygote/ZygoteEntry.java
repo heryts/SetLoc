@@ -49,7 +49,7 @@ public final class ZygoteEntry {
         int state = SysGuard.FAILED;
         try {
             state = SysGuard.arm(
-                    new File(ZygoteLoader.getModuleDir(), SysGuard.ENABLE),
+                    new File(ZygoteLoader.getModuleDir(), SysGuard.DISABLE),
                     new File(ZygoteLoader.getModuleDir(), SysGuard.PENDING),
                     new File(ZygoteLoader.getModuleDir(), SysGuard.BLOCKED));
         } catch (Throwable ignored) { }

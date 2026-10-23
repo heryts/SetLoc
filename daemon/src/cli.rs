@@ -200,14 +200,17 @@ impl Ctx {
         match arg {
             "on" => {
                 if lsguard::enable(&self.moddir) {
-                    say!("LSPlant di system_server: AKTIF (opt-in). REBOOT dibutuhkan. Jika boot sebelumnya gagal, percobaan otomatis diblokir dan hook sistem tidak dimuat; lihat: ls-system status.");
+                    say!("LSPlant di system_server: AKTIF (default). REBOOT dibutuhkan. Jika boot sebelumnya gagal, percobaan otomatis diblokir dan hook sistem tidak dimuat; lihat: ls-system status.");
                 } else {
-                    say!("gagal membuat {}", lsguard::ENABLE);
+                    say!("gagal menghapus {}", lsguard::DISABLE);
                 }
             }
             "off" => {
-                lsguard::disable(&self.moddir);
-                say!("LSPlant di system_server: MATI. Reboot agar system_server tidak memuat hook.");
+                if lsguard::disable(&self.moddir) {
+                    say!("LSPlant di system_server: MATI. Reboot agar system_server tidak memuat hook.");
+                } else {
+                    say!("gagal membuat {}", lsguard::DISABLE);
+                }
             }
             "reset" => {
                 lsguard::reset(&self.moddir);
@@ -217,8 +220,8 @@ impl Ctx {
                 say!("ls-system={}", st);
                 say!(
                     "{}: {}   {}: {}   {}: {}",
-                    lsguard::ENABLE,
-                    if self.moddir.join(lsguard::ENABLE).exists() { "ya" } else { "tidak" },
+                    lsguard::DISABLE,
+                    if self.moddir.join(lsguard::DISABLE).exists() { "ya" } else { "tidak" },
                     lsguard::PENDING,
                     if self.moddir.join(lsguard::PENDING).exists() { "ya" } else { "tidak" },
                     lsguard::BLOCKED,
