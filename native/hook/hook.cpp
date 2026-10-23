@@ -4,15 +4,7 @@
 #include <shadowhook.h>
 
 #include <android/api-level.h>
-#include <elf.h>
-#include <fcntl.h>
-#include <link.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#include <cerrno>
 #include <cstdio>
-#include <cstring>
-#include <vector>
 
 #include <atomic>
 #include <mutex>
@@ -60,11 +52,42 @@ bool inline_unhook(void *target) {
     return shadowhook_unhook(stub) == 0;
 }
 
+#define GPSZ_STUB(n)                                                          \
+    __attribute__((noinline, used)) void gpsz_fixup_stub_##n() {              \
+        volatile int v = n;                                                   \
+        v = v + 1; v = v * 3; v = v - 2; v = v ^ 5; v = v + n; v = v | 1;     \
+    }
+
+GPSZ_STUB(1)
+GPSZ_STUB(2)
+GPSZ_STUB(3)
+
+constexpr std::string_view kFixup = "_ZN3art11ClassLinker22FixupStaticTrampolines";
+
+void *fixup_stub(std::string_view name) {
+    if (name.substr(0, kFixup.size()) != kFixup) {
+        return nullptr;
+    }
+    if (name.find("EPNS_6ThreadE") != std::string_view::npos) {
+        return reinterpret_cast<void *>(&gpsz_fixup_stub_1);
+    }
+    if (name.find("EPNS_6mirror5ClassE") != std::string_view::npos) {
+        return reinterpret_cast<void *>(&gpsz_fixup_stub_3);
+    }
+    return reinterpret_cast<void *>(&gpsz_fixup_stub_2);
+}
+
 void *resolve(std::string_view name) {
     std::string n(name);
     void *p = shadowhook_dlsym(art, n.c_str());
     if (p == nullptr) {
         p = shadowhook_dlsym_symtab(art, n.c_str());
+    }
+    if (p == nullptr) {
+        p = fixup_stub(name);
+        if (p != nullptr) {
+            return p;
+        }
     }
     if (p == nullptr) {
         __android_log_print(ANDROID_LOG_ERROR, "gpsz_hook", "simbol tidak ada %s", std::string(name).c_str());
@@ -77,68 +100,6 @@ void *resolve_prefix(std::string_view prefix) {
     return nullptr;
 }
 
-void log_art(const char *fmt, const char *a, long b, long c) {
-    __android_log_print(ANDROID_LOG_ERROR, "gpsz_hook", fmt, a, b, c);
-}
-
-std::string art_path() {
-    std::string found;
-    dl_iterate_phdr(
-            [](dl_phdr_info *info, size_t, void *data) {
-                if (info->dlpi_name != nullptr && strstr(info->dlpi_name, "libart.so") != nullptr &&
-                    strstr(info->dlpi_name, "libartbase") == nullptr) {
-                    static_cast<std::string *>(data)->assign(info->dlpi_name);
-                    return 1;
-                }
-                return 0;
-            },
-            &found);
-    return found;
-}
-
-void inspect_art() {
-    std::string path = art_path();
-    log_art("libart path=%s len=%ld %ld", path.c_str(), static_cast<long>(path.size()), 0);
-    int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC);
-    if (fd < 0) {
-        log_art("open libart gagal %s errno=%ld %ld", path.c_str(), errno, 0);
-        return;
-    }
-    struct stat st;
-    Elf64_Ehdr eh;
-    if (fstat(fd, &st) != 0 || pread(fd, &eh, sizeof(eh), 0) != static_cast<ssize_t>(sizeof(eh))) {
-        log_art("baca ehdr gagal %s errno=%ld %ld", path.c_str(), errno, 0);
-        close(fd);
-        return;
-    }
-    std::vector<Elf64_Shdr> sh(eh.e_shnum);
-    if (pread(fd, sh.data(), sh.size() * sizeof(Elf64_Shdr), static_cast<off_t>(eh.e_shoff)) !=
-        static_cast<ssize_t>(sh.size() * sizeof(Elf64_Shdr))) {
-        log_art("baca shdr gagal %s shnum=%ld size=%ld", path.c_str(), eh.e_shnum, st.st_size);
-        close(fd);
-        return;
-    }
-    std::vector<char> names(sh[eh.e_shstrndx].sh_size);
-    pread(fd, names.data(), names.size(), static_cast<off_t>(sh[eh.e_shstrndx].sh_offset));
-    for (const auto &h : sh) {
-        const char *n = names.data() + h.sh_name;
-        if (strcmp(n, ".symtab") == 0 || strcmp(n, ".gnu_debugdata") == 0 ||
-            strcmp(n, ".dynsym") == 0) {
-            log_art("section %s size=%ld type=%ld", n, static_cast<long>(h.sh_size), h.sh_type);
-        }
-    }
-    close(fd);
-}
-
-void probe_art() {
-    const char *dyn = "JNI_GetCreatedJavaVMs";
-    const char *tab = "_ZN3art9ArtMethod16UnregisterNativeEv";
-    const char *fix = "_ZN3art11ClassLinker22FixupStaticTrampolinesEPNS_6ThreadENS_6ObjPtrINS_6mirror5ClassEEE";
-    log_art("probe dynsym %s=%ld %ld", dyn, reinterpret_cast<long>(shadowhook_dlsym_dynsym(art, dyn)), 0);
-    log_art("probe symtab %s=%ld %ld", tab, reinterpret_cast<long>(shadowhook_dlsym_symtab(art, tab)), 0);
-    log_art("probe symtab %s=%ld %ld", fix, reinterpret_cast<long>(shadowhook_dlsym_symtab(art, fix)), 0);
-}
-
 bool start(JNIEnv *env) {
     if (shadowhook_init(SHADOWHOOK_MODE_UNIQUE, false) != 0) {
         return false;
@@ -148,8 +109,6 @@ bool start(JNIEnv *env) {
         __android_log_print(ANDROID_LOG_ERROR, "gpsz_hook", "dlopen libart gagal");
         return false;
     }
-    inspect_art();
-    probe_art();
     lsplant::InitInfo info;
     info.inline_hooker = inline_hook;
     info.inline_unhooker = inline_unhook;
