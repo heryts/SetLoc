@@ -424,11 +424,6 @@ pub fn run_cli(args: &[String]) -> i32 {
             for l in log_lines(&["-d", "-s", "GpsZ:I", "GpsZ:W"], "config file", true, 4) {
                 say!("{}", l);
             }
-            say!("libgpsz={}", if moddir.join("native").join("libgpsz.so").is_file() { "ada" } else { "tidak ada" });
-            say!("--- pustaka native (logcat -s GpsZ)");
-            for l in log_lines(&["-d", "-s", "GpsZ:I"], "native ", true, 4) {
-                say!("{}", l);
-            }
             say!("--- hook sistem (logcat -s GpsZ)");
             for l in log_lines(&["-d", "-s", "GpsZ:I"], "system hook", true, 8) {
                 say!("{}", l);

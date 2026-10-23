@@ -40,13 +40,13 @@ build_daemon() {
   ndk=$(find_ndk) || return 1
   case "$(uname -s)" in Darwin) host=darwin-x86_64 ;; *) host=linux-x86_64 ;; esac
   bin="$ndk/toolchains/llvm/prebuilt/$host/bin"
-  [ -z "$SKIP_TESTS" ] && { ( cd daemon && cargo test --release ) && ( cd module/rust && cargo test --release ) || return 1; }
+  [ -z "$SKIP_TESTS" ] && { ( cd daemon && cargo test --release ) || return 1; }
   for t in ${RUST_TARGETS:-aarch64-linux-android}; do
     case "$t" in
-      aarch64-linux-android) abi=arm64-v8a; cc=aarch64-linux-android31-clang ;;
-      armv7-linux-androideabi) abi=armeabi-v7a; cc=armv7a-linux-androideabi31-clang ;;
-      x86_64-linux-android) abi=x86_64; cc=x86_64-linux-android31-clang ;;
-      i686-linux-android) abi=x86; cc=i686-linux-android31-clang ;;
+      aarch64-linux-android) abi=arm64-v8a; cc=aarch64-linux-android33-clang ;;
+      armv7-linux-androideabi) abi=armeabi-v7a; cc=armv7a-linux-androideabi33-clang ;;
+      x86_64-linux-android) abi=x86_64; cc=x86_64-linux-android33-clang ;;
+      i686-linux-android) abi=x86; cc=i686-linux-android33-clang ;;
       *) echo "GAGAL: target Rust tidak dikenal: $t"; return 1 ;;
     esac
     if command -v rustup >/dev/null 2>&1 && ! rustup target list --installed | grep -qx "$t"; then
@@ -56,9 +56,6 @@ build_daemon() {
     ( cd daemon && env "CARGO_TARGET_${up}_LINKER=$bin/$cc" cargo build --release --target "$t" ) || return 1
     mkdir -p "module/zygote/src/main/assets/bin/$abi"
     cp "daemon/target/$t/release/setlocd" "module/zygote/src/main/assets/bin/$abi/setlocd"
-    ( cd module/rust && env "CARGO_TARGET_${up}_LINKER=$bin/$cc" "CARGO_TARGET_${up}_RUSTFLAGS=-C link-arg=-Wl,-z,max-page-size=16384" cargo build --release --target "$t" -p gpsz-jni ) || return 1
-    mkdir -p "module/zygote/src/main/assets/lib/$abi"
-    cp "module/rust/target/$t/release/libgpsz.so" "module/zygote/src/main/assets/lib/$abi/libgpsz.so"
   done
 }
 
@@ -89,7 +86,7 @@ APK=$(ls -t app/app/build/outputs/apk/release/*.apk 2>/dev/null | head -n 1)
 mkdir -p module/zygote/src/main/assets/apk
 cp "$APK" module/zygote/src/main/assets/apk/SetLoc.apk
 
-echo "== 2/4 build daemon dan pustaka Rust =="
+echo "== 2/4 build daemon Rust =="
 build_daemon || { echo "GAGAL: daemon Rust"; exit 1; }
 
 echo "== 3/4 siapkan AndroidVMTools =="

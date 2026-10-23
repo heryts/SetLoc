@@ -1,3 +1,2 @@
 -keep class io.gpsz.zygote.ZygoteEntry { premain(); main(); }
 -dontwarn com.v7878.r8.annotations.KeepCodeAttribute
--keepclasseswithmembernames class io.gpsz.zygote.Native { native <methods>; }

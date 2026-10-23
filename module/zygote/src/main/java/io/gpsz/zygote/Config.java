@@ -281,11 +281,7 @@ final class Config {
     }
 
     static float networkAccuracy(float gpsAcc) {
-        return networkAccuracyAt(SystemClock.elapsedRealtime(), gpsAcc);
-    }
-
-    static float networkAccuracyAt(long elapsedMs, float gpsAcc) {
-        return Math.max(25f, gpsAcc * 2.5f + 20f + (float) (gauss(51, elapsedMs / 1000) * 6));
+        return Math.max(25f, gpsAcc * 2.5f + 20f + (float) (gauss(51, SystemClock.elapsedRealtime() / 1000) * 6));
     }
 
     static double altitudeNow() {

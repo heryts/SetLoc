@@ -14,5 +14,3 @@ module/external/
 module/zygote/src/main/assets/apk/
 module/zygote/src/main/assets/bin/
 daemon/target/
-module/rust/target/
-module/zygote/src/main/assets/lib/

@@ -8,6 +8,7 @@ import android.location.Location;
 import android.location.LocationManager;
 import android.location.OnNmeaMessageListener;
 import android.net.wifi.ScanResult;
+import android.net.wifi.WifiSsid;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -590,8 +591,7 @@ final class LocationHooks {
             Constructor<ScanResult> ctor = ScanResult.class.getDeclaredConstructor();
             ctor.setAccessible(true);
             ScanResult sr = ctor.newInstance();
-            Object ws = wifiSsidOf(ap.ssid);
-            if (ws != null) putField(sr, "wifiSsid", ws);
+            putField(sr, "wifiSsid", WifiSsid.fromBytes(ap.ssid.getBytes(StandardCharsets.UTF_8)));
             putField(sr, "SSID", ap.ssid);
             putField(sr, "BSSID", ap.bssid);
             putField(sr, "level", ap.rssi);
@@ -601,19 +601,6 @@ final class LocationHooks {
         } catch (Throwable t) {
             return null;
         }
-    }
-
-    private static Object wifiSsidOf(String ssid) {
-        try {
-            Class<?> c = Class.forName("android.net.wifi.WifiSsid");
-            byte[] b = ssid.getBytes(StandardCharsets.UTF_8);
-            for (String n : new String[]{"fromBytes", "createFromByteArray"}) {
-                try {
-                    return c.getMethod(n, byte[].class).invoke(null, (Object) b);
-                } catch (Throwable ignored) { }
-            }
-        } catch (Throwable ignored) { }
-        return null;
     }
 
     private static void putField(Object target, String name, Object value) {
