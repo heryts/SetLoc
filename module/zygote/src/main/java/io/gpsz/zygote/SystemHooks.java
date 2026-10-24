@@ -33,6 +33,8 @@ final class SystemHooks {
     private static final int K_FEED_NMEA = 7, K_FEED_MEAS = 8, K_FEED_ANT = 9, K_UNFEED = 10;
     private static boolean installed = false;
     private static String lastStatus = "";
+    private static long lastNoteMs = 0;
+    private static final long NOTE_REPEAT_MS = 300_000;
     private static boolean generatorStarted = false;
     private static int lpmHooks = 0, lmsHooks = 0, lmsTries = 0;
     private static int scanFailures = 0;
@@ -53,7 +55,10 @@ final class SystemHooks {
     static synchronized boolean install() {
         boolean first = !installed;
         installed = true;
-        if (lpmHooks > 0 && (lmsHooks > 0 || lmsTries >= 12)) return isLive();
+        if (lpmHooks > 0 && (lmsHooks > 0 || lmsTries >= 12)) {
+            note(statusLine());
+            return isLive();
+        }
         try {
             ClassLoader cl = systemLoader();
             if (first || lpmClass == null) prepareReflection(cl);
@@ -64,15 +69,22 @@ final class SystemHooks {
                 if (generatorStarted) startGenerator();
             }
         } catch (Throwable ignored) { }
-        note("lpm=" + lpmHooks + " lms=" + lmsHooks + " heartbeat=" + Config.sysHeartbeat
-                + " rs=" + (ConfigNative.ready() ? 1 : 0) + (LocationNative.ready() ? 1 : 0)
-                + (Config.cfgNative() ? 1 : 0) + (Config.locNative() ? 1 : 0));
+        note(statusLine());
         return isLive();
     }
 
+    private static String statusLine() {
+        return "lpm=" + lpmHooks + " lms=" + lmsHooks + " heartbeat=" + Config.sysHeartbeat
+                + " rs=" + (ConfigNative.ready() ? 1 : 0) + (LocationNative.ready() ? 1 : 0)
+                + (Config.cfgNative() ? 1 : 0) + (Config.locNative() ? 1 : 0);
+    }
+
+    // Dicatat saat berubah, dan diulang tiap 5 menit supaya tidak hilang dari buffer logcat yang berputar.
     private static void note(String status) {
-        if (status.equals(lastStatus)) return;
+        long now = SystemClock.elapsedRealtime();
+        if (status.equals(lastStatus) && now - lastNoteMs < NOTE_REPEAT_MS) return;
         lastStatus = status;
+        lastNoteMs = now;
         Log.i("GpsZ", "system hook " + status);
     }
 
