@@ -49,13 +49,6 @@ fn sv(a: &[&str]) -> Vec<String> {
     a.iter().map(|x| x.to_string()).collect()
 }
 
-fn rd(p: &Path) -> String {
-    match fs::read(p) {
-        Ok(b) => lossy(&b),
-        Err(_) => String::new(),
-    }
-}
-
 pub fn cargo(args: Vec<String>, log: &mut String) -> R<()> {
     let o = Command::new("cargo")
         .args(&args)
