@@ -10,14 +10,10 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
-import java.time.Instant;
-import java.time.ZoneOffset;
-import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -32,10 +28,7 @@ final class GnssFake {
     private static final int F_EPH = 1, F_ALM = 2, F_USED = 4, F_CARRIER = 8, F_BASEBAND = 16;
     private static final int SVID_SHIFT = 12, TYPE_SHIFT = 8;
     static final int STRIDE_IN = 7, STRIDE_OUT = 9;
-    private static final long GPS_EPOCH_MS = 315_964_800_000L;
     private static final int LEAP_S = 18;
-    private static final long WEEK_NS = 604_800L * 1_000_000_000L;
-    private static final double LIGHT = 299_792_458.0;
 
     interface Body {
         boolean run() throws Throwable;
@@ -58,20 +51,6 @@ final class GnssFake {
 
     interface AntSink {
         void antenna(List<Object> info) throws Throwable;
-    }
-
-    private static final class Sat {
-        final int type, svid;
-        final double az0, rate, phase, period;
-
-        Sat(int type, int svid, double az0, double rate, double phase, double period) {
-            this.type = type;
-            this.svid = svid;
-            this.az0 = az0;
-            this.rate = rate;
-            this.phase = phase;
-            this.period = period;
-        }
     }
 
     static final class Snapshot {
@@ -134,98 +113,9 @@ final class GnssFake {
         }
     }
 
-    private static final Sat[] POOL = buildPool();
-
-    private static Sat[] buildPool() {
-        java.util.Random r = new java.util.Random(Config.seed());
-        int[][] plan = {{T_GPS, 32, 11}, {T_GLO, 24, 6}, {T_GAL, 36, 6}, {T_BDS, 37, 6}};
-        List<Sat> out = new ArrayList<>();
-        for (int[] p : plan) {
-            List<Integer> ids = new ArrayList<>();
-            for (int i = 1; i <= p[1]; i++) ids.add(i);
-            Collections.shuffle(ids, r);
-            for (int i = 0; i < p[2]; i++) {
-                double rate = (r.nextBoolean() ? 1 : -1) * (0.004 + r.nextDouble() * 0.006);
-                out.add(new Sat(p[0], ids.get(i), r.nextDouble() * 360.0, rate,
-                        r.nextDouble() * 2 * Math.PI, 600 + r.nextDouble() * 900));
-            }
-        }
-        return out.toArray(new Sat[0]);
-    }
-
-    private static float carrier(int type, int svid) {
-        switch (type) {
-            case T_GLO: return 1_602_000_000f + (svid % 14 - 7) * 562_500f;
-            case T_BDS: return 1_561_098_000f;
-            default: return 1_575_420_000f;
-        }
-    }
-
-    private static final boolean NATIVE = verifyNative();
-
-    static boolean nativeOn() {
-        return NATIVE;
-    }
-
     static Snapshot snapshot(boolean fixed) {
-        long nowSec = SystemClock.elapsedRealtime() / 1000;
-        if (NATIVE) {
-            Snapshot n = snapshotNative(nowSec, fixed);
-            if (n != null) return n;
-        }
-        return snapshotJava(nowSec, fixed);
-    }
-
-    private static boolean verifyNative() {
-        if (!Config.locNative()) return false;
-        try {
-            long[] ts = {0L, 1L, 4999L, 86_400L, 1_234_567L, 7_654_321L};
-            for (long t : ts) {
-                for (int f = 0; f < 2; f++) {
-                    Snapshot a = snapshotJava(t, f == 1);
-                    Snapshot b = snapshotNative(t, f == 1);
-                    if (!sameSnapshot(a, b)) return false;
-                }
-            }
-            Snapshot base = snapshotJava(1_234_567L, true);
-            Snapshot idle = snapshotJava(86_400L, false);
-            double[][] fx = {
-                {-6.2088, 106.8456, 12.5, 1.2, 270.5, 8.3, 1, 1, 1},
-                {37.7749, -122.4194, 4.0, 0.0, 0.0, -0.04, 1, 0, 1},
-                {0.0, 0.0, 0.1, 0.25, 359.99, 0.25, 0, 1, 0},
-                {-33.8688, 151.2093, 33.35, 20.05, 0.005, 1234.55, 1, 1, 1},
-                {89.9999, -179.9999, 100.0, 3.15, 180.0, -12.45, 1, 1, 1},
-            };
-            long[] mss = {1_700_000_123_456L, 1_000_000_000_999L, 951_782_399_001L};
-            int n = 0;
-            for (double[] x : fx) {
-                Snapshot sn = (n & 1) == 0 ? base : idle;
-                long ms = mss[n % mss.length];
-                n++;
-                List<String> j = nmeaJava(sn, ms, x[0], x[1], (float) x[2], x[6] != 0, (float) x[3], x[7] != 0, (float) x[4], x[8] != 0, x[5]);
-                List<String> r = nmeaNative(sn, ms, x[0], x[1], (float) x[2], x[6] != 0, (float) x[3], x[7] != 0, (float) x[4], x[8] != 0, x[5]);
-                if (r == null || !j.equals(r)) return false;
-            }
-            long[] mj = measJava(base, 1_700_000_123_456L, 98_765_432_101_234L);
-            long[] mn = measNative(base, 1_700_000_123_456L, 98_765_432_101_234L);
-            return mn != null && Arrays.equals(mj, mn);
-        } catch (Throwable t) {
-            return false;
-        }
-    }
-
-    static boolean sameSnapshot(Snapshot a, Snapshot b) {
-        if (a == null || b == null || a.n != b.n) return false;
-        int[] fa = a.flags(), fb = b.flags();
-        float[] ba = a.baseband(), bb = b.baseband();
-        for (int i = 0; i < a.n; i++) {
-            if (a.type[i] != b.type[i] || a.svid[i] != b.svid[i] || a.used[i] != b.used[i]) return false;
-            if (fa[i] != fb[i]) return false;
-            if (Math.abs(a.cn0[i] - b.cn0[i]) > 0.01f || Math.abs(a.elev[i] - b.elev[i]) > 0.01f) return false;
-            if (Math.abs(a.az[i] - b.az[i]) > 0.05f || Math.abs(ba[i] - bb[i]) > 0.01f) return false;
-            if (a.carrier[i] != b.carrier[i]) return false;
-        }
-        return true;
+        Snapshot n = snapshotNative(SystemClock.elapsedRealtime() / 1000, fixed);
+        return n != null ? n : new Snapshot(0);
     }
 
     static Snapshot snapshotNative(long nowSec, boolean fixed) {
@@ -253,56 +143,6 @@ final class GnssFake {
         } catch (Throwable t) {
             return null;
         }
-    }
-
-    static Snapshot snapshotJava(long nowSec, boolean fixed) {
-        int[] g = Config.gnssExtrasAt(nowSec);
-        int total = POOL.length;
-        int want = Math.min(total, g[0] + 3 + (g[0] & 1));
-        double t = nowSec;
-        final double[] el = new double[total];
-        final double[] score = new double[total];
-        Integer[] order = new Integer[total];
-        for (int i = 0; i < total; i++) {
-            Sat s = POOL[i];
-            el[i] = 8.0 + 77.0 * (0.5 + 0.5 * Math.sin(s.phase + t / s.period));
-            score[i] = el[i] + (Config.hashUnit(s.type * 1000L + s.svid, nowSec / 5) - 0.5) * 20.0;
-            order[i] = i;
-        }
-        Arrays.sort(order, (a, b) -> Double.compare(score[b], score[a]));
-        Snapshot out = new Snapshot(want);
-        int usedLeft = fixed ? g[0] : 0;
-        Integer[] usedOrder = null;
-        if (usedLeft > 0 && want > 0) {
-            usedOrder = new Integer[want];
-            for (int k = 0; k < want; k++) usedOrder[k] = k;
-            final long us = nowSec;
-            Arrays.sort(usedOrder, (a, b) -> {
-                Sat sa = POOL[order[a]];
-                Sat sb = POOL[order[b]];
-                double wa = el[order[a]] + (Config.hashUnit(sa.type * 100L + sa.svid, us) - 0.5) * 15.0;
-                double wb = el[order[b]] + (Config.hashUnit(sb.type * 100L + sb.svid, us) - 0.5) * 15.0;
-                return Double.compare(wb, wa);
-            });
-        }
-        boolean[] usedFlag = new boolean[want];
-        if (usedOrder != null) {
-            for (int k = 0; k < usedLeft && k < want; k++) usedFlag[usedOrder[k]] = true;
-        }
-        for (int k = 0; k < want; k++) {
-            int i = order[k];
-            Sat s = POOL[i];
-            double norm = (el[i] - 8.0) / 77.0;
-            double c = g[1] - 7.0 + 14.0 * norm + (Config.hashUnit(s.type * 100L + s.svid, (long) t) - 0.5) * 2.4;
-            out.type[k] = s.type;
-            out.svid[k] = s.svid;
-            out.cn0[k] = (float) Math.max(14.0, Math.min(47.0, c));
-            out.elev[k] = (float) el[i];
-            out.az[k] = (float) (((s.az0 + s.rate * t) % 360.0 + 360.0) % 360.0);
-            out.carrier[k] = carrier(s.type, s.svid);
-            out.used[k] = usedFlag[k];
-        }
-        return out;
     }
 
     private static boolean statusResolved;
@@ -355,45 +195,6 @@ final class GnssFake {
         call(listener, "onSvStatusChanged", s.n, s.flags(), s.cn0, s.elev, s.az, s.carrier, s.baseband());
     }
 
-    private static String talker(int type) {
-        switch (type) {
-            case T_GLO: return "GL";
-            case T_GAL: return "GA";
-            case T_BDS: return "GB";
-            default: return "GP";
-        }
-    }
-
-    private static int systemId(int type) {
-        switch (type) {
-            case T_GLO: return 2;
-            case T_GAL: return 3;
-            case T_BDS: return 4;
-            default: return 1;
-        }
-    }
-
-    private static int signalId(int type) {
-        return type == T_GAL ? 7 : 1;
-    }
-
-    private static int nmeaId(int type, int svid) {
-        return type == T_GLO ? 64 + svid : svid;
-    }
-
-    private static String sentence(String body) {
-        int cs = 0;
-        for (int i = 0; i < body.length(); i++) cs ^= body.charAt(i);
-        return "$" + body + "*" + String.format(Locale.US, "%02X", cs) + "\r\n";
-    }
-
-    private static String coord(double v, boolean lat) {
-        long t = Math.round(Math.abs(v) * 60_000_000.0);
-        long m = t % 60_000_000L;
-        return String.format(Locale.US, lat ? "%02d%02d.%06d" : "%03d%02d.%06d",
-                t / 60_000_000L, m / 1_000_000L, m % 1_000_000L);
-    }
-
     static List<String> nmea(Snapshot s) {
         Config.Pt pt = Config.snapshot();
         Location fix = new Location(LocationManager.GPS_PROVIDER);
@@ -405,11 +206,8 @@ final class GnssFake {
         float spd = hasSpd ? fix.getSpeed() : 0f;
         float brg = hasBrg ? fix.getBearing() : 0f;
         double alt = hasAlt ? fix.getAltitude() : 0.0;
-        if (NATIVE) {
-            List<String> r = nmeaNative(s, ms, lat, lng, acc, hasSpd, spd, hasBrg, brg, hasAlt, alt);
-            if (r != null) return r;
-        }
-        return nmeaJava(s, ms, lat, lng, acc, hasSpd, spd, hasBrg, brg, hasAlt, alt);
+        List<String> r = nmeaNative(s, ms, lat, lng, acc, hasSpd, spd, hasBrg, brg, hasAlt, alt);
+        return r != null ? r : Collections.emptyList();
     }
 
     static List<String> nmeaNative(Snapshot s, long ms, double lat, double lng, float acc,
@@ -425,68 +223,12 @@ final class GnssFake {
         }
     }
 
-    static List<String> nmeaJava(Snapshot s, long ms, double lat, double lng, float acc,
-                                 boolean hasSpd, float spd, boolean hasBrg, float brg,
-                                 boolean hasAlt, double alt0) {
-        ms -= ms % 1000L;
-        ZonedDateTime z = ZonedDateTime.ofInstant(Instant.ofEpochMilli(ms), ZoneOffset.UTC);
-        String hms = String.format(Locale.US, "%02d%02d%02d.00", z.getHour(), z.getMinute(), z.getSecond());
-        String dmy = String.format(Locale.US, "%02d%02d%02d", z.getDayOfMonth(), z.getMonthValue(), z.getYear() % 100);
-        char ns = lat >= 0 ? 'N' : 'S', ew = lng >= 0 ? 'E' : 'W';
-        double hdop = Math.max(0.7, Math.min(5.0, acc / 5.0));
-        double vdop = hdop * 1.1;
-        double pdop = Math.sqrt(hdop * hdop + vdop * vdop);
-        double knots = hasSpd ? spd * 1.943844 : 0.0;
-        double course = hasBrg ? brg : 0.0;
-        double alt = hasAlt ? alt0 : 0.0;
-        int used = s.usedCount();
-        int fixQuality = used > 0 ? 1 : 0;
-        int fixType = used >= 4 ? 3 : 1;
-        List<String> out = new ArrayList<>();
-        out.add(sentence(String.format(Locale.US, "GNGGA,%s,%s,%c,%s,%c,%d,%02d,%.1f,%.1f,M,%.1f,M,,",
-                hms, coord(lat, true), ns, coord(lng, false), ew, fixQuality, used, hdop, alt, 0.0)));
-        int[] groups = {T_GPS, T_GLO, T_GAL, T_BDS};
-        for (int type : groups) {
-            List<Integer> ids = new ArrayList<>();
-            for (int i = 0; i < s.n; i++) if (s.type[i] == type && s.used[i]) ids.add(nmeaId(type, s.svid[i]));
-            if (ids.isEmpty()) continue;
-            StringBuilder slots = new StringBuilder();
-            for (int i = 0; i < 12; i++) {
-                if (i > 0) slots.append(',');
-                if (i < ids.size()) slots.append(String.format(Locale.US, "%02d", ids.get(i)));
-            }
-            out.add(sentence(String.format(Locale.US, "GNGSA,A,%d,%s,%.1f,%.1f,%.1f,%d",
-                    fixType, slots, pdop, hdop, vdop, systemId(type))));
-        }
-        for (int type : groups) {
-            List<Integer> idx = new ArrayList<>();
-            for (int i = 0; i < s.n; i++) if (s.type[i] == type) idx.add(i);
-            if (idx.isEmpty()) continue;
-            int pages = (idx.size() + 3) / 4;
-            for (int p = 0; p < pages; p++) {
-                StringBuilder sb = new StringBuilder(String.format(Locale.US, "%sGSV,%d,%d,%02d",
-                        talker(type), pages, p + 1, idx.size()));
-                for (int j = p * 4; j < Math.min(idx.size(), p * 4 + 4); j++) {
-                    int i = idx.get(j);
-                    sb.append(String.format(Locale.US, ",%02d,%02d,%03d,%02d",
-                            nmeaId(type, s.svid[i]), Math.round(s.elev[i]), Math.round(s.az[i]) % 360, Math.round(s.cn0[i])));
-                }
-                sb.append(',').append(signalId(type));
-                out.add(sentence(sb.toString()));
-            }
-        }
-        out.add(sentence(String.format(Locale.US, "GNRMC,%s,%c,%s,%c,%s,%c,%.2f,%.2f,%s,,,A",
-                hms, used > 0 ? 'A' : 'V', coord(lat, true), ns, coord(lng, false), ew, knots, course, dmy)));
-        return out;
-    }
-
     static Object measurementsEvent(Snapshot s) {
         try {
             long nowMs = System.currentTimeMillis();
             long timeNs = SystemClock.elapsedRealtimeNanos();
-            long[] nums = null;
-            if (NATIVE) nums = measNative(s, nowMs, timeNs);
-            if (nums == null) nums = measJava(s, nowMs, timeNs);
+            long[] nums = measNative(s, nowMs, timeNs);
+            if (nums == null) return null;
             long gpsNs = nums[0];
             long tow = nums[1];
             Object clock = construct(Class.forName("android.location.GnssClock"));
@@ -533,22 +275,6 @@ final class GnssFake {
         } catch (Throwable t) {
             return null;
         }
-    }
-
-    static long[] measJava(Snapshot s, long nowMs, long timeNs) {
-        long gpsNs = (nowMs - GPS_EPOCH_MS + LEAP_S * 1000L) * 1_000_000L;
-        long[] out = new long[2 + 2 * s.n];
-        out[0] = gpsNs;
-        out[1] = gpsNs % WEEK_NS;
-        long bucket = timeNs / 1_000_000_000L;
-        for (int i = 0; i < s.n; i++) {
-            double norm = (s.elev[i] - 8.0) / 77.0;
-            out[2 + 2 * i] = (long) ((20_200_000.0 + (1.0 - norm) * 5_000_000.0) / LIGHT * 1e9);
-            double base = ((s.svid[i] * 37 % 1600) - 800) * 0.9;
-            double jitter = (Config.hashUnit(s.type[i] * 100L + s.svid[i], bucket) - 0.5) * 6.0;
-            out[3 + 2 * i] = Double.doubleToRawLongBits(base + jitter);
-        }
-        return out;
     }
 
     private static Object buildEvent(Object clock, List<Object> list) throws Throwable {

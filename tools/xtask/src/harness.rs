@@ -1009,7 +1009,7 @@ impl H {
                 }
                 self.java_suite(&jc, "parity", "paritas Java vs Rust (Config, Fix, snapshot) dan JNI lochooks");
                 self.java_suite(&jc, "cfgwire", "paritas Java vs Rust lewat JNI asli: parse, track, beat (Fase 9)");
-                self.java_suite(&jc, "gnsswire", "paritas Java vs Rust lewat JNI asli: snapshot satelit, NMEA, angka measurements GnssFake (Fase 11)");
+                self.java_suite(&jc, "gnsswire", "paritas referensi Java (test) vs Rust lewat JNI asli: snapshot satelit, NMEA, angka measurements GnssFake (Fase 11)");
             }
         }
         if ["lshook", "lochook", "setguard", "syshook", "rswire", "sysguard", "gnssfake"].iter().any(|s| self.want(s)) {
@@ -1021,7 +1021,7 @@ impl H {
         self.java_suite(&jc, "syshook", "SystemHooks lewat mesin hook palsu (LSPlant; mati/belum siap/gagal per method = tidak dihook, tanpa jalur cadangan)");
         self.java_suite(&jc, "rswire", "Penyambungan Java ke Rust (Fase 8): jalur Java vs native palsu, verifikasi salt/seed, cadangan");
         self.java_suite(&jc, "sysguard", "SysGuard: penanda boot opt-in, blokir percobaan kedua, gagal tertutup");
-        self.java_suite(&jc, "gnssfake", "GnssFake (Fase 11): native palsu dipakai bila verifikasi lolos, cadangan Java bila gagal");
+        self.java_suite(&jc, "gnssfake", "GnssFake (Fase 11): native palsu dipakai; null, melempar, atau array salah memberi hasil kosong");
     }
 }
 

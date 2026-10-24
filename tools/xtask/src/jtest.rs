@@ -192,7 +192,7 @@ pub fn run_suite(name: &str, e: &Env) -> (bool, String) {
             &mut log,
             &["lshook/stubs"],
             &["LsHook.java", "PackageGuardLs.java"],
-            "lshook/Check.java",
+            &["lshook/Check.java"],
         ),
         "lochook" => hook(
             e,
@@ -205,11 +205,10 @@ pub fn run_suite(name: &str, e: &Env) -> (bool, String) {
                 "GnssFake.java",
                 "Config.java",
                 "ConfigNative.java",
-                "LocationNative.java",
                 "Fix.java",
                 "WeakIdentityMap.java",
             ],
-            "lochook/Check.java",
+            &["lochook/Check.java", "gnsswire/fake/LocationNative.java", "gnsswire/fake/GnssRef.java"],
         ),
         "setguard" => hook(
             e,
@@ -223,9 +222,9 @@ pub fn run_suite(name: &str, e: &Env) -> (bool, String) {
                 "ConfigNative.java",
                 "LocationNative.java",
             ],
-            "setguard/Check.java",
+            &["setguard/Check.java"],
         ),
-        "sysguard" => hook(e, &mut log, &[], &["SysGuard.java"], "sysguard/Check.java"),
+        "sysguard" => hook(e, &mut log, &[], &["SysGuard.java"], &["sysguard/Check.java"]),
         "syshook" => syshook(e, &mut log),
         "parity" => parity(e, &mut log),
         "rswire" => rswire(e, &mut log),
@@ -244,10 +243,10 @@ pub fn run_suite(name: &str, e: &Env) -> (bool, String) {
     }
 }
 
-fn hook(e: &Env, log: &mut String, stubs: &[&str], src: &[&str], check: &str) -> R<()> {
+fn hook(e: &Env, log: &mut String, stubs: &[&str], src: &[&str], checks: &[&str]) -> R<()> {
     let td = tempdir("jhook")?;
     let w = td.0.clone();
-    tree(e, &w, stubs, src, &[check])?;
+    tree(e, &w, stubs, src, checks)?;
     compile(e, &w, &[], log)?;
     if jrun(&cls_args(&w, "Check", &[]), &[], log) {
         Ok(())
@@ -274,12 +273,13 @@ fn syshook(e: &Env, log: &mut String) -> R<()> {
         "GnssFake.java",
         "Config.java",
         "ConfigNative.java",
-        "LocationNative.java",
         "Fix.java",
         "WeakIdentityMap.java",
     ] {
         cp(&e.jsrc().join(f), &pk)?;
     }
+    cp(&e.t().join("gnsswire/fake/LocationNative.java"), &pk)?;
+    cp(&e.t().join("gnsswire/fake/GnssRef.java"), &pk)?;
     cp(&e.t().join("syshook/Check.java"), &pk)?;
     compile(e, &w, &[], log)?;
     let mut all = true;
@@ -638,14 +638,12 @@ fn gnssfake(e: &Env, log: &mut String) -> R<()> {
         &w,
         &["beat/stubs", "lochook/stubs"],
         GNSS_SRC,
-        &["gnsswire/fake/LocationNative.java", "gnsswire/GnssWire.java"],
+        &["gnsswire/fake/LocationNative.java", "gnsswire/fake/GnssRef.java", "gnsswire/GnssWire.java"],
     )?;
     compile(e, &w, &[], log)?;
-    log.push_str("== native palsu sesuai kontrak: dipakai bila verifikasi lolos, cadangan Java bila null, melempar, atau array salah\n");
+    log.push_str("== native palsu sesuai kontrak: dipakai, dan bila null, melempar, atau array salah hasilnya kosong tanpa melempar\n");
     let (ok1, _) = jclass(&w, "GnssWire", &e.salt, "", "fake:on", true, log);
-    log.push_str("== native palsu yang salah satu keluarannya beda: verifikasi gagal, native tidak dipakai\n");
-    let (ok2, _) = jclass(&w, "GnssWire", &e.salt, "-Dfake.bad=1", "fake:off", true, log);
-    if ok1 && ok2 {
+    if ok1 {
         Ok(())
     } else {
         Err("GnssWire (native palsu) gagal".to_string())
@@ -684,10 +682,10 @@ fn gnsswire(e: &Env, log: &mut String) -> R<()> {
         &w,
         &["beat/stubs", "lochook/stubs"],
         &["Frames.java", "LsHook.java", "Config.java", "ConfigNative.java", "LocationNative.java", "Fix.java", "GnssFake.java"],
-        &["gnsswire/GnssWire.java"],
+        &["gnsswire/GnssWire.java", "gnsswire/fake/GnssRef.java"],
     )?;
     compile(e, &w, &[], log)?;
-    log.push_str("== liblochooks.so asli: verifikasi GnssFake lolos, snapshot/NMEA/measurements sama dengan Java\n");
+    log.push_str("== liblochooks.so asli: snapshot/NMEA/measurements sama dengan referensi Java di test\n");
     let args = vec![
         format!("-Djava.library.path={}", ps(&libdir)),
         "-cp".to_string(),

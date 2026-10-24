@@ -5,7 +5,6 @@ import java.util.Arrays;
 final class LocationNative {
     static volatile int broken;
     static volatile int calls;
-    static final boolean BAD = System.getProperty("fake.bad") != null;
 
     static synchronized boolean ensureLoaded() { return true; }
 
@@ -63,7 +62,7 @@ final class LocationNative {
         calls++;
         if (broken == 2) throw new IllegalStateException("fake");
         if (broken == 1) return null;
-        GnssFake.Snapshot s = GnssFake.snapshotJava(nowSec, fixed);
+        GnssFake.Snapshot s = GnssRef.snapshotJava(nowSec, fixed);
         int[] fl = s.flags();
         float[] bb = s.baseband();
         double[] a = new double[1 + s.n * GnssFake.STRIDE_OUT];
@@ -80,7 +79,6 @@ final class LocationNative {
             a[o + 7] = fl[i];
             a[o + 8] = bb[i];
         }
-        if (BAD && s.n > 0) a[2] += 1;
         if (broken == 3) return Arrays.copyOf(a, a.length - 1);
         return a;
     }
@@ -89,9 +87,8 @@ final class LocationNative {
         calls++;
         if (broken == 2) throw new IllegalStateException("fake");
         if (broken == 1) return null;
-        java.util.List<String> l = GnssFake.nmeaJava(unpack(snap), ms, lat, lng, acc, hasSpd, spd, hasBrg, brg, hasAlt, alt);
+        java.util.List<String> l = GnssRef.nmeaJava(unpack(snap), ms, lat, lng, acc, hasSpd, spd, hasBrg, brg, hasAlt, alt);
         String[] r = l.toArray(new String[0]);
-        if (BAD) r[0] = r[0] + "x";
         if (broken == 3) return new String[0];
         return r;
     }
@@ -100,8 +97,7 @@ final class LocationNative {
         calls++;
         if (broken == 2) throw new IllegalStateException("fake");
         if (broken == 1) return null;
-        long[] r = GnssFake.measJava(unpack(snap), nowMs, timeNs);
-        if (BAD) r[0]++;
+        long[] r = GnssRef.measJava(unpack(snap), nowMs, timeNs);
         if (broken == 3) return Arrays.copyOf(r, r.length - 1);
         return r;
     }
