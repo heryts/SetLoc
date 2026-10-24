@@ -24,6 +24,9 @@ final class Fix {
         return (long) (Config.hashUnit(901, boot / 1_000_000_000L) * 1e9);
     }
 
+    private static final ThreadLocal<double[]> APPLY_BUF = ThreadLocal.withInitial(() -> new double[13]);
+    private static final ThreadLocal<long[]> PAIR_BUF = ThreadLocal.withInitial(() -> new long[2]);
+
     private static final Map<String, Long> LAST_NS = new ConcurrentHashMap<>();
     private static boolean resolved = false;
     private static Method setMock, removeMsl, removeMslAcc;
@@ -109,14 +112,13 @@ final class Fix {
     }
 
     private static boolean applyNative(Location l, String provider, Config.Pt p) {
-        double[] a;
+        final double[] a = APPLY_BUF.get();
         try {
-            a = LocationNative.nativeApply(provider, p.lat, p.lng, p.spd, p.brg, p.alt, p.accJit, Config.acc,
-                    SystemClock.elapsedRealtime());
+            if (!LocationNative.nativeApplyInto(provider, p.lat, p.lng, p.spd, p.brg, p.alt, p.accJit, Config.acc,
+                    SystemClock.elapsedRealtime(), a)) return false;
         } catch (Throwable t) {
             return false;
         }
-        if (a == null || a.length < 13) return false;
         int flags = (int) a[3];
         l.setLatitude(a[0]);
         l.setLongitude(a[1]);
@@ -168,8 +170,8 @@ final class Fix {
         long nowNs = SystemClock.elapsedRealtimeNanos();
         if (Config.locNative()) {
             try {
-                long[] r = LocationNative.nativeStamp(provider, nowNs, System.currentTimeMillis());
-                if (r != null && r.length >= 2) {
+                final long[] r = PAIR_BUF.get();
+                if (LocationNative.nativeStampInto(provider, nowNs, System.currentTimeMillis(), r)) {
                     l.setElapsedRealtimeNanos(r[0]);
                     l.setTime(r[1]);
                     return;
@@ -213,8 +215,8 @@ final class Fix {
         long nowNs = SystemClock.elapsedRealtimeNanos();
         if (Config.locNative()) {
             try {
-                long[] r = LocationNative.nativeLastKnown(provider, nowNs, System.currentTimeMillis(), PHASE_NS);
-                if (r != null && r.length >= 2) {
+                final long[] r = PAIR_BUF.get();
+                if (LocationNative.nativeLastKnownInto(provider, nowNs, System.currentTimeMillis(), PHASE_NS, r)) {
                     l.setElapsedRealtimeNanos(r[0]);
                     l.setTime(r[1]);
                     return l;

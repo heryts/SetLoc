@@ -79,34 +79,36 @@ public final class Check {
     }
 
     public static void main(String[] args) throws Throwable {
-        String mode = args.length > 0 ? args[0] : "ok";
+        String mode = args.length > 0 ? args[0] : "ls";
         resolve();
-        LegacyFrame.broken = mode.equals("broken");
-        if (mode.equals("partial")) LegacyFrame.failOn = REPORT;
+        LsNative.ready = !mode.equals("notready");
+        LsNative.sys = !mode.equals("off");
+        if (mode.equals("partial")) LsNative.failOn = REPORT;
         Config.enabled = false;
         Config.system = false;
         Config.sysHeartbeat = false;
 
         System.out.println("[pemasangan: " + mode + "]");
         boolean live = SystemHooks.install();
-        int hooked = LegacyFrame.HOOKS.size();
-        boolean wantLive = mode.equals("ok");
-        expect("install() melaporkan " + (wantLive ? "hidup" : "tidak hidup"), live == wantLive);
+        int ls = LsNative.HOOKS.size();
+        boolean wantLive = mode.equals("ls");
+        expect("install() melaporkan " + (wantLive ? "hidup" : "tidak hidup (tanpa hook, tanpa jalur cadangan)"), live == wantLive);
         switch (mode) {
-            case "ok":
-                expect("10 method terpasang lewat AndroidVMTools (" + hooked + ")", hooked == 10);
+            case "ls":
+                expect("10 method terpasang lewat LSPlant (" + ls + ")", ls == 10);
                 break;
-            case "broken":
-                expect("mesin hook tidak termuat: tidak ada hook dan tidak ada crash", hooked == 0);
+            case "off":
+            case "notready":
+                expect("tidak ada hook (tanpa jalur cadangan)", ls == 0);
                 break;
             case "partial":
-                expect("9 method terpasang (" + hooked + ")", hooked == 9);
-                expect("onReportLocation tidak dihook, sehingga hook LPM tidak hidup", !LegacyFrame.HOOKS.containsKey(REPORT));
+                expect("9 method lewat LSPlant (" + ls + ")", ls == 9);
+                expect("onReportLocation tidak dihook, sehingga hook LPM tidak hidup (tanpa jalur cadangan)", !LsNative.HOOKS.containsKey(REPORT));
                 break;
             default:
                 throw new IllegalArgumentException(mode);
         }
-        if (!mode.equals("ok")) {
+        if (!mode.equals("ls")) {
             System.out.println(fail == 0 ? "semua lulus" : fail + " gagal");
             System.exit(fail == 0 ? 0 : 1);
         }
@@ -117,11 +119,11 @@ public final class Check {
         System.out.println("[tidak aktif: semuanya diteruskan apa adanya]");
         Location real = loc("gps", 5.0);
         LocationManagerService.real = real;
-        expect("getLastLocation -> objek asli", LegacyFrame.dispatch(LAST, lms, "gps", "pkg") == real);
+        expect("getLastLocation -> objek asli", LsNative.dispatch(LAST, lms, "gps", "pkg") == real);
         LocationManagerService.deny = true;
         Throwable t = null;
         try {
-            LegacyFrame.dispatch(LAST, lms, "gps", "pkg");
+            LsNative.dispatch(LAST, lms, "gps", "pkg");
         } catch (Throwable e) {
             t = e;
         }
@@ -129,15 +131,15 @@ public final class Check {
         LocationManagerService.deny = false;
         LocationProviderManager gps = new LocationProviderManager("gps");
         LocationResult in = one(loc("gps", 5.0));
-        LegacyFrame.dispatch(REPORT, gps, in);
+        LsNative.dispatch(REPORT, gps, in);
         expect("onReportLocation -> hasil asli", lastMain() == in);
         Location orig = loc("gps", 5.0);
-        LegacyFrame.dispatch(INJECT, lms, orig);
+        LsNative.dispatch(INJECT, lms, orig);
         expect("injectLocation -> argumen asli", LocationManagerService.injected == orig);
-        LegacyFrame.dispatch(BATCH, lms, 1000L, false);
+        LsNative.dispatch(BATCH, lms, 1000L, false);
         expect("startGnssBatch diteruskan", LocationManagerService.batch == 1);
-        expect("addGnssNavigationMessageListener diteruskan (true)", Boolean.TRUE.equals(LegacyFrame.dispatch(NAV, lms, lst, "com.app")) && LocationManagerService.nav == 1);
-        LegacyFrame.dispatch(STATUS, lms, lst, "com.app", "a");
+        expect("addGnssNavigationMessageListener diteruskan (true)", Boolean.TRUE.equals(LsNative.dispatch(NAV, lms, lst, "com.app")) && LocationManagerService.nav == 1);
+        LsNative.dispatch(STATUS, lms, lst, "com.app", "a");
         expect("registerGnssStatusCallback diteruskan", LocationManagerService.feeds == 1);
 
         System.out.println("[aktif: mode penuh]");
@@ -146,20 +148,20 @@ public final class Check {
         Config.sysHeartbeat = false;
         Config.pos = new Config.Pos(-7.7, 110.3);
 
-        Object r = LegacyFrame.dispatch(LAST, lms, "gps", "pkg");
+        Object r = LsNative.dispatch(LAST, lms, "gps", "pkg");
         Location lk = (Location) r;
         expect("getLastLocation: lat/lng dekat posisi palsu", lk != null && lk != real && Math.abs(lk.lat + 7.7) < 1e-3 && Math.abs(lk.lng - 110.3) < 1e-3);
         expect("getLastLocation: provider gps", lk != null && "gps".equals(lk.provider));
         expect("objek asli tidak diubah", real.lat == 5.0);
 
         LocationManagerService.enabled = false;
-        expect("provider nonaktif untuk user -> hasil asli", LegacyFrame.dispatch(LAST, lms, "gps", "pkg") == real);
+        expect("provider nonaktif untuk user -> hasil asli", LsNative.dispatch(LAST, lms, "gps", "pkg") == real);
         LocationManagerService.enabled = true;
 
         LocationManagerService.deny = true;
         t = null;
         try {
-            LegacyFrame.dispatch(LAST, lms, "gps", "pkg");
+            LsNative.dispatch(LAST, lms, "gps", "pkg");
         } catch (Throwable e) {
             t = e;
         }
@@ -168,7 +170,7 @@ public final class Check {
 
         Location src = loc("gps", 5.0);
         LocationResult res = one(src);
-        LegacyFrame.dispatch(REPORT, gps, res);
+        LsNative.dispatch(REPORT, gps, res);
         LocationResult out = lastMain();
         expect("onReportLocation: hasil diganti", out != null && out != res && out.size() == 1);
         Location rl = out.get(0);
@@ -176,64 +178,64 @@ public final class Check {
         expect("onReportLocation: Location asli tidak diubah", src.lat == 5.0 && res.get(0) == src);
 
         LocationProviderManager net = new LocationProviderManager("network");
-        LegacyFrame.dispatch(REPORT, net, one(loc("network", 6.0)));
+        LsNative.dispatch(REPORT, net, one(loc("network", 6.0)));
         Location nl = lastMain().get(0);
         expect("onReportLocation network: dekat posisi palsu dan akurasi diset", Math.abs(nl.lat + 7.7) < 0.01 && nl.acc > 0);
 
         Location toInject = loc("gps", 5.0);
-        LegacyFrame.dispatch(INJECT, lms, toInject);
+        LsNative.dispatch(INJECT, lms, toInject);
         Location inj = LocationManagerService.injected;
         expect("injectLocation: argumen diganti sebelum method asli", inj != toInject && Math.abs(inj.lat + 7.7) < 1e-3);
 
         int b0 = LocationManagerService.batch, n0 = LocationManagerService.nav, bc0 = LocationManagerService.batching;
-        LegacyFrame.dispatch(BATCH, lms, 1000L, false);
+        LsNative.dispatch(BATCH, lms, 1000L, false);
         expect("startGnssBatch diblokir (method asli tidak dipanggil)", LocationManagerService.batch == b0);
-        Object nv = LegacyFrame.dispatch(NAV, lms, lst, "com.app");
+        Object nv = LsNative.dispatch(NAV, lms, lst, "com.app");
         expect("addGnssNavigationMessageListener -> false, asli tidak dipanggil", Boolean.FALSE.equals(nv) && LocationManagerService.nav == n0);
-        Object bt = LegacyFrame.dispatch(BATCHING, lms, lst, "com.app");
+        Object bt = LsNative.dispatch(BATCHING, lms, lst, "com.app");
         expect("addGnssBatchingCallback -> false, asli tidak dipanggil", Boolean.FALSE.equals(bt) && LocationManagerService.batching == bc0);
 
         int f0 = LocationManagerService.feeds, m0 = LocationManagerService.measure;
-        LegacyFrame.dispatch(STATUS, lms, lst, "com.app", "a");
+        LsNative.dispatch(STATUS, lms, lst, "com.app", "a");
         expect("registerGnssStatusCallback app biasa: asli tidak dipanggil", LocationManagerService.feeds == f0);
         expect("pendengar mendapat onGnssStarted dari GnssFake", waitFor(() -> lst.started >= 1, 3000));
-        Object mv = LegacyFrame.dispatch(MEAS, lms, new Listener(), "com.app", "a");
+        Object mv = LsNative.dispatch(MEAS, lms, new Listener(), "com.app", "a");
         expect("addGnssMeasurementsListener -> true, asli tidak dipanggil", Boolean.TRUE.equals(mv) && LocationManagerService.measure == m0);
-        LegacyFrame.dispatch(NMEA, lms, new Listener(), "com.app", "a");
+        LsNative.dispatch(NMEA, lms, new Listener(), "com.app", "a");
         expect("registerGnssNmeaCallback: asli tidak dipanggil", LocationManagerService.feeds == f0);
-        LegacyFrame.dispatch(STATUS, lms, new Listener(), "android", "a");
+        LsNative.dispatch(STATUS, lms, new Listener(), "android", "a");
         expect("paket tepercaya (android) tetap diteruskan ke method asli", LocationManagerService.feeds == f0 + 1);
         int u0 = LocationManagerService.unfeeds;
-        LegacyFrame.dispatch(UNREG, lms, lst);
+        LsNative.dispatch(UNREG, lms, lst);
         expect("unregisterGnssStatusCallback tetap diteruskan", LocationManagerService.unfeeds == u0 + 1);
 
         System.out.println("[darurat]");
         LocationProviderManager emg = new LocationProviderManager("gps");
         emg.emergency().on = true;
         LocationResult e1 = one(loc("gps", 5.0));
-        LegacyFrame.dispatch(REPORT, emg, e1);
+        LsNative.dispatch(REPORT, emg, e1);
         expect("onReportLocation saat darurat: tidak diganti", lastMain() == e1);
-        expect("getLastLocation saat darurat: hasil asli", LegacyFrame.dispatch(LAST, lms, "gps", "pkg") == real);
+        expect("getLastLocation saat darurat: hasil asli", LsNative.dispatch(LAST, lms, "gps", "pkg") == real);
         emg.emergency().on = false;
         LocationResult e2 = one(loc("gps", 5.0));
-        LegacyFrame.dispatch(REPORT, emg, e2);
+        LsNative.dispatch(REPORT, emg, e2);
         expect("darurat selesai: diganti lagi", lastMain() != e2 && Math.abs(lastMain().get(0).lat + 7.7) < 1e-3);
 
         System.out.println("[mode heartbeat]");
         Config.sysHeartbeat = true;
         LocationResult h1 = one(loc("gps", 5.0));
-        LegacyFrame.dispatch(REPORT, emg, h1);
+        LsNative.dispatch(REPORT, emg, h1);
         expect("heartbeat: onReportLocation tidak diganti", lastMain() == h1);
-        expect("heartbeat: getLastLocation tidak diganti", LegacyFrame.dispatch(LAST, lms, "gps", "pkg") == real);
+        expect("heartbeat: getLastLocation tidak diganti", LsNative.dispatch(LAST, lms, "gps", "pkg") == real);
         int b1 = LocationManagerService.batch;
-        LegacyFrame.dispatch(BATCH, lms, 1000L, false);
+        LsNative.dispatch(BATCH, lms, 1000L, false);
         expect("heartbeat: startGnssBatch diteruskan", LocationManagerService.batch == b1 + 1);
 
         System.out.println("[mati lagi]");
         Config.enabled = false;
         Config.sysHeartbeat = false;
         LocationResult o1 = one(loc("gps", 5.0));
-        LegacyFrame.dispatch(REPORT, emg, o1);
+        LsNative.dispatch(REPORT, emg, o1);
         expect("config mati: onReportLocation tidak diganti", lastMain() == o1);
 
         System.out.println(fail == 0 ? "semua lulus" : fail + " gagal");

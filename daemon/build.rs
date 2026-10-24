@@ -23,7 +23,7 @@ fn main() {
     let kv: Vec<String> = salt.bytes().map(|b| b.to_string()).collect();
     let mut out = String::new();
     out.push_str(&format!("pub const KV: [u8; 12] = [{}];\n", kv.join(", ")));
-    for (i, name) in ["KEY", "SYSKEY", "BEATKEY", "TRKKEY", "NETKEY", "BTKEY"].iter().enumerate() {
+    for (i, name) in ["KEY", "SYSKEY", "BEATKEY", "TRKKEY", "NETKEY", "BTKEY", "LIVEKEY"].iter().enumerate() {
         out.push_str(&format!("pub const {}: &str = \"{}\";\n", name, tag(salt, LOGICAL[i])));
     }
     let dest = PathBuf::from(env::var("OUT_DIR").unwrap()).join("keys.rs");

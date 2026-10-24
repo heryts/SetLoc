@@ -13,6 +13,7 @@ mod config;
 mod daemon;
 mod engine;
 mod lock;
+mod lsguard;
 mod modinstall;
 mod pref;
 mod service;

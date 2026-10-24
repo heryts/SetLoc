@@ -7,8 +7,6 @@ import android.os.IInterface;
 import android.os.SystemClock;
 import android.util.Log;
 
-import com.v7878.unsafe.Reflection;
-
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -32,10 +30,10 @@ final class SystemHooks {
     private static final int K_LAST = 0, K_BLOCK_VOID = 1, K_BLOCK_BOOL = 2, K_ARG_LOCATION = 3, K_ARG_RESULT = 4, K_STATUS = 5;
     private static final int K_FEED_NMEA = 7, K_FEED_MEAS = 8, K_FEED_ANT = 9, K_UNFEED = 10;
     private static boolean installed = false;
-    private static String lastStatus = "";
     private static boolean generatorStarted = false;
     private static int lpmHooks = 0, lmsHooks = 0, lmsTries = 0;
     private static int scanFailures = 0;
+    private static String lastStatus = "";
     private static Class<?> resultClass;
     private static Method resultMap, resultSize, resultGet, resultWrap;
     private static boolean wrapTakesList = true;
@@ -63,8 +61,11 @@ final class SystemHooks {
                 generatorStarted = lpmOnReport != null && resultWrap != null;
                 if (generatorStarted) startGenerator();
             }
-        } catch (Throwable ignored) { }
-        note("lpm=" + lpmHooks + " lms=" + lmsHooks + " heartbeat=" + Config.sysHeartbeat);
+        } catch (Throwable t) {
+            note("error " + t);
+        }
+        note("lpm=" + lpmHooks + " lms=" + lmsHooks + " ready=" + LsNative.isReady() + " sys=" + LsNative.sysEnabled() + " heartbeat=" + Config.sysHeartbeat
+                + " reflect=" + (lpmOnReport != null) + "/" + (resultWrap != null));
         return isLive();
     }
 
@@ -84,13 +85,6 @@ final class SystemHooks {
             m.setAccessible(true);
             return m;
         } catch (Throwable ignored) { }
-        try {
-            Method m = Reflection.getDeclaredMethod(c, name, ps);
-            if (m != null) {
-                m.setAccessible(true);
-                return m;
-            }
-        } catch (Throwable ignored) { }
         return null;
     }
 
@@ -99,14 +93,6 @@ final class SystemHooks {
             Field f = c.getDeclaredField(name);
             f.setAccessible(true);
             return f;
-        } catch (Throwable ignored) { }
-        try {
-            Method m = Reflection.class.getMethod("getDeclaredField", Class.class, String.class);
-            Field f = (Field) m.invoke(null, c, name);
-            if (f != null) {
-                f.setAccessible(true);
-                return f;
-            }
         } catch (Throwable ignored) { }
         try {
             for (Field f : c.getDeclaredFields()) {
@@ -196,7 +182,7 @@ final class SystemHooks {
             }
             if (kind < 0) continue;
             try {
-                if (Frames.hookSys(m, transformer(kind, argIdx, lstIdx, ret == boolean.class))) hooked++;
+                if (Frames.hook(m, LsNative.sysEnabled(), transformer(kind, argIdx, lstIdx, ret == boolean.class))) hooked++;
             } catch (Throwable ignored) { }
         }
         return hooked;

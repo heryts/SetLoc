@@ -33,7 +33,6 @@ pub struct Core {
     kv_at: i64,
 }
 
-// Cache KEY dipercaya paling lama 30 detik (cs), setelah itu diverifikasi ulang.
 const KV_TTL: i64 = 3000;
 
 pub fn tr_squeeze(b: &[u8]) -> String {

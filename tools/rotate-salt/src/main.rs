@@ -155,12 +155,13 @@ fn run(fresh: bool) -> Result<String, String> {
     let web = line_sub(&web_text, m_web_salt, &format!("const SALT = '{}';", salt))
         .ok_or_else(|| missing(WEB, "^const SALT = '[^']*';"))?;
     let sk = format!(
-        "const SK = {{ cfg: '{}', sys: '{}', net: '{}', bt: '{}', trk: '{}' }};",
+        "const SK = {{ cfg: '{}', sys: '{}', net: '{}', bt: '{}', trk: '{}', live: '{}' }};",
         tag(&salt, "cfg"),
         tag(&salt, "sys"),
         tag(&salt, "net"),
         tag(&salt, "bt"),
-        tag(&salt, "trk")
+        tag(&salt, "trk"),
+        tag(&salt, "live")
     );
     let web = line_sub(&web, m_web_sk, &sk).ok_or_else(|| missing(WEB, "^const SK = \\{.*\\};"))?;
 
