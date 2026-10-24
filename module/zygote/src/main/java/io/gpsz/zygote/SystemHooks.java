@@ -64,7 +64,9 @@ final class SystemHooks {
                 if (generatorStarted) startGenerator();
             }
         } catch (Throwable ignored) { }
-        note("lpm=" + lpmHooks + " lms=" + lmsHooks + " heartbeat=" + Config.sysHeartbeat);
+        note("lpm=" + lpmHooks + " lms=" + lmsHooks + " heartbeat=" + Config.sysHeartbeat
+                + " rs=" + (ConfigNative.ready() ? 1 : 0) + (LocationNative.ready() ? 1 : 0)
+                + (Config.cfgNative() ? 1 : 0) + (Config.locNative() ? 1 : 0));
         return isLive();
     }
 

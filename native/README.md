@@ -333,3 +333,22 @@ Pengujian yang dijalankan di sini (cargo 1.75, JDK 21):
 
 Belum diverifikasi: kompilasi Kotlin (`RouteNative.kt`, `RouteRunner.kt`), build Gradle app dengan `jniLibs`, build NDK `routecore` untuk Android, dan jalannya di perangkat. `cargo xtask test native` belum dijalankan penuh di sini karena `jni-sys` 0.4 butuh rustc 1.77 ke atas. Cadangan Kotlin sengaja dipertahankan sampai library terbukti termuat di perangkat; setelah itu `buildTimelineKt`/`writeTimelineKt` dan tes Kotlin timeline bisa dibuang.
 
+## Fase 15: Rust dimuat di system_server (prasyarat step 3)
+Prasyarat untuk membuang salinan Java kembar (`tagJava`/`encJava`/`decJava`, `snapshotJava`/`nmeaJava`/`measJava`): `Config` dan `Fix` di `system_server` harus bisa memakai Rust. Sebelumnya `premain()` langsung keluar untuk `system_server`, sehingga di sana hanya jalur Java yang berjalan, dan pemasangan normal tanpa bootloop belum membuktikan Rust aman di proses itu.
+
+Perubahan:
+- `ZygoteEntry.premain()` di `system_server` memanggil `loadRust()` (hanya `configcore` dan `lochooks`; tidak ada LSPlant atau ShadowHook, jadi tidak bentrok dengan LSPlant milik LSPosed). Flag baru `disable_rs_sys` di folder modul mematikannya hanya di `system_server`; `disable_rs` tetap mematikan Rust di semua proses.
+- Log `system hook` di `SystemHooks` mendapat akhiran `rs=ABCD`: A = `configcore` termuat, B = `lochooks` termuat, C = `Config` lolos verifikasi paritas Rust vs Java di proses itu, D = `Fix`/`GnssFake` lolos verifikasi. `gpsz.sh doctor` dan `gpsz.sh system status` sudah menampilkan baris ini.
+- Cek struktur xtask diganti: `system_server` boleh memuat Rust, tidak boleh menyentuh `LsNative`.
+
+Cara membaca hasil di perangkat: `rs=1111` berarti Rust termuat dan lolos verifikasi di `system_server`; hanya itu yang membuat step 3 aman. `rs=0000` berarti library gagal dimuat di sana (mis. namespace linker) dan jalur Java tetap dipakai seperti sebelumnya. Angka di antaranya berarti sebagian jalur jatuh ke Java.
+
+Step 3 (membuang salinan Java kembar) dikerjakan setelah `rs=1111` terlihat di perangkat. Suite paritas `parity`, `cfgwire`, dan `gnsswire` memakai fungsi Java itu sebagai acuan, jadi perlu diganti ke vektor tetap pada saat pembuangan.
+
+
+## Pemeriksaan v6 (sesudah Fase 15)
+- `cargo xtask test` penuh dijalankan dengan rustc/cargo 1.97 (sebelumnya hanya 1.75, sehingga `native` dan `jni-sys` 0.4 tidak pernah jalan penuh): 80 pemeriksaan lulus, termasuk `configcore`, `lochooks`, `routecore`, paritas JNI asli (`parity`, `cfgwire`, `gnsswire`) dan suite hook (`lshook`, `lochook`, `setguard`, `syshook`).
+- Empat pemeriksaan `[40-install-apk.sh: konfigurasi lama dipertahankan]` sebelumnya gagal karena harness: skrip memanggil `$MODPATH/setlocd modinstall` (sudah di Rust), tetapi folder uji tidak punya biner `setlocd`. Harness kini menyalinnya (`put_setlocd`). Bukan bug di skrip pemasangan.
+- `RouteNative.kt` (log dibungkus try/catch agar unit test JVM tidak gagal) mencatat `routecore=ok` atau `routecore=gagal ...` lewat `Log.w` (tag `SetLocRoute`) satu kali saat pertama dipakai, supaya terlihat di logcat apakah Rust atau cadangan Kotlin yang berjalan. `Log.i/d/v` dibuang R8, jadi dipakai `w`.
+- `proguard-rules.pro`: aturan keep eksplisit untuk method native `RouteNative` (dengan `-repackageclasses`, nama JNI `Java_com_heryts_setloc_route_RouteNative_*` harus tetap).
+- Tetap belum bisa diverifikasi di sini: target `aarch64-linux-android` (std tidak terpasang), NDK, Android SDK/Gradle app, kompilasi Kotlin, dan perangkat. Step 3 (buang Java kembar), pembuangan cadangan Kotlin, dan pindah ke `rust7-lsplant` menunggu hasil perangkat: `rs=1111` di `gpsz.sh system status`, dan `routecore=ok` di logcat.

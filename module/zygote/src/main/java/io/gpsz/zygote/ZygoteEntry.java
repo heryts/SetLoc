@@ -46,7 +46,11 @@ public final class ZygoteEntry {
     @DoNotObfuscate
     @DoNotShrink
     public static void premain() {
-        if (isSelf() || isSystemServer()) return;
+        if (isSelf()) return;
+        if (isSystemServer()) {
+            if (!disabled("disable_rs_sys")) loadRust();
+            return;
+        }
         if (!disabled("disable_ls")) {
             LsNative.setLocEnabled(!disabled("disable_ls_loc"));
             LsNative.setSetEnabled(!disabled("disable_ls_set"));

@@ -703,6 +703,13 @@ impl H {
         self.check("keystore: password kosong ditolak", c);
     }
 
+    // 40-install-apk.sh memanggil `$MODPATH/setlocd modinstall`; sejak modinstall
+    // pindah ke Rust, folder modul uji harus punya binernya.
+    fn put_setlocd(&self, dir: &Path) {
+        let _ = fs::copy(self.m().join("setlocd"), dir.join("setlocd"));
+        let _ = fs::set_permissions(dir.join("setlocd"), fs::Permissions::from_mode(0o755));
+    }
+
     fn run_install(&self, modpath: &Path, old: Option<&Path>) -> String {
         let pre = if old.is_some() { "OLD_MOD=\"$3\"; " } else { "" };
         let script = format!("ui_print() {{ echo \"$*\"; }}; MODPATH=\"$1\"; {}. \"$2\"", pre);
@@ -742,6 +749,8 @@ impl H {
         let _ = fs::remove_dir_all(&n);
         let _ = fs::create_dir_all(o.join("packages"));
         let _ = fs::create_dir_all(n.join("packages"));
+        self.put_setlocd(&n);
+        self.put_setlocd(&o);
         for f in ["com.a.app", "com.b.app", ".all", "android", ".sysoff"] {
             touch(&o.join("packages").join(f));
         }
@@ -770,6 +779,7 @@ impl H {
         self.check("pesan dipertahankan tercetak", out.contains("Konfigurasi lama dipertahankan"));
         let n2 = self.t().join("new2");
         let _ = fs::create_dir_all(&n2);
+        self.put_setlocd(&n2);
         let none = self.t().join("tidakada");
         let out = self.run_install(&n2, Some(&none));
         let c = !n2.join("packages").exists() && !out.contains("Konfigurasi lama");
@@ -894,8 +904,16 @@ impl H {
         let ze = self.rd(&self.jsrc.join("ZygoteEntry.java"));
         let c = !sh.contains("LsNative") && !sh.contains("Frames.hook(") && sh.contains("Frames.hookSys(");
         self.check("SystemHooks tidak menyentuh LSPlant", c);
-        let c = ze.contains("isSelf() || isSystemServer()") && !ze.contains("SysGuard");
-        self.check("system_server tidak memuat library native di premain", c);
+        let sys_branch = ze
+            .split("if (isSystemServer()) {")
+            .nth(1)
+            .and_then(|r| r.split("return;").next())
+            .unwrap_or("");
+        let c = sys_branch.contains("loadRust()")
+            && sys_branch.contains("disable_rs_sys")
+            && !sys_branch.contains("LsNative")
+            && !ze.contains("SysGuard");
+        self.check("system_server hanya memuat Rust (configcore, lochooks) di premain, tanpa LSPlant/ShadowHook, dengan flag disable_rs_sys", c);
     }
 
     fn sec_webui(&mut self) {

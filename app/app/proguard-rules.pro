@@ -11,3 +11,6 @@
     public static void checkNotNullParameter(java.lang.Object, java.lang.String);
     public static void checkNotNullExpressionValue(java.lang.Object, java.lang.String);
 }
+-keep class com.heryts.setloc.route.RouteNative {
+    native <methods>;
+}

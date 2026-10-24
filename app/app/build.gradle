@@ -8,7 +8,7 @@ def local = new Properties()
 if (rootProject.file('local.properties').exists()) rootProject.file('local.properties').withInputStream { local.load(it) }
 
 android {
-    compileSdk = 34
+    compileSdk = 35
     defaultConfig {
         applicationId = "com.heryts.setloc"
         minSdk = 33

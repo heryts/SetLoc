@@ -8,6 +8,14 @@ internal object RouteNative {
 
     @Volatile private var state = 0
 
+    // Unit test JVM tidak punya android.util.Log (melempar "not mocked"); log tidak boleh mengubah jalur.
+    private fun note(msg: String) {
+        try {
+            android.util.Log.w("SetLocRoute", msg)
+        } catch (t: Throwable) {
+        }
+    }
+
     val ready: Boolean
         get() {
             if (state == 0) {
@@ -15,8 +23,11 @@ internal object RouteNative {
                     if (state == 0) {
                         state = try {
                             System.loadLibrary("routecore")
+                            // Log.w (bukan i/d): Log.v/d/i dibuang R8 (proguard-rules.pro).
+                            note("routecore=ok")
                             1
                         } catch (t: Throwable) {
+                            note("routecore=gagal ${t.javaClass.simpleName}: ${t.message}")
                             2
                         }
                     }
