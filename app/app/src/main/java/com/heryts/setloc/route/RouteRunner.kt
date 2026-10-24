@@ -113,9 +113,6 @@ object RouteRunner {
 
     internal class Tick(val lat: Double, val lng: Double, val spd: Float, val brg: Float, val alt: Float, val pct: Int)
 
-    // Mesin timeline: Rust (routecore) lewat JNI. Tidak ada cadangan Kotlin; kalau library tidak
-    // termuat atau rute ditolak, hasilnya null dan rute dihentikan. Unit test JVM tidak bisa memuat
-    // library Android, jadi mengganti dua lambda ini dengan versi palsu.
     @Volatile internal var builder: (List<LatLng>, Float, Float) -> List<Tick>? = { points, speedKmh, speedVarKmh ->
         val e = elevations
         val manual = if (e == null || e.isEmpty()) sink.altitudeManual else 0f

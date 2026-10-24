@@ -2,8 +2,6 @@ package com.heryts.setloc.route
 
 import com.google.android.gms.maps.model.LatLng
 
-// Mesin timeline palsu untuk unit test JVM (libroutecore.so tidak bisa dimuat di JVM).
-// Algoritma timeline diuji di Rust: `cargo test` di native/routecore.
 internal object FakeEngine {
     fun build(points: List<LatLng>, speedKmh: Float, speedVarKmh: Float): List<RouteRunner.Tick> =
         points.mapIndexed { i, p ->

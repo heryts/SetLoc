@@ -8,8 +8,6 @@ import java.util.List;
 import java.util.Random;
 import java.util.Set;
 
-// Menguji GnssFake lewat liblochooks.so asli. Tidak ada acuan Java lagi:
-// NMEA dan angka measurements dicocokkan dengan vektor tetap, sisanya lewat invarian.
 public final class GnssWire {
     private static int fail;
 

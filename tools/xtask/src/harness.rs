@@ -703,8 +703,6 @@ impl H {
         self.check("keystore: password kosong ditolak", c);
     }
 
-    // 40-install-apk.sh memanggil `$MODPATH/setlocd modinstall`; sejak modinstall
-    // pindah ke Rust, folder modul uji harus punya binernya.
     fn put_setlocd(&self, dir: &Path) {
         let _ = fs::copy(self.m().join("setlocd"), dir.join("setlocd"));
         let _ = fs::set_permissions(dir.join("setlocd"), fs::Permissions::from_mode(0o755));

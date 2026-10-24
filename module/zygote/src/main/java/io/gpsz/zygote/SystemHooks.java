@@ -79,7 +79,6 @@ final class SystemHooks {
                 + (Config.cfgNative() ? 1 : 0) + (Config.locNative() ? 1 : 0);
     }
 
-    // Dicatat saat berubah, dan diulang tiap 5 menit supaya tidak hilang dari buffer logcat yang berputar.
     private static void note(String status) {
         long now = SystemClock.elapsedRealtime();
         if (status.equals(lastStatus) && now - lastNoteMs < NOTE_REPEAT_MS) return;
