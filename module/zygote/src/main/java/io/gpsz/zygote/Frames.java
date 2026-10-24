@@ -94,5 +94,13 @@ final class Frames {
         });
     }
 
+    static boolean hookSys(Method m, Tx tx) {
+        try {
+            return LegacyFrame.hook(m, tx);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     private Frames() { }
 }

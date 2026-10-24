@@ -192,7 +192,7 @@ pub fn run_suite(name: &str, e: &Env) -> (bool, String) {
             &mut log,
             &["lshook/stubs"],
             &["LsHook.java", "PackageGuardLs.java"],
-            &["lshook/Check.java"],
+            "lshook/Check.java",
         ),
         "lochook" => hook(
             e,
@@ -205,10 +205,11 @@ pub fn run_suite(name: &str, e: &Env) -> (bool, String) {
                 "GnssFake.java",
                 "Config.java",
                 "ConfigNative.java",
+                "LocationNative.java",
                 "Fix.java",
                 "WeakIdentityMap.java",
             ],
-            &["lochook/Check.java", "gnsswire/fake/LocationNative.java", "gnsswire/fake/GnssRef.java"],
+            "lochook/Check.java",
         ),
         "setguard" => hook(
             e,
@@ -222,10 +223,10 @@ pub fn run_suite(name: &str, e: &Env) -> (bool, String) {
                 "ConfigNative.java",
                 "LocationNative.java",
             ],
-            &["setguard/Check.java"],
+            "setguard/Check.java",
         ),
-        "sysguard" => hook(e, &mut log, &[], &["SysGuard.java"], &["sysguard/Check.java"]),
         "syshook" => syshook(e, &mut log),
+        "unsafe" => unsafe_suite(e, &mut log),
         "parity" => parity(e, &mut log),
         "rswire" => rswire(e, &mut log),
         "cfgwire" => cfgwire(e, &mut log),
@@ -243,10 +244,10 @@ pub fn run_suite(name: &str, e: &Env) -> (bool, String) {
     }
 }
 
-fn hook(e: &Env, log: &mut String, stubs: &[&str], src: &[&str], checks: &[&str]) -> R<()> {
+fn hook(e: &Env, log: &mut String, stubs: &[&str], src: &[&str], check: &str) -> R<()> {
     let td = tempdir("jhook")?;
     let w = td.0.clone();
-    tree(e, &w, stubs, src, checks)?;
+    tree(e, &w, stubs, src, &[check])?;
     compile(e, &w, &[], log)?;
     if jrun(&cls_args(&w, "Check", &[]), &[], log) {
         Ok(())
@@ -262,7 +263,7 @@ fn syshook(e: &Env, log: &mut String) -> R<()> {
     fs::create_dir_all(&pk).map_err(|x| x.to_string())?;
     copy_tree(&e.t().join("beat/stubs"), &w)?;
     copy_tree(&e.t().join("lochook/stubs"), &w)?;
-    for f in ["LsNative.java", "ZygoteEntry.java", "PackageGuardLs.java", "SettingsGuard.java"] {
+    for f in ["LegacyFrame.java", "LsNative.java", "ZygoteEntry.java", "PackageGuardLs.java", "SettingsGuard.java"] {
         let _ = fs::remove_file(pk.join(f));
     }
     copy_tree(&e.t().join("syshook/stubs"), &w)?;
@@ -273,17 +274,16 @@ fn syshook(e: &Env, log: &mut String) -> R<()> {
         "GnssFake.java",
         "Config.java",
         "ConfigNative.java",
+        "LocationNative.java",
         "Fix.java",
         "WeakIdentityMap.java",
     ] {
         cp(&e.jsrc().join(f), &pk)?;
     }
-    cp(&e.t().join("gnsswire/fake/LocationNative.java"), &pk)?;
-    cp(&e.t().join("gnsswire/fake/GnssRef.java"), &pk)?;
     cp(&e.t().join("syshook/Check.java"), &pk)?;
     compile(e, &w, &[], log)?;
     let mut all = true;
-    for mode in ["ls", "off", "notready", "partial"] {
+    for mode in ["ok", "broken", "partial"] {
         log.push_str(&format!("<< {} >>\n", mode));
         if !jrun(&cls_args(&w, "Check", &[mode]), &[], log) {
             all = false;
@@ -638,12 +638,14 @@ fn gnssfake(e: &Env, log: &mut String) -> R<()> {
         &w,
         &["beat/stubs", "lochook/stubs"],
         GNSS_SRC,
-        &["gnsswire/fake/LocationNative.java", "gnsswire/fake/GnssRef.java", "gnsswire/GnssWire.java"],
+        &["gnsswire/fake/LocationNative.java", "gnsswire/GnssWire.java"],
     )?;
     compile(e, &w, &[], log)?;
-    log.push_str("== native palsu sesuai kontrak: dipakai, dan bila null, melempar, atau array salah hasilnya kosong tanpa melempar\n");
+    log.push_str("== native palsu sesuai kontrak: dipakai bila verifikasi lolos, cadangan Java bila null, melempar, atau array salah\n");
     let (ok1, _) = jclass(&w, "GnssWire", &e.salt, "", "fake:on", true, log);
-    if ok1 {
+    log.push_str("== native palsu yang salah satu keluarannya beda: verifikasi gagal, native tidak dipakai\n");
+    let (ok2, _) = jclass(&w, "GnssWire", &e.salt, "-Dfake.bad=1", "fake:off", true, log);
+    if ok1 && ok2 {
         Ok(())
     } else {
         Err("GnssWire (native palsu) gagal".to_string())
@@ -682,10 +684,10 @@ fn gnsswire(e: &Env, log: &mut String) -> R<()> {
         &w,
         &["beat/stubs", "lochook/stubs"],
         &["Frames.java", "LsHook.java", "Config.java", "ConfigNative.java", "LocationNative.java", "Fix.java", "GnssFake.java"],
-        &["gnsswire/GnssWire.java", "gnsswire/fake/GnssRef.java"],
+        &["gnsswire/GnssWire.java"],
     )?;
     compile(e, &w, &[], log)?;
-    log.push_str("== liblochooks.so asli: snapshot/NMEA/measurements sama dengan referensi Java di test\n");
+    log.push_str("== liblochooks.so asli: verifikasi GnssFake lolos, snapshot/NMEA/measurements sama dengan Java\n");
     let args = vec![
         format!("-Djava.library.path={}", ps(&libdir)),
         "-cp".to_string(),
@@ -843,5 +845,60 @@ mod tests {
         let k = keys_line("Vzvwk4Rxj7Ps");
         assert_eq!(k.matches(',').count(), 6);
         assert!(k.starts_with("956349,db078e,c1e67d,"));
+    }
+}
+
+fn unsafe_suite(e: &Env, log: &mut String) -> R<()> {
+    let td = tempdir("junsafe")?;
+    let w = td.0.clone();
+    for d in ["stub", "out", "test"] {
+        fs::create_dir_all(w.join(d)).map_err(|x| x.to_string())?;
+    }
+    let m = e.root.join("module");
+    let lint = ["-Xlint:all", "-Werror", "--limit-modules", "java.base"];
+
+    let mut files: Vec<PathBuf> = Vec::new();
+    java_files(&m.join("stub/src"), &mut files);
+    files.sort();
+    let mut a = sv(&lint);
+    a.push("-d".to_string());
+    a.push(ps(&w.join("stub")));
+    for f in &files {
+        a.push(ps(f));
+    }
+    javac_raw(e, a, None, log)?;
+
+    let mut files: Vec<PathBuf> = Vec::new();
+    java_files(&m.join("unsafe/src"), &mut files);
+    files.sort();
+    let mut a = sv(&lint);
+    a.push("-cp".to_string());
+    a.push(ps(&w.join("stub")));
+    a.push("-d".to_string());
+    a.push(ps(&w.join("out")));
+    for f in &files {
+        a.push(ps(f));
+    }
+    javac_raw(e, a, None, log)?;
+
+    let mut a = sv(&lint);
+    a.push("-cp".to_string());
+    a.push(ps(&w.join("out")));
+    a.push("-d".to_string());
+    a.push(ps(&w.join("test")));
+    a.push(ps(&e.t().join("unsafe/UnsafeTest.java")));
+    javac_raw(e, a, None, log)?;
+
+    let cp_arg = format!("{}:{}", ps(&w.join("out")), ps(&w.join("test")));
+    let args = vec![
+        "-cp".to_string(),
+        cp_arg,
+        "com.v7878.sun.unsafe.UnsafeTest".to_string(),
+        ps(&e.t().join("unsafe/api.txt")),
+    ];
+    if jrun(&args, &[], log) {
+        Ok(())
+    } else {
+        Err("UnsafeTest gagal".to_string())
     }
 }

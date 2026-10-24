@@ -6,6 +6,9 @@ build = "build.rs"
 
 [dependencies]
 
+[dev-dependencies]
+routecore = { path = "../native/routecore", default-features = false }
+
 [profile.release]
 opt-level = "z"
 lto = true

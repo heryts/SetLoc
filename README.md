@@ -26,7 +26,7 @@ Mode spoof:
 | System-wide | Semua app mendapat lokasi palsu |
 | Heartbeat | Sistem mengulang lokasi asli tiap 1 detik agar app yang menunggu callback (mis. Google Maps) tetap menerima pembaruan. App di daftar tetap dipalsukan, app lain tidak |
 
-System-wide dan Heartbeat butuh reboot kalau belum aktif. Kalau terjadi bootloop, buat file `disable` di folder modul dari recovery. Untuk mematikan semua hook LSPlant di app dan `system_server` (tidak ada jalur cadangan lagi, jadi modul praktis tidak memalsukan apa pun), buat file `disable_ls` di folder modul. Untuk mematikan hook `LocationHooks` saja (penyembunyian paket dan `SettingsGuard` tetap jalan), buat file `disable_ls_loc`, dan untuk `SettingsGuard` saja `disable_ls_set`. Untuk mematikan library Rust (`configcore`, `lochooks`) dan kembali ke hitungan Java, buat file `disable_rs`. `SystemHooks` di `system_server` tidak dipasang kecuali Anda memilihnya sendiri: `gpsz.sh ls-system on`, lalu reboot (lihat `native/README.md`, Fase 7).
+System-wide dan Heartbeat butuh reboot kalau belum aktif. Kalau terjadi bootloop, buat file `disable` di folder modul dari recovery. Untuk mematikan semua hook LSPlant di app (hook `system_server` tidak ikut, karena memakai AndroidVMTools), buat file `disable_ls` di folder modul. Untuk mematikan hook `LocationHooks` saja (penyembunyian paket dan `SettingsGuard` tetap jalan), buat file `disable_ls_loc`, dan untuk `SettingsGuard` saja `disable_ls_set`. Untuk mematikan library Rust (`configcore`, `lochooks`) dan kembali ke hitungan Java, buat file `disable_rs`. `SystemHooks` di `system_server` memakai AndroidVMTools, bukan LSPlant, sehingga aman berdampingan dengan LSPosed dan HMA-OSS (lihat `native/README.md`, Fase 13).
 
 Saat memutar rute, daemon menulis jendela 24 detik (`gpsz_trk`) dan hook menginterpolasi posisi sendiri, jadi Settings hampir tidak ditulis selama rute berjalan. Kalau ada masalah, buat file `disable_trk` di folder modul untuk kembali ke mode lama (satu tulis per tick).
 
@@ -50,6 +50,11 @@ Saat memutar rute, daemon menulis jendela 24 detik (`gpsz_trk`) dan hook mengint
 sh /data/adb/modules/setloc_zygisk/gpsz.sh doctor
 ```
 Perintah ini mendiagnosa modul, hook, dan konfigurasi. Untuk status mode system: `gpsz.sh system status`.
+
+Baris `hook-engine=shadowhook:ok lsplant:ok` menandakan mesin hook di app sudah init (ShadowHook 1.0.10 `return: 0` dan `lsplant::Init=1`). `tidak-terlihat` berarti belum ada app target yang dibuka sejak buffer log terakhir, atau init gagal. Cek manual:
+```
+su -c 'logcat -b all -d | grep -E "shadowhook version|gpsz_hook: lsplant::Init"' | tail -6
+```
 
 ## CLI (root)
 ```
@@ -82,8 +87,9 @@ Hasilnya `module/zygote/build/outputs/magisk/release/SetLocZygisk-release.zip`.
 - `app/` app Android (peta, favorit, rute, pengaturan)
 - `module/` modul Zygisk: hook Java, stub skrip Magisk, WebUI
 - `daemon/` `setlocd` (Rust): daemon, CLI `gpsz`, installer modul (`modinstall`)
+- `native/` crate Rust JNI: `configcore`, `lochooks` (modul) dan `routecore` (timeline rute, dipakai app)
 - `tools/` `xtask` (build/update) dan `rotate-salt`, keduanya Rust
 - `cargo xtask test [bagian...]` uji sandbox untuk skrip, daemon, `Config`, dan hook
 
 ## Kredit
-Terinspirasi dari GPS Setter. Pemuatan modul memakai [ZygoteLoader](https://github.com/aerath-stuff/ZygoteLoader). Semua hook Java dan penyembunyian paket memakai [LSPlant](https://github.com/LSPosed/LSPlant) dan [ShadowHook](https://github.com/bytedance/android-inline-hook).
+Terinspirasi dari GPS Setter. Pemuatan modul memakai [ZygoteLoader](https://github.com/aerath-stuff/ZygoteLoader). Hook Java dan penyembunyian paket di app memakai [LSPlant](https://github.com/LSPosed/LSPlant), hook di `system_server` memakai [AndroidVMTools](https://github.com/aerath-stuff/AndroidVMTools), dan [ShadowHook](https://github.com/bytedance/android-inline-hook).

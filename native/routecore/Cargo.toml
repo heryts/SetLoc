@@ -1,0 +1,20 @@
+[package]
+name = "routecore"
+version = "0.0.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+jni = { version = "0.21", default-features = false, optional = true }
+
+[features]
+default = ["jni-exports"]
+jni-exports = ["dep:jni"]
+
+[profile.release]
+opt-level = "s"
+lto = true
+panic = "abort"
+strip = true

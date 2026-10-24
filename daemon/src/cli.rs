@@ -2,7 +2,6 @@ use crate::bridge::{self, ensure, set_app_pos, set_app_random, set_app_start};
 use crate::codec::{dec, enc, inrange, BEATKEY, BTKEY, KEY, LIVEKEY, NETKEY, SYSKEY, TRKKEY};
 use crate::config::{DEFAULT_LAT, DEFAULT_LNG};
 use crate::engine::Core;
-use crate::lsguard;
 use crate::sys::{self, csget, mtime_s, now_s, pidof, quiet, run, sget, sput, uptime_s};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -218,45 +217,6 @@ impl Ctx {
         }
     }
 
-    fn ls_system(&self, arg: &str) {
-        let st = lsguard::state(&self.moddir);
-        match arg {
-            "on" => {
-                if lsguard::enable(&self.moddir) {
-                    say!("LSPlant di system_server: AKTIF (opt-in). REBOOT dibutuhkan. Jika boot sebelumnya gagal, percobaan otomatis diblokir dan jalur lama dipakai; lihat: ls-system status.");
-                } else {
-                    say!("gagal membuat {}", lsguard::ENABLE);
-                }
-            }
-            "off" => {
-                lsguard::disable(&self.moddir);
-                say!("LSPlant di system_server: MATI. Reboot agar system_server memakai jalur lama.");
-            }
-            "reset" => {
-                lsguard::reset(&self.moddir);
-                say!("penanda boot dan blokir dihapus. Percobaan berikutnya saat reboot.");
-            }
-            "status" => {
-                say!("ls-system={}", st);
-                say!(
-                    "{}: {}   {}: {}   {}: {}",
-                    lsguard::ENABLE,
-                    if self.moddir.join(lsguard::ENABLE).exists() { "ya" } else { "tidak" },
-                    lsguard::PENDING,
-                    if self.moddir.join(lsguard::PENDING).exists() { "ya" } else { "tidak" },
-                    lsguard::BLOCKED,
-                    if self.moddir.join(lsguard::BLOCKED).exists() { "ya" } else { "tidak" }
-                );
-                match st {
-                    "blocked" => say!("percobaan sebelumnya tidak selesai (system_server mati sebelum stabil). Jalur lama dipakai. Setelah penyebab dicek: ls-system reset"),
-                    "pending" => say!("system_server sedang dicoba dengan LSPlant dan belum terkonfirmasi stabil ({} dtk)", lsguard::STABLE_S),
-                    _ => {}
-                }
-            }
-            _ => say!("ls-system on|off|status|reset"),
-        }
-    }
-
     fn pkg(&self, args: &[String]) {
         let sub = args.first().map(String::as_str).unwrap_or("");
         let name = args.get(1).map(String::as_str).unwrap_or("");
@@ -314,7 +274,7 @@ pub fn run_cli(args: &[String]) -> i32 {
     let mut core = Core::new(&moddir);
     let a = |i: usize| args.get(i).map(String::as_str).unwrap_or("");
     let cmd = a(0);
-    if !matches!(cmd, "sync" | "check" | "status" | "doctor" | "super" | "net" | "bt" | "ls-system") {
+    if !matches!(cmd, "sync" | "check" | "status" | "doctor" | "super" | "net" | "bt") {
         core.sync_cfg(false);
     }
     let mut st = load();
@@ -414,7 +374,6 @@ pub fn run_cli(args: &[String]) -> i32 {
         }
         "pkg" => ctx.pkg(&args[1.min(args.len())..]),
         "system" => ctx.system(&core, a(1)),
-        "ls-system" => ctx.ls_system(a(1)),
         "sync" => {
             core.sync_cfg(true);
             say!("cfg={}", csget(KEY).unwrap_or_default());
@@ -469,7 +428,6 @@ pub fn run_cli(args: &[String]) -> i32 {
                 std::fs::read_to_string("/proc/uptime").unwrap_or_default().split_whitespace().next().unwrap_or("")
             );
             say!("system-hook={}", ctx.sysstate());
-            say!("ls-system={}", lsguard::state(&moddir));
             if moddir.join("disable_trk").exists() {
                 say!("trk=dimatikan (disable_trk)");
             } else {
@@ -490,8 +448,25 @@ pub fn run_cli(args: &[String]) -> i32 {
             for l in log_lines(&["-d", "-s", "GpsZ:I"], "system hook", true, 8) {
                 say!("{}", l);
             }
+            say!("--- mesin hook app (logcat)");
+            let sh = log_lines(&["-b", "all", "-d"], "shadowhook version", true, 3);
+            let ls = log_lines(&["-b", "all", "-d", "-s", "gpsz_hook:E"], "lsplant::init", false, 3);
+            let sh_ok = sh.iter().any(|l| l.contains("return: 0"));
+            let ls_ok = ls.iter().any(|l| l.contains("lsplant::Init=1"));
+            for l in sh.iter().chain(ls.iter()) {
+                say!("{}", l);
+            }
+            for l in log_lines(&["-b", "all", "-d", "-s", "gpsz_hook:E"], "simbol tidak ada", false, 6) {
+                say!("{}", l);
+            }
+            say!(
+                "hook-engine=shadowhook:{} lsplant:{}",
+                if sh_ok { "ok" } else { "tidak-terlihat" },
+                if ls_ok { "ok" } else { "tidak-terlihat" }
+            );
+            say!("  (tidak-terlihat = belum ada app ter-hook sejak buffer log terakhir, atau init gagal; buka app target lalu jalankan doctor lagi)");
         }
-        _ => say!("on|off|toggle|set <lat> <lng> [acc]|random 0|1|net on|off|bt on|off|show|pkg ...|system on|heartbeat|off|status|ls-system on|off|status|reset|sync|check <pkg>|super on|off|doctor"),
+        _ => say!("on|off|toggle|set <lat> <lng> [acc]|random 0|1|net on|off|bt on|off|show|pkg ...|system on|heartbeat|off|status|sync|check <pkg>|super on|off|doctor"),
     }
     0
 }

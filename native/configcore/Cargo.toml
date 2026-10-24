@@ -14,8 +14,7 @@ default = ["jni-exports"]
 jni-exports = ["dep:jni"]
 
 [profile.release]
-opt-level = 3
+opt-level = "s"
 lto = true
-codegen-units = 1
 panic = "abort"
 strip = true

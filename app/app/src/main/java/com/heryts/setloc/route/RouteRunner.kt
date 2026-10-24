@@ -149,6 +149,16 @@ object RouteRunner {
     }
 
     internal fun buildTimeline(points: List<LatLng>, speedKmh: Float, speedVarKmh: Float): List<Tick> {
+        if (RouteNative.ready) {
+            val e = elevations
+            val manual = if (e == null || e.isEmpty()) sink.altitudeManual else 0f
+            val t = RouteNative.build(points, speedKmh, speedVarKmh, e, manual)
+            if (t != null) return t
+        }
+        return buildTimelineKt(points, speedKmh, speedVarKmh)
+    }
+
+    private fun buildTimelineKt(points: List<LatLng>, speedKmh: Float, speedVarKmh: Float): List<Tick> {
         val cum = DoubleArray(points.size)
         for (i in 1 until points.size) cum[i] = cum[i - 1] + meters(points[i - 1], points[i])
         val total = cum.last()
@@ -198,7 +208,10 @@ object RouteRunner {
         return out
     }
 
-    internal fun writeTimeline(ticks: List<Tick>, w: java.io.Writer): Long {
+    internal fun writeTimeline(ticks: List<Tick>, w: java.io.Writer): Long =
+        RouteNative.write(ticks, w) ?: writeTimelineKt(ticks, w)
+
+    private fun writeTimelineKt(ticks: List<Tick>, w: java.io.Writer): Long {
         val sb = StringBuilder(TIMELINE_LINE_WIDTH + 8)
         val fmt = java.util.Formatter(sb, java.util.Locale.US)
         var chars = 0L

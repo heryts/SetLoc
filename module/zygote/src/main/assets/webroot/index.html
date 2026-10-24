@@ -7,63 +7,64 @@
 <title>SetLoc Zygisk</title>
 <link rel="stylesheet" href="https://mui.kernelsu.org/internal/insets.css">
 <script>
-(function () {
-var t = 'system';
-try { t = localStorage.getItem('gpsz_theme') || 'system'; } catch (e) {}
-var dark = t === 'dark' || (t === 'system' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
-document.documentElement.classList.toggle('dark', dark);
-})();
+  (function () {
+    var t = 'system';
+    try { t = localStorage.getItem('gpsz_theme') || 'system'; } catch (e) {}
+    var dark = t === 'dark' || (t === 'system' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.classList.toggle('dark', dark);
+  })();
 </script>
 <style>
 :root {
---primary: #0ea5e9;
---accent: #a855f7;
---bg: #f9fafb;
---card: #ffffff;
---text: #1f2937;
---text2: #6b7280;
---border: #e5e7eb;
---shadow: rgba(0,0,0,.06);
---ok: #22c55e;
---danger: #ef4444;
---chip: #eef2f7;
---inset-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
---inset-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
---inset-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
---inset-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+  --primary: #0ea5e9;
+  --accent: #a855f7;
+  --bg: #f9fafb;
+  --card: #ffffff;
+  --text: #1f2937;
+  --text2: #6b7280;
+  --border: #e5e7eb;
+  --shadow: rgba(0,0,0,.06);
+  --ok: #22c55e;
+  --danger: #ef4444;
+  --chip: #eef2f7;
+  --inset-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --inset-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+  --inset-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
+  --inset-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
 }
 .dark {
---bg: #0f172a;
---card: #1e293b;
---text: #f3f4f6;
---text2: #94a3b8;
---border: #334155;
---shadow: rgba(0,0,0,.4);
---chip: #263449;
+  --bg: #0f172a;
+  --card: #1e293b;
+  --text: #f3f4f6;
+  --text2: #94a3b8;
+  --border: #334155;
+  --shadow: rgba(0,0,0,.4);
+  --chip: #263449;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 html, body { background: var(--bg); color: var(--text); color-scheme: light; overscroll-behavior-y: none; }
 html.dark, html.dark body { color-scheme: dark; }
 body {
-font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-font-size: 15px; line-height: 1.4;
-padding-left: var(--inset-left); padding-right: var(--inset-right);
-min-height: 100vh;
-transition: background-color .3s, color .3s;
+  font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 15px; line-height: 1.4;
+  padding-left: var(--inset-left); padding-right: var(--inset-right);
+  min-height: 100vh;
+  transition: background-color .3s, color .3s;
 }
 button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
 input { font: inherit; color: inherit; }
+
 .hero {
-background: linear-gradient(135deg, var(--primary), var(--accent));
-color: #fff;
-padding: calc(var(--inset-top) + 16px) 16px 56px;
-border-radius: 0 0 28px 28px;
-position: relative;
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  color: #fff;
+  padding: calc(var(--inset-top) + 16px) 16px 56px;
+  border-radius: 0 0 28px 28px;
+  position: relative;
 }
 .hero-row { display: flex; align-items: center; gap: 12px; }
 .logo {
-width: 42px; height: 42px; border-radius: 14px;
-background: rgba(255,255,255,.22); display: grid; place-items: center; flex: none;
+  width: 42px; height: 42px; border-radius: 14px;
+  background: rgba(255,255,255,.22); display: grid; place-items: center; flex: none;
 }
 .hero h1 { font-size: 20px; font-weight: 600; letter-spacing: .2px; }
 .hero p { font-size: 12.5px; opacity: .85; }
@@ -71,15 +72,16 @@ background: rgba(255,255,255,.22); display: grid; place-items: center; flex: non
 .hero h1 .ver:empty { display: none; }
 .hero .grow { flex: 1; min-width: 0; }
 .icon-btn {
-width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center;
-background: rgba(255,255,255,.18); color: #fff; flex: none;
+  width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center;
+  background: rgba(255,255,255,.18); color: #fff; flex: none;
 }
 .icon-btn:active { background: rgba(255,255,255,.3); }
 svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
 .wrap { padding: 0 14px calc(var(--inset-bottom) + 28px); max-width: 720px; margin: 0 auto; }
 .card {
-background: var(--card); border: 1px solid var(--border); border-radius: 18px;
-box-shadow: 0 2px 10px var(--shadow);
+  background: var(--card); border: 1px solid var(--border); border-radius: 18px;
+  box-shadow: 0 2px 10px var(--shadow);
 }
 .status { margin-top: -38px; padding: 14px 16px; display: flex; gap: 12px; align-items: center; position: relative; }
 .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--text2); flex: none; box-shadow: 0 0 0 4px rgba(148,163,184,.2); }
@@ -93,6 +95,7 @@ box-shadow: 0 2px 10px var(--shadow);
 .field.bad { border-color: var(--danger); }
 .hint { font-size: 12.5px; color: var(--text2); margin-top: 8px; line-height: 1.45; }
 .hint.err { color: var(--danger); }
+
 .appcard { margin-top: 10px; padding: 12px 16px; display: flex; gap: 12px; align-items: center; }
 .appcard .t { font-weight: 600; }
 .appcard .s { font-size: 12.5px; color: var(--text2); }
@@ -102,27 +105,28 @@ box-shadow: 0 2px 10px var(--shadow);
 .btn.stop { background: var(--danger); color: #fff; }
 .btn[disabled] { opacity: .55; }
 .banner {
-margin-top: 10px; padding: 12px 14px; border-radius: 14px; font-size: 13px; line-height: 1.5;
-background: rgba(245,158,11,.14); color: #b45309; border: 1px solid rgba(245,158,11,.35);
+  margin-top: 10px; padding: 12px 14px; border-radius: 14px; font-size: 13px; line-height: 1.5;
+  background: rgba(245,158,11,.14); color: #b45309; border: 1px solid rgba(245,158,11,.35);
 }
 .dark .banner { color: #fbbf24; }
 .banner.danger { background: rgba(239,68,68,.12); color: #b91c1c; border-color: rgba(239,68,68,.35); }
 .dark .banner.danger { color: #fca5a5; }
 .banner .mono { line-height: 1.4; }
 .banner .btn-reboot {
-display: block; width: 100%; margin-top: 12px; padding: 10px 16px; border-radius: 12px;
-background: var(--danger); color: #fff; font-weight: 600; font-size: 14px; text-align: center;
-box-shadow: 0 2px 6px rgba(239,68,68,.35);
+  display: block; width: 100%; margin-top: 12px; padding: 10px 16px; border-radius: 12px;
+  background: var(--danger); color: #fff; font-weight: 600; font-size: 14px; text-align: center;
+  box-shadow: 0 2px 6px rgba(239,68,68,.35);
 }
 .banner .btn-reboot:active { filter: brightness(.9); }
 .syscard { margin-top: 10px; padding: 14px 16px; display: flex; gap: 12px; align-items: center; }
 .syscard .t { font-weight: 600; }
 .syscard .grow { flex: 1; min-width: 0; }
 .syscard .btn { flex: none; min-width: 74px; }
+
 .toolbar { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
 .search {
-display: flex; align-items: center; gap: 8px; padding: 0 12px; height: 46px;
-background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+  display: flex; align-items: center; gap: 8px; padding: 0 12px; height: 46px;
+  background: var(--card); border: 1px solid var(--border); border-radius: 14px;
 }
 .search svg { color: var(--text2); width: 20px; height: 20px; flex: none; }
 .search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; height: 100%; }
@@ -130,22 +134,23 @@ background: var(--card); border: 1px solid var(--border); border-radius: 14px;
 .chips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
 .chips::-webkit-scrollbar { display: none; }
 .chip {
-padding: 7px 14px; border-radius: 999px; background: var(--chip); color: var(--text2);
-font-size: 13.5px; white-space: nowrap; border: 1px solid transparent; transition: all .15s;
+  padding: 7px 14px; border-radius: 999px; background: var(--chip); color: var(--text2);
+  font-size: 13.5px; white-space: nowrap; border: 1px solid transparent; transition: all .15s;
 }
 .chip:focus, .chip:focus-visible { outline: 0; }
 .chip.active { background: linear-gradient(135deg, var(--primary), var(--accent)); color: #fff; border-color: transparent; }
 .count { margin: 14px 4px 8px; font-size: 13px; color: var(--text2); display: flex; justify-content: space-between; }
+
 .list { display: flex; flex-direction: column; gap: 8px; }
 .row {
-display: flex; align-items: center; gap: 12px; padding: 10px 12px;
-background: var(--card); border: 1px solid var(--border); border-radius: 16px;
-transition: border-color .2s, box-shadow .2s;
+  display: flex; align-items: center; gap: 12px; padding: 10px 12px;
+  background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+  transition: border-color .2s, box-shadow .2s;
 }
 .row.on { border-color: rgba(14,165,233,.55); box-shadow: 0 2px 12px rgba(14,165,233,.12); }
 .avatar {
-width: 44px; height: 44px; border-radius: 12px; flex: none; overflow: hidden; position: relative;
-display: grid; place-items: center; color: #fff; font-weight: 600; font-size: 18px;
+  width: 44px; height: 44px; border-radius: 12px; flex: none; overflow: hidden; position: relative;
+  display: grid; place-items: center; color: #fff; font-weight: 600; font-size: 18px;
 }
 .avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: var(--card); }
 .meta { flex: 1; min-width: 0; }
@@ -154,22 +159,26 @@ display: grid; place-items: center; color: #fff; font-weight: 600; font-size: 18
 .tag { display: inline-block; font-size: 10.5px; padding: 1px 7px; border-radius: 999px; margin-left: 6px; vertical-align: 1px; background: var(--chip); color: var(--text2); }
 .tag.warn { background: rgba(245,158,11,.18); color: #b45309; }
 .dark .tag.warn { color: #fbbf24; }
+
 .switch {
-width: 50px; height: 30px; border-radius: 999px; background: #cbd5e1; position: relative; flex: none;
-transition: background .2s; border: 0;
+  width: 50px; height: 30px; border-radius: 999px; background: #cbd5e1; position: relative; flex: none;
+  transition: background .2s; border: 0;
 }
 .dark .switch { background: #475569; }
 .switch::after {
-content: ''; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%;
-background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform .2s;
+  content: ''; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform .2s;
 }
 .switch[aria-checked="true"] { background: linear-gradient(135deg, var(--primary), var(--accent)); }
 .switch[aria-checked="true"]::after { transform: translateX(20px); }
 .switch[disabled] { opacity: .5; }
+
 .empty { text-align: center; color: var(--text2); padding: 40px 10px; }
 .skel { height: 64px; border-radius: 16px; background: linear-gradient(90deg, var(--chip) 25%, var(--border) 37%, var(--chip) 63%); background-size: 400% 100%; animation: sh 1.3s infinite; }
 @keyframes sh { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+
 .foot { margin: 18px 6px 0; font-size: 12px; color: var(--text2); text-align: center; }
+
 .geo-res { margin-top: 8px; border-radius: 12px; overflow: hidden; background: var(--chip); }
 .geo-res:empty { display: none; }
 .geo-it { display: block; width: 100%; text-align: left; padding: 10px 12px; border-top: 1px solid var(--border); }
@@ -178,13 +187,14 @@ background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform .2
 .geo-it .s { font-size: 12px; color: var(--text2); margin-top: 2px; }
 .geo-it .c { font-size: 11.5px; color: var(--text2); font-family: ui-monospace, Menlo, Consolas, monospace; }
 .geo-msg { padding: 10px 12px; font-size: 13px; color: var(--text2); }
+
 .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.45); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 20; }
 .scrim.show { opacity: 1; pointer-events: auto; }
 .sheet {
-position: fixed; left: 0; right: 0; bottom: 0; z-index: 21; background: var(--card);
-border-radius: 24px 24px 0 0; padding: 10px 18px calc(var(--inset-bottom) + 20px);
-transform: translateY(105%); transition: transform .25s cubic-bezier(.2,.8,.2,1);
-max-width: 720px; margin: 0 auto; max-height: 85vh; overflow-y: auto;
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 21; background: var(--card);
+  border-radius: 24px 24px 0 0; padding: 10px 18px calc(var(--inset-bottom) + 20px);
+  transform: translateY(105%); transition: transform .25s cubic-bezier(.2,.8,.2,1);
+  max-width: 720px; margin: 0 auto; max-height: 85vh; overflow-y: auto;
 }
 .sheet.show { transform: none; }
 .grab { width: 40px; height: 4px; border-radius: 4px; background: var(--border); margin: 0 auto 14px; }
@@ -205,73 +215,84 @@ max-width: 720px; margin: 0 auto; max-height: 85vh; overflow-y: auto;
 .btn.danger { background: var(--danger); color: #fff; }
 .dialog-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
 .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; word-break: break-all; }
+
 .toast {
-position: fixed; left: 50%; bottom: calc(var(--inset-bottom) + 24px); transform: translate(-50%, 30px);
-background: #111827; color: #fff; padding: 10px 18px; border-radius: 999px; font-size: 13.5px;
-opacity: 0; transition: all .25s; z-index: 30; max-width: 90vw; text-align: center; pointer-events: none;
+  position: fixed; left: 50%; bottom: calc(var(--inset-bottom) + 24px); transform: translate(-50%, 30px);
+  background: #111827; color: #fff; padding: 10px 18px; border-radius: 999px; font-size: 13.5px;
+  opacity: 0; transition: all .25s; z-index: 30; max-width: 90vw; text-align: center; pointer-events: none;
 }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 .toast.err { background: #b91c1c; }
 </style>
 </head>
 <body>
+
 <div class="hero">
-<div class="hero-row">
-<div class="logo">
-<svg viewBox="0 0 24 24"><path d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.6"/></svg>
+  <div class="hero-row">
+    <div class="logo">
+      <svg viewBox="0 0 24 24"><path d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.6"/></svg>
+    </div>
+    <div class="grow">
+      <h1>SetLoc<span class="ver" id="ver"></span></h1>
+      <p>Pilih app yang di-hook · Zygisk</p>
+    </div>
+    <button class="icon-btn" id="btnReload" aria-label="Muat ulang">
+      <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 4v5h-5"/></svg>
+    </button>
+    <button class="icon-btn" id="btnSettings" aria-label="Pengaturan">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+    </button>
+  </div>
 </div>
-<div class="grow">
-<h1>SetLoc<span class="ver" id="ver"></span></h1>
-<p>Pilih app yang di-hook · Zygisk</p>
-</div>
-<button class="icon-btn" id="btnReload" aria-label="Muat ulang">
-<svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 4v5h-5"/></svg>
-</button>
-<button class="icon-btn" id="btnSettings" aria-label="Pengaturan">
-<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
-</button>
-</div>
-</div>
+
 <div class="wrap">
-<div class="card status">
-<div class="dot" id="dot"></div>
-<div class="grow edit" id="stBox" style="min-width:0">
-<div class="t" id="stTitle">Memuat…</div>
-<div class="s" id="stSub">Titik lokasi diatur lewat aplikasi SetLoc</div>
+  <div class="card status">
+    <div class="dot" id="dot"></div>
+    <div class="grow edit" id="stBox" style="min-width:0">
+      <div class="t" id="stTitle">Memuat…</div>
+      <div class="s" id="stSub">Titik lokasi diatur lewat aplikasi SetLoc</div>
+    </div>
+    <button class="btn primary" id="btnSpoof" disabled>Start</button>
+  </div>
+
+  <div id="banners"></div>
+
+  <div class="card appcard">
+    <div class="grow" style="min-width:0">
+      <div class="t">App SetLoc</div>
+      <div class="s" id="appSub">Memeriksa…</div>
+    </div>
+    <button class="btn primary" id="btnApp" disabled>…</button>
+  </div>
+
+  <div class="toolbar">
+    <label class="search">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <input id="q" type="search" placeholder="Cari nama app atau package" autocomplete="off" autocapitalize="off" spellcheck="false">
+    </label>
+    <div class="chips">
+      <button class="chip active" data-tab="all">Semua</button>
+      <button class="chip" data-tab="hooked">Di-hook</button>
+      <button class="chip" id="chipSys">App sistem</button>
+    </div>
+  </div>
+
+  <div class="count"><span id="cnt"></span><span id="modeTag"></span></div>
+  <div class="list" id="list"></div>
+
+  <p class="foot">Perubahan berlaku saat app dibuka ulang. App yang diubah otomatis dihentikan paksa.</p>
 </div>
-<button class="btn primary" id="btnSpoof" disabled>Start</button>
-</div>
-<div id="banners"></div>
-<div class="card appcard">
-<div class="grow" style="min-width:0">
-<div class="t">App SetLoc</div>
-<div class="s" id="appSub">Memeriksa…</div>
-</div>
-<button class="btn primary" id="btnApp" disabled>…</button>
-</div>
-<div class="toolbar">
-<label class="search">
-<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-<input id="q" type="search" placeholder="Cari nama app atau package" autocomplete="off" autocapitalize="off" spellcheck="false">
-</label>
-<div class="chips">
-<button class="chip active" data-tab="all">Semua</button>
-<button class="chip" data-tab="hooked">Di-hook</button>
-<button class="chip" id="chipSys">App sistem</button>
-</div>
-</div>
-<div class="count"><span id="cnt"></span><span id="modeTag"></span></div>
-<div class="list" id="list"></div>
-<p class="foot">Perubahan berlaku saat app dibuka ulang. App yang diubah otomatis dihentikan paksa.</p>
-</div>
+
 <div class="scrim" id="scrim"></div>
 <div class="sheet" id="sheet" role="dialog" aria-modal="true">
-<div class="grab"></div>
-<div id="sheetBody"></div>
+  <div class="grab"></div>
+  <div id="sheetBody"></div>
 </div>
 <div class="toast" id="toast"></div>
+
 <script>
 'use strict';
+
 const MODID  = 'setloc_zygisk';
 const MODDIR = '/data/adb/modules/' + MODID;
 const PKGDIR = MODDIR + '/packages';
@@ -279,236 +300,249 @@ const APP_PKG = 'com.heryts.setloc';
 const SALT = 'Vzvwk4Rxj7Ps';
 const SK = { cfg: '956349', sys: 'db078e', net: '70a4b0', bt: '50a6bb', trk: 'c724d0', live: 'ca29e7' };
 function decHex(h) {
-h = String(h || '').trim();
-if (!h || h === 'null' || h.length % 2 || /[^0-9a-f]/i.test(h)) return '';
-let o = '';
-for (let i = 0; i < h.length; i += 2) {
-const k = SALT.charCodeAt((i / 2) % SALT.length);
-o += String.fromCharCode((parseInt(h.substr(i, 2), 16) - k + 256) % 256);
+  h = String(h || '').trim();
+  if (!h || h === 'null' || h.length % 2 || /[^0-9a-f]/i.test(h)) return '';
+  let o = '';
+  for (let i = 0; i < h.length; i += 2) {
+    const k = SALT.charCodeAt((i / 2) % SALT.length);
+    o += String.fromCharCode((parseInt(h.substr(i, 2), 16) - k + 256) % 256);
   }
-return o;
+  return o;
 }
+
 const NO_STOP = new Set([
-'android', 'system', 'com.android.systemui', 'com.android.phone',
-'me.weishu.kernelsu', 'com.rifsxd.ksunext', 'me.bmax.apatch', 'com.topjohnwu.magisk',
-'com.dergoogler.mmrl', 'io.github.a13e300.ksuwebui', 'com.dergoogler.mmrl.wx'
+  'android', 'system', 'com.android.systemui', 'com.android.phone',
+  'me.weishu.kernelsu', 'com.rifsxd.ksunext', 'me.bmax.apatch', 'com.topjohnwu.magisk',
+  'com.dergoogler.mmrl', 'io.github.a13e300.ksuwebui', 'com.dergoogler.mmrl.wx'
 ]);
+
 const PKG_RE = /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$/;
+
 let _cb = 0;
 function exec(cmd) {
-return new Promise((resolve, reject) => {
-const name = 'exec_callback_' + Date.now() + '_' + (_cb++);
-window[name] = (errno, stdout, stderr) => { delete window[name]; resolve({ errno, stdout, stderr }); };
-try { ksu.exec(cmd, '{}', name); } catch (e) { delete window[name]; reject(e); }
-});
+  return new Promise((resolve, reject) => {
+    const name = 'exec_callback_' + Date.now() + '_' + (_cb++);
+    window[name] = (errno, stdout, stderr) => { delete window[name]; resolve({ errno, stdout, stderr }); };
+    try { ksu.exec(cmd, '{}', name); } catch (e) { delete window[name]; reject(e); }
+  });
 }
 async function sh(cmd) {
-const r = await exec(cmd);
-if (r.errno !== 0) throw new Error((r.stderr || '').trim() || ('exit ' + r.errno));
-return r.stdout || '';
+  const r = await exec(cmd);
+  if (r.errno !== 0) throw new Error((r.stderr || '').trim() || ('exit ' + r.errno));
+  return r.stdout || '';
 }
+
 const B = {
-async readState() {
-const out = await sh(`mkdir -p '${PKGDIR}'; ls -1A '${PKGDIR}' 2>/dev/null; true`);
-const files = out.split('\n').map(s => s.trim()).filter(Boolean);
-return { all: files.includes('.all'), files: files.filter(f => f[0] !== '.' && f !== 'android') };
-},
-async readSys() {
-try {
-const gv = decHex(await sh(`settings get global ${SK.sys} 2>/dev/null`)).trim();
-const g = /^[0-9]$/.test(gv) ? gv : '';
-const lv = decHex(await sh(`settings get global ${SK.live} 2>/dev/null`)).trim();
-const bc = (await sh(`settings get global boot_count 2>/dev/null`)).trim();
-const ok = /^[0-9]+$/.test(bc) && lv === bc ? 1 : 0;
-const out = await sh(`F='${PKGDIR}/android'; O='${PKGDIR}/.sysoff'; boot=$(( $(date +%s) - $(cut -d. -f1 /proc/uptime) )); g='${g}'; ok=${ok}; up=$(cut -d. -f1 /proc/uptime); ` +
-`if [ -e "$F" ] && { [ "$g" = 1 ] || [ "$g" = 2 ]; }; then mt=$(stat -c %Y "$F" 2>/dev/null || echo 0); if [ "$mt" -lt "$boot" ]; then if [ "$ok" = 1 ]; then if [ "$g" = 2 ]; then echo heartbeat; else echo live; fi; elif [ "$up" -lt 120 ]; then if [ "$g" = 2 ]; then echo waithb; else echo wait; fi; else if [ "$g" = 2 ]; then echo failedhb; else echo failed; fi; fi; else if [ "$g" = 2 ]; then echo pendinghb; else echo pending; fi; fi; ` +
-`elif [ -e "$O" ]; then mt=$(stat -c %Y "$O" 2>/dev/null || echo 0); if [ "$mt" -ge "$boot" ]; then echo offpending; else echo off; fi; else echo off; fi`);
-const m = /(failedhb|failed|waithb|wait|heartbeat|live|pendinghb|pending|offpending|off)/.exec(out || '');
-return m ? m[1] : 'off';
-} catch (e) { return 'off'; }
-},
-async readHide() {
-try {
-const out = await sh(`echo "$(settings get global ${SK.net} 2>/dev/null)|$(settings get global ${SK.bt} 2>/dev/null)"`);
-const p = out.trim().split('|');
-return { net: decHex(p[0]) !== '0', bt: decHex(p[1]) === '1' };
-} catch (e) { return { net: true, bt: false }; }
-},
-async setNet(on) { await sh(`sh '${MODDIR}/gpsz.sh' net ${on ? 'on' : 'off'} 2>&1`); },
-async setBt(on) { await sh(`sh '${MODDIR}/gpsz.sh' bt ${on ? 'on' : 'off'} 2>&1`); },
-async setHb() { await sh(`sh '${MODDIR}/gpsz.sh' system heartbeat 2>&1`); },
-async setSys(on) { await sh(`sh '${MODDIR}/gpsz.sh' system ${on ? 'on' : 'off'} 2>&1`); },
-async reboot() { await exec('svc power reboot || reboot'); },
-async setSpoof(on) {
-await sh(`sh '${MODDIR}/gpsz.sh' ${on ? 'on' : 'off'} 2>&1`);
-},
-async setPos(lat, lng) {
-await sh(`sh '${MODDIR}/gpsz.sh' set ${lat} ${lng} 2>&1`);
-try { await exec(`sh '${MODDIR}/bridge.sh' setpos ${lat} ${lng} >/dev/null 2>&1`); } catch (e) {}
-},
-async readCfg(sync = true) {
-try {
-const c = decHex(await sh(`${sync ? `sh '${MODDIR}/bridge.sh' sync >/dev/null 2>&1; ` : ''}settings get global ${SK.cfg} 2>/dev/null`));
-if (!c.includes(';tk=1')) return c;
-const t = await sh(`settings get global ${SK.trk} 2>/dev/null; read U _ < /proc/uptime; echo $(( \${U%.*}\${U#*.} * 10 ))`);
-return c + '\n' + t;
-} catch (e) { return ''; }
-},
-async ensureDaemon() {
-const r = await exec(`sh '${MODDIR}/bridge.sh' ensure 2>&1`);
-return /daemon=running/.test(r.stdout || '');
-},
-async listPkgs(type) {
-if (typeof ksu.listPackages === 'function') {
-try { return JSON.parse(ksu.listPackages(type)); } catch (e) {}
+  async readState() {
+    const out = await sh(`mkdir -p '${PKGDIR}'; ls -1A '${PKGDIR}' 2>/dev/null; true`);
+    const files = out.split('\n').map(s => s.trim()).filter(Boolean);
+    return { all: files.includes('.all'), files: files.filter(f => f[0] !== '.' && f !== 'android') };
+  },
+  async readSys() {
+    try {
+      const gv = decHex(await sh(`settings get global ${SK.sys} 2>/dev/null`)).trim();
+      const g = /^[0-9]$/.test(gv) ? gv : '';
+      const lv = decHex(await sh(`settings get global ${SK.live} 2>/dev/null`)).trim();
+      const bc = (await sh(`settings get global boot_count 2>/dev/null`)).trim();
+      const ok = /^[0-9]+$/.test(bc) && lv === bc ? 1 : 0;
+      const out = await sh(`F='${PKGDIR}/android'; O='${PKGDIR}/.sysoff'; boot=$(( $(date +%s) - $(cut -d. -f1 /proc/uptime) )); g='${g}'; ok=${ok}; up=$(cut -d. -f1 /proc/uptime); ` +
+        `if [ -e "$F" ] && { [ "$g" = 1 ] || [ "$g" = 2 ]; }; then mt=$(stat -c %Y "$F" 2>/dev/null || echo 0); if [ "$mt" -lt "$boot" ]; then if [ "$ok" = 1 ]; then if [ "$g" = 2 ]; then echo heartbeat; else echo live; fi; elif [ "$up" -lt 120 ]; then if [ "$g" = 2 ]; then echo waithb; else echo wait; fi; else if [ "$g" = 2 ]; then echo failedhb; else echo failed; fi; fi; else if [ "$g" = 2 ]; then echo pendinghb; else echo pending; fi; fi; ` +
+        `elif [ -e "$O" ]; then mt=$(stat -c %Y "$O" 2>/dev/null || echo 0); if [ "$mt" -ge "$boot" ]; then echo offpending; else echo off; fi; else echo off; fi`);
+      const m = /(failedhb|failed|waithb|wait|heartbeat|live|pendinghb|pending|offpending|off)/.exec(out || '');
+      return m ? m[1] : 'off';
+    } catch (e) { return 'off'; }
+  },
+  async readHide() {
+    try {
+      const out = await sh(`echo "$(settings get global ${SK.net} 2>/dev/null)|$(settings get global ${SK.bt} 2>/dev/null)"`);
+      const p = out.trim().split('|');
+      return { net: decHex(p[0]) !== '0', bt: decHex(p[1]) === '1' };
+    } catch (e) { return { net: true, bt: false }; }
+  },
+  async setNet(on) { await sh(`sh '${MODDIR}/gpsz.sh' net ${on ? 'on' : 'off'} 2>&1`); },
+  async setBt(on) { await sh(`sh '${MODDIR}/gpsz.sh' bt ${on ? 'on' : 'off'} 2>&1`); },
+  async setHb() { await sh(`sh '${MODDIR}/gpsz.sh' system heartbeat 2>&1`); },
+  async setSys(on) { await sh(`sh '${MODDIR}/gpsz.sh' system ${on ? 'on' : 'off'} 2>&1`); },
+  async reboot() { await exec('svc power reboot || reboot'); },
+  async setSpoof(on) {
+    await sh(`sh '${MODDIR}/gpsz.sh' ${on ? 'on' : 'off'} 2>&1`);
+  },
+  async setPos(lat, lng) {
+    await sh(`sh '${MODDIR}/gpsz.sh' set ${lat} ${lng} 2>&1`);
+    try { await exec(`sh '${MODDIR}/bridge.sh' setpos ${lat} ${lng} >/dev/null 2>&1`); } catch (e) {}
+  },
+  async readCfg(sync = true) {
+    try {
+      const c = decHex(await sh(`${sync ? `sh '${MODDIR}/bridge.sh' sync >/dev/null 2>&1; ` : ''}settings get global ${SK.cfg} 2>/dev/null`));
+      if (!c.includes(';tk=1')) return c;
+      const t = await sh(`settings get global ${SK.trk} 2>/dev/null; read U _ < /proc/uptime; echo $(( \${U%.*}\${U#*.} * 10 ))`);
+      return c + '\n' + t;
+    } catch (e) { return ''; }
+  },
+  async ensureDaemon() {
+    const r = await exec(`sh '${MODDIR}/bridge.sh' ensure 2>&1`);
+    return /daemon=running/.test(r.stdout || '');
+  },
+  async listPkgs(type) {
+    if (typeof ksu.listPackages === 'function') {
+      try { return JSON.parse(ksu.listPackages(type)); } catch (e) {}
     }
-const flag = type === 'system' ? '-s' : '-3';
-const out = await sh(`pm list packages ${flag}`);
-return out.split('\n').map(l => l.trim()).filter(l => l.startsWith('package:')).map(l => l.slice(8));
-},
-async info(pkgs) {
-const map = {};
-if (typeof ksu.getPackagesInfo !== 'function') return map;
-for (let i = 0; i < pkgs.length; i += 120) {
-try {
-const arr = JSON.parse(ksu.getPackagesInfo(JSON.stringify(pkgs.slice(i, i + 120))));
-for (const it of (Array.isArray(arr) ? arr : [arr])) if (it && it.packageName) map[it.packageName] = it;
-} catch (e) {}
-await new Promise(r => setTimeout(r, 0));
+    const flag = type === 'system' ? '-s' : '-3';
+    const out = await sh(`pm list packages ${flag}`);
+    return out.split('\n').map(l => l.trim()).filter(l => l.startsWith('package:')).map(l => l.slice(8));
+  },
+  async info(pkgs) {
+    const map = {};
+    if (typeof ksu.getPackagesInfo !== 'function') return map;
+    for (let i = 0; i < pkgs.length; i += 120) {
+      try {
+        const arr = JSON.parse(ksu.getPackagesInfo(JSON.stringify(pkgs.slice(i, i + 120))));
+        for (const it of (Array.isArray(arr) ? arr : [arr])) if (it && it.packageName) map[it.packageName] = it;
+      } catch (e) {}
+      await new Promise(r => setTimeout(r, 0));
     }
-return map;
-},
-async setFile(pkg, present) {
-if (present) await sh(`mkdir -p '${PKGDIR}' && : > '${PKGDIR}/${pkg}'`);
-else await sh(`rm -f '${PKGDIR}/${pkg}'`);
-},
-async setAll(on) {
-if (on) await sh(`mkdir -p '${PKGDIR}' && : > '${PKGDIR}/.all'`);
-else await sh(`rm -f '${PKGDIR}/.all'`);
-},
-async stop(pkg) { await exec(`am force-stop '${pkg}' >/dev/null 2>&1; true`); },
-async isInstalled() { const r = await exec(`test -d '${MODDIR}'`); return r.errno === 0; },
-async secureGranted() {
-const r = await exec(`dumpsys package ${APP_PKG} 2>/dev/null | grep -q 'WRITE_SECURE_SETTINGS: granted=true'`);
-return r.errno === 0;
-},
-async grantSecure() { await sh(`pm grant ${APP_PKG} android.permission.WRITE_SECURE_SETTINGS 2>&1`); },
-async appInstalled() { const r = await exec(`pm path ${APP_PKG} 2>/dev/null`); return /^package:/m.test(r.stdout || ''); },
-async readVer(withApp) {
-const clean = r => String((r && r.stdout) || '').trim().replace(/^v/i, '');
-const mod = clean(await exec(`sed -n 's/^version=//p' '${MODDIR}/module.prop' 2>/dev/null | head -1`));
-const app = withApp ? clean(await exec(`dumpsys package ${APP_PKG} 2>/dev/null | sed -n 's/^ *versionName=//p' | head -1`)) : '';
-return { mod, app };
-},
-async launch() {
-await sh(`am start --user 0 -n ${APP_PKG}/${APP_PKG}.ui.MapActivity >/dev/null 2>&1 || monkey -p ${APP_PKG} -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1`);
-},
-async installApp() {
-const r = await exec(`sh '${MODDIR}/bridge.sh' install 2>&1`);
-if (r.errno !== 0 || !/Success/.test(r.stdout || '')) throw new Error(((r.stdout || '') + (r.stderr || '')).trim().split('\n').pop() || 'pm install gagal');
+    return map;
+  },
+  async setFile(pkg, present) {
+    if (present) await sh(`mkdir -p '${PKGDIR}' && : > '${PKGDIR}/${pkg}'`);
+    else await sh(`rm -f '${PKGDIR}/${pkg}'`);
+  },
+  async setAll(on) {
+    if (on) await sh(`mkdir -p '${PKGDIR}' && : > '${PKGDIR}/.all'`);
+    else await sh(`rm -f '${PKGDIR}/.all'`);
+  },
+  async stop(pkg) { await exec(`am force-stop '${pkg}' >/dev/null 2>&1; true`); },
+  async isInstalled() { const r = await exec(`test -d '${MODDIR}'`); return r.errno === 0; },
+  async secureGranted() {
+    const r = await exec(`dumpsys package ${APP_PKG} 2>/dev/null | grep -q 'WRITE_SECURE_SETTINGS: granted=true'`);
+    return r.errno === 0;
+  },
+  async grantSecure() { await sh(`pm grant ${APP_PKG} android.permission.WRITE_SECURE_SETTINGS 2>&1`); },
+  async appInstalled() { const r = await exec(`pm path ${APP_PKG} 2>/dev/null`); return /^package:/m.test(r.stdout || ''); },
+  async readVer(withApp) {
+    const clean = r => String((r && r.stdout) || '').trim().replace(/^v/i, '');
+    const mod = clean(await exec(`sed -n 's/^version=//p' '${MODDIR}/module.prop' 2>/dev/null | head -1`));
+    const app = withApp ? clean(await exec(`dumpsys package ${APP_PKG} 2>/dev/null | sed -n 's/^ *versionName=//p' | head -1`)) : '';
+    return { mod, app };
+  },
+  async launch() {
+    await sh(`am start --user 0 -n ${APP_PKG}/${APP_PKG}.ui.MapActivity >/dev/null 2>&1 || monkey -p ${APP_PKG} -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1`);
+  },
+  async installApp() {
+    const r = await exec(`sh '${MODDIR}/bridge.sh' install 2>&1`);
+    if (r.errno !== 0 || !/Success/.test(r.stdout || '')) throw new Error(((r.stdout || '') + (r.stderr || '')).trim().split('\n').pop() || 'pm install gagal');
   }
 };
+
 const S = {
-apps: [],
-files: new Set(),
-all: false,
-sys: false,
-hb: false,
-net: true,
-bt: false,
-sysMode: 'off',
-tab: 'all',
-showSys: false,
-q: '',
-order: new Map(),
-busy: new Set(),
-appOn: null,
-secure: null,
-appBusy: false,
-spoofOn: false, spoofHas: false, spoofBusy: false,
-daemon: null
+  apps: [],
+  files: new Set(),
+  all: false,
+  sys: false,
+  hb: false,
+  net: true,
+  bt: false,
+  sysMode: 'off',
+  tab: 'all',
+  showSys: false,
+  q: '',
+  order: new Map(),
+  busy: new Set(),
+  appOn: null,
+  secure: null,
+  appBusy: false,
+  spoofOn: false, spoofHas: false, spoofBusy: false,
+  daemon: null
 };
 try { S.showSys = localStorage.getItem('gpsz_showsys') === '1'; } catch (e) {}
+
 const hooked = pkg => S.all ? !S.files.has(pkg) : S.files.has(pkg);
+
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 function applySys(m) {
-S.sysMode = m;
-S.sys = m === 'live' || m === 'pending' || m === 'failed' || m === 'wait';
-S.hb = m === 'heartbeat' || m === 'pendinghb' || m === 'failedhb' || m === 'waithb';
+  S.sysMode = m;
+  S.sys = m === 'live' || m === 'pending' || m === 'failed' || m === 'wait';
+  S.hb = m === 'heartbeat' || m === 'pendinghb' || m === 'failedhb' || m === 'waithb';
 }
 function toast(msg, err) {
-const t = $('#toast');
-t.textContent = msg; t.classList.toggle('err', !!err); t.classList.add('show');
-clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200);
+  const t = $('#toast');
+  t.textContent = msg; t.classList.toggle('err', !!err); t.classList.add('show');
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200);
 }
 function hue(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360; return h; }
 function guessLabel(pkg) {
-const p = pkg.split('.'); let l = p[p.length - 1];
-if (['android', 'app', 'apps', 'mobile', 'client', 'main'].includes(l) && p.length > 1) l = p[p.length - 2];
-return l.charAt(0).toUpperCase() + l.slice(1);
+  const p = pkg.split('.'); let l = p[p.length - 1];
+  if (['android', 'app', 'apps', 'mobile', 'client', 'main'].includes(l) && p.length > 1) l = p[p.length - 2];
+  return l.charAt(0).toUpperCase() + l.slice(1);
 }
+
 function visible() {
-const q = S.q.trim().toLowerCase();
-return S.apps.filter(a => {
-const on = hooked(a.pkg);
-if (S.tab === 'hooked' && !on) return false;
-if (a.system && !S.showSys && !on) return false;
-if (q && !(a.label.toLowerCase().includes(q) || a.pkg.toLowerCase().includes(q))) return false;
-return true;
-}).sort((a, b) => (S.order.get(a.pkg) - S.order.get(b.pkg)));
+  const q = S.q.trim().toLowerCase();
+  return S.apps.filter(a => {
+    const on = hooked(a.pkg);
+    if (S.tab === 'hooked' && !on) return false;
+    if (a.system && !S.showSys && !on) return false;
+    if (q && !(a.label.toLowerCase().includes(q) || a.pkg.toLowerCase().includes(q))) return false;
+    return true;
+  }).sort((a, b) => (S.order.get(a.pkg) - S.order.get(b.pkg)));
 }
+
 function rowHtml(a) {
-const on = hooked(a.pkg);
-const letter = esc((a.label || '?').trim().charAt(0).toUpperCase() || '?');
-const bg = `hsl(${hue(a.pkg)} 55% 52%)`;
-const img = a.installed ? `<img loading="lazy" alt="" src="ksu://icon/${esc(a.pkg)}" onerror="this.remove()">` : '';
-const tags = (a.system ? '<span class="tag">sistem</span>' : '') + (!a.installed ? '<span class="tag warn">tidak terpasang</span>' : '');
-return `<div class="row${on ? ' on' : ''}" data-pkg="${esc(a.pkg)}">
+  const on = hooked(a.pkg);
+  const letter = esc((a.label || '?').trim().charAt(0).toUpperCase() || '?');
+  const bg = `hsl(${hue(a.pkg)} 55% 52%)`;
+  const img = a.installed ? `<img loading="lazy" alt="" src="ksu://icon/${esc(a.pkg)}" onerror="this.remove()">` : '';
+  const tags = (a.system ? '<span class="tag">sistem</span>' : '') + (!a.installed ? '<span class="tag warn">tidak terpasang</span>' : '');
+  return `<div class="row${on ? ' on' : ''}" data-pkg="${esc(a.pkg)}">
     <div class="avatar" style="background:${bg}">${letter}${img}</div>
     <div class="meta"><div class="name">${esc(a.label)}${tags}</div><div class="pkg">${esc(a.pkg)}</div></div>
     <button class="switch" role="switch" aria-checked="${on}" aria-label="Hook ${esc(a.label)}"${S.busy.has(a.pkg) ? ' disabled' : ''}></button>
   </div>`;
 }
+
 function render() {
-const list = visible();
-const total = S.apps.filter(a => hooked(a.pkg)).length;
-$('#cnt').textContent = S.all ? `${total} app di-hook (mode semua)` : `${total} app di-hook`;
-$('#modeTag').textContent = S.all ? 'Mode: semua app' : '';
-$('#chipSys').classList.toggle('active', S.showSys);
-document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === S.tab));
-$('#list').innerHTML = list.length
-? list.map(rowHtml).join('')
-: `<div class="empty">${S.q ? 'Tidak ada app yang cocok.' : (S.tab === 'hooked' ? 'Belum ada app yang di-hook.' : 'Daftar app kosong.')}</div>`;
+  const list = visible();
+  const total = S.apps.filter(a => hooked(a.pkg)).length;
+  $('#cnt').textContent = S.all ? `${total} app di-hook (mode semua)` : `${total} app di-hook`;
+  $('#modeTag').textContent = S.all ? 'Mode: semua app' : '';
+  $('#chipSys').classList.toggle('active', S.showSys);
+  document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === S.tab));
+  $('#list').innerHTML = list.length
+    ? list.map(rowHtml).join('')
+    : `<div class="empty">${S.q ? 'Tidak ada app yang cocok.' : (S.tab === 'hooked' ? 'Belum ada app yang di-hook.' : 'Daftar app kosong.')}</div>`;
 }
+
 function renderBanners() {
-const b = [];
-if (S.all) b.push('<div class="card syscard"><div class="dot on"></div><div class="grow"><div class="t">Mode semua app aktif</div></div><button class="btn stop" id="btnAllOff">Matikan</button></div>');
-if (S.sysMode === 'heartbeat') b.push('<div class="card syscard"><div class="dot on"></div><div class="grow"><div class="t">Mode heartbeat aktif</div></div><button class="btn stop" id="btnSysOff">Matikan</button></div>');
-else if (S.sysMode === 'live') b.push('<div class="card syscard"><div class="dot on"></div><div class="grow"><div class="t">System-wide aktif</div></div><button class="btn stop" id="btnSysOff">Matikan</button></div>');
-else if (S.sysMode === 'failed') b.push('<div class="banner danger"><b>System-wide tidak aktif.</b> Hook system_server gagal terpasang di boot ini.<button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');
-else if (S.sysMode === 'failedhb') b.push('<div class="banner danger"><b>Mode heartbeat tidak aktif.</b> Hook system_server gagal terpasang di boot ini.<button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');
-else if (S.sysMode === 'wait' || S.sysMode === 'waithb') b.push('<div class="banner">Menunggu system hook aktif setelah boot…</div>');
-else if (S.sysMode === 'pendinghb') b.push('<div class="banner danger"><b>System hook (heartbeat) dinyalakan.</b> Perlu reboot.<button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');
-else if (S.sysMode === 'pending') b.push('<div class="banner danger"><b>System-wide dinyalakan.</b> Perlu reboot.<button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');
-else if (S.sysMode === 'offpending') b.push('<div class="banner danger"><b>System hook dimatikan.</b> Perlu reboot.<button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');
-if (S.daemon === false) b.push('<div class="banner danger">Daemon sinkronisasi (app SetLoc → modul) tidak berjalan, jadi tombol Start/Stop di app belum terbaca modul. Tekan muat ulang; bila tetap gagal, jalankan <span class="mono">sh ' + esc(MODDIR) + '/gpsz.sh doctor</span>.</div>');
-if (S.appOn && S.secure === false) b.push('<div class="banner danger"><b>Izin Stop langsung belum terpasang.</b> Tombol Stop di app masih bergantung pada daemon.<button class="btn-reboot" id="btnGrant">Beri izin</button></div>');
-if (S.missing) b.push('<div class="banner danger">Folder modul tidak ditemukan di ' + esc(MODDIR) + '. Pastikan id modul = <b>' + MODID + '</b> dan sudah reboot setelah flash.</div>');
-$('#banners').innerHTML = b.join('');
+  const b = [];
+  if (S.all) b.push('<div class="card syscard"><div class="dot on"></div><div class="grow"><div class="t">Mode semua app aktif</div></div><button class="btn stop" id="btnAllOff">Matikan</button></div>');
+  if (S.sysMode === 'heartbeat') b.push('<div class="card syscard"><div class="dot on"></div><div class="grow"><div class="t">Mode heartbeat aktif</div></div><button class="btn stop" id="btnSysOff">Matikan</button></div>');
+  else if (S.sysMode === 'live') b.push('<div class="card syscard"><div class="dot on"></div><div class="grow"><div class="t">System-wide aktif</div></div><button class="btn stop" id="btnSysOff">Matikan</button></div>');
+  else if (S.sysMode === 'failed') b.push('<div class="banner danger"><b>System-wide tidak aktif.</b> Hook system_server gagal terpasang di boot ini.<button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');
+  else if (S.sysMode === 'failedhb') b.push('<div class="banner danger"><b>Mode heartbeat tidak aktif.</b> Hook system_server gagal terpasang di boot ini.<button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');
+  else if (S.sysMode === 'wait' || S.sysMode === 'waithb') b.push('<div class="banner">Menunggu system hook aktif setelah boot…</div>');
+  else if (S.sysMode === 'pendinghb') b.push('<div class="banner danger"><b>System hook (heartbeat) dinyalakan.</b> Perlu reboot.<button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');
+  else if (S.sysMode === 'pending') b.push('<div class="banner danger"><b>System-wide dinyalakan.</b> Perlu reboot.<button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');
+  else if (S.sysMode === 'offpending') b.push('<div class="banner danger"><b>System hook dimatikan.</b> Perlu reboot.<button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');
+  if (S.daemon === false) b.push('<div class="banner danger">Daemon sinkronisasi (app SetLoc → modul) tidak berjalan, jadi tombol Start/Stop di app belum terbaca modul. Tekan muat ulang; bila tetap gagal, jalankan <span class="mono">sh ' + esc(MODDIR) + '/gpsz.sh doctor</span>.</div>');
+  if (S.appOn && S.secure === false) b.push('<div class="banner danger"><b>Izin Stop langsung belum terpasang.</b> Tombol Stop di app masih bergantung pada daemon.<button class="btn-reboot" id="btnGrant">Beri izin</button></div>');
+  if (S.missing) b.push('<div class="banner danger">Folder modul tidak ditemukan di ' + esc(MODDIR) + '. Pastikan id modul = <b>' + MODID + '</b> dan sudah reboot setelah flash.</div>');
+  $('#banners').innerHTML = b.join('');
 }
+
 function renderApp() {
-const b = $('#btnApp');
-b.disabled = S.appBusy || S.appOn === null;
-if (S.appOn === null) { b.textContent = '…'; $('#appSub').textContent = 'Memeriksa…'; return; }
-b.textContent = S.appBusy ? 'Memasang…' : (S.appOn ? 'Buka' : 'Pasang app');
-const v = S.ver || { mod: '', app: '' };
-const mism = S.appOn && v.app && v.mod && v.app !== v.mod;
-$('#appSub').textContent = !S.appOn ? 'Belum terpasang di perangkat ini'
-: mism ? `Terpasang v${v.app} · beda dengan modul v${v.mod}`
-: `Terpasang${v.app ? ' · v' + v.app : ''} · atur titik lokasi di sini`;
-$('#ver').textContent = v.mod ? 'v' + v.mod : '';
+  const b = $('#btnApp');
+  b.disabled = S.appBusy || S.appOn === null;
+  if (S.appOn === null) { b.textContent = '…'; $('#appSub').textContent = 'Memeriksa…'; return; }
+  b.textContent = S.appBusy ? 'Memasang…' : (S.appOn ? 'Buka' : 'Pasang app');
+  const v = S.ver || { mod: '', app: '' };
+  const mism = S.appOn && v.app && v.mod && v.app !== v.mod;
+  $('#appSub').textContent = !S.appOn ? 'Belum terpasang di perangkat ini'
+    : mism ? `Terpasang v${v.app} · beda dengan modul v${v.mod}`
+    : `Terpasang${v.app ? ' · v' + v.app : ''} · atur titik lokasi di sini`;
+  $('#ver').textContent = v.mod ? 'v' + v.mod : '';
 }
+
 function trackPos(trk, nowMs) {
   const m = {};
   trk.split(';').forEach(kv => { const i = kv.indexOf('='); if (i > 0) m[kv.slice(0, i)] = kv.slice(i + 1); });
@@ -524,171 +558,184 @@ function trackPos(trk, nowMs) {
   if (lo > 180) lo -= 360; else if (lo < -180) lo += 360;
   return [rows[i][0] + (rows[j][0] - rows[i][0]) * f, lo];
 }
+
 function renderStatus(raw) {
-const cfg = {};
-const [line, trk, now] = String(raw || '').trim().split('\n');
-line.split(';').forEach(kv => { const i = kv.indexOf('='); if (i > 0) cfg[kv.slice(0, i)] = kv.slice(i + 1); });
-if (cfg.tk === '1' && trk && now) {
-const p = trackPos(trk.trim(), Number(now));
-if (p) { cfg.lat = p[0].toFixed(6); cfg.lng = p[1].toFixed(6); }
+  const cfg = {};
+  const [line, trk, now] = String(raw || '').trim().split('\n');
+  line.split(';').forEach(kv => { const i = kv.indexOf('='); if (i > 0) cfg[kv.slice(0, i)] = kv.slice(i + 1); });
+  if (cfg.tk === '1' && trk && now) {
+    const p = trackPos(trk.trim(), Number(now));
+    if (p) { cfg.lat = p[0].toFixed(6); cfg.lng = p[1].toFixed(6); }
   }
-const has = 'enabled' in cfg;
-const on = cfg.enabled === '1';
-$('#dot').classList.toggle('on', on);
-S.spoofOn = on; S.spoofHas = has && !!cfg.lat && !!cfg.lng;
-S.lat = cfg.lat || ''; S.lng = cfg.lng || '';
-const sb = $('#btnSpoof');
-sb.textContent = S.spoofBusy ? '…' : (on ? 'Stop' : 'Start');
-sb.classList.toggle('stop', on); sb.classList.toggle('primary', !on);
-sb.disabled = S.spoofBusy || !S.spoofHas;
-$('#stTitle').textContent = !has ? 'Belum ada titik diatur' : (on ? 'Spoof lokasi aktif' : 'Spoof lokasi nonaktif');
-const sub = $('#stSub');
-sub.innerHTML = has && cfg.lat && cfg.lng
-? `${esc(cfg.lat)}, ${esc(cfg.lng)} · <b>ketuk untuk ubah</b>`
-: 'Titik lokasi belum ada · <b>ketuk untuk isi</b>';
+  const has = 'enabled' in cfg;
+  const on = cfg.enabled === '1';
+  $('#dot').classList.toggle('on', on);
+  S.spoofOn = on; S.spoofHas = has && !!cfg.lat && !!cfg.lng;
+  S.lat = cfg.lat || ''; S.lng = cfg.lng || '';
+  const sb = $('#btnSpoof');
+  sb.textContent = S.spoofBusy ? '…' : (on ? 'Stop' : 'Start');
+  sb.classList.toggle('stop', on); sb.classList.toggle('primary', !on);
+  sb.disabled = S.spoofBusy || !S.spoofHas;
+  $('#stTitle').textContent = !has ? 'Belum ada titik diatur' : (on ? 'Spoof lokasi aktif' : 'Spoof lokasi nonaktif');
+  const sub = $('#stSub');
+  sub.innerHTML = has && cfg.lat && cfg.lng
+    ? `${esc(cfg.lat)}, ${esc(cfg.lng)} · <b>ketuk untuk ubah</b>`
+    : 'Titik lokasi belum ada · <b>ketuk untuk isi</b>';
 }
+
 async function load() {
-$('#list').innerHTML = '<div class="skel"></div>'.repeat(7);
-try {
-S.missing = !(await B.isInstalled());
-S.daemon = await B.ensureDaemon().catch(() => null);
-const [st, cfg, user, sys, sysOn, hide] = await Promise.all([
-B.readState(), B.readCfg(),
-B.listPkgs('user').catch(() => []), B.listPkgs('system').catch(() => []),
-B.readSys().catch(() => 'off'), B.readHide()
-]);
-S.net = hide.net; S.bt = hide.bt;
-S.all = st.all; applySys(sysOn); S.files = new Set(st.files);
-renderStatus(cfg);
-S.appOn = await B.appInstalled().catch(() => null);
-S.secure = S.appOn ? await B.secureGranted().catch(() => null) : null;
-S.ver = await B.readVer(S.appOn).catch(() => null);
-renderApp();
-const sysSet = new Set(sys);
-const installed = new Set([...user, ...sys]);
-const known = installed.size > 0;
-const names = Array.from(new Set([...user, ...sys, ...(known ? [] : st.files)])).filter(p => p !== 'android');
-const info = await B.info(names);
-S.apps = names.map(pkg => ({
-pkg,
-label: (info[pkg] && info[pkg].appLabel) || guessLabel(pkg),
-system: sysSet.has(pkg),
-installed: installed.has(pkg)
-}));
-S.apps.sort((a, b) => (hooked(b.pkg) - hooked(a.pkg)) || a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
-S.order = new Map(S.apps.map((a, i) => [a.pkg, i]));
-} catch (e) {
-toast('Gagal memuat: ' + e.message, true);
+  $('#list').innerHTML = '<div class="skel"></div>'.repeat(7);
+  try {
+    S.missing = !(await B.isInstalled());
+    S.daemon = await B.ensureDaemon().catch(() => null);
+    const [st, cfg, user, sys, sysOn, hide] = await Promise.all([
+      B.readState(), B.readCfg(),
+      B.listPkgs('user').catch(() => []), B.listPkgs('system').catch(() => []),
+      B.readSys().catch(() => 'off'), B.readHide()
+    ]);
+    S.net = hide.net; S.bt = hide.bt;
+    S.all = st.all; applySys(sysOn); S.files = new Set(st.files);
+    renderStatus(cfg);
+    S.appOn = await B.appInstalled().catch(() => null);
+    S.secure = S.appOn ? await B.secureGranted().catch(() => null) : null;
+    S.ver = await B.readVer(S.appOn).catch(() => null);
+    renderApp();
+
+    const sysSet = new Set(sys);
+    const installed = new Set([...user, ...sys]);
+    const known = installed.size > 0;
+    const names = Array.from(new Set([...user, ...sys, ...(known ? [] : st.files)])).filter(p => p !== 'android');
+    const info = await B.info(names);
+    S.apps = names.map(pkg => ({
+      pkg,
+      label: (info[pkg] && info[pkg].appLabel) || guessLabel(pkg),
+      system: sysSet.has(pkg),
+      installed: installed.has(pkg)
+    }));
+
+    S.apps.sort((a, b) => (hooked(b.pkg) - hooked(a.pkg)) || a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+    S.order = new Map(S.apps.map((a, i) => [a.pkg, i]));
+  } catch (e) {
+    toast('Gagal memuat: ' + e.message, true);
   }
-renderBanners();
-render();
+  renderBanners();
+  render();
 }
+
 async function toggle(pkg) {
-if (!PKG_RE.test(pkg)) return toast('Nama paket tidak valid', true);
-if (S.busy.has(pkg)) return;
-const wasOn = hooked(pkg);
-const wantFile = S.all ? wasOn : !wasOn;
-S.busy.add(pkg);
-try {
-await B.setFile(pkg, wantFile);
-if (wantFile) S.files.add(pkg); else S.files.delete(pkg);
-const protectedPkg = NO_STOP.has(pkg);
-if (!protectedPkg) await B.stop(pkg);
-const a = S.apps.find(x => x.pkg === pkg);
-toast(`${a ? a.label : pkg}: hook ${wasOn ? 'dimatikan' : 'diaktifkan'}` +
-(protectedPkg ? ' — app sistem ini tidak dihentikan otomatis, reboot / paksa-henti manual agar berlaku' : ''));
-} catch (e) {
-toast('Gagal: ' + e.message, true);
-} finally {
-S.busy.delete(pkg);
-render();
+  if (!PKG_RE.test(pkg)) return toast('Nama paket tidak valid', true);
+  if (S.busy.has(pkg)) return;
+  const wasOn = hooked(pkg);
+  const wantFile = S.all ? wasOn : !wasOn;
+  S.busy.add(pkg);
+  try {
+    await B.setFile(pkg, wantFile);
+    if (wantFile) S.files.add(pkg); else S.files.delete(pkg);
+    const protectedPkg = NO_STOP.has(pkg);
+    if (!protectedPkg) await B.stop(pkg);
+    const a = S.apps.find(x => x.pkg === pkg);
+    toast(`${a ? a.label : pkg}: hook ${wasOn ? 'dimatikan' : 'diaktifkan'}` +
+      (protectedPkg ? ' — app sistem ini tidak dihentikan otomatis, reboot / paksa-henti manual agar berlaku' : ''));
+  } catch (e) {
+    toast('Gagal: ' + e.message, true);
+  } finally {
+    S.busy.delete(pkg);
+    render();
   }
 }
+
 async function appAction() {
-if (S.appBusy) return;
-if (S.appOn) {
-try { await B.launch(); } catch (e) { toast('Gagal membuka app: ' + e.message, true); }
-return;
+  if (S.appBusy) return;
+  if (S.appOn) {
+    try { await B.launch(); } catch (e) { toast('Gagal membuka app: ' + e.message, true); }
+    return;
   }
-S.appBusy = true; renderApp();
-try {
-await B.installApp();
-S.appOn = true;
-S.secure = await B.secureGranted().catch(() => null);
-S.ver = await B.readVer(true).catch(() => S.ver);
-renderBanners();
-toast('SetLoc terpasang');
-} catch (e) { toast('Gagal memasang: ' + e.message, true); }
-S.appBusy = false; renderApp();
+  S.appBusy = true; renderApp();
+  try {
+    await B.installApp();
+    S.appOn = true;
+    S.secure = await B.secureGranted().catch(() => null);
+    S.ver = await B.readVer(true).catch(() => S.ver);
+    renderBanners();
+    toast('SetLoc terpasang');
+  } catch (e) { toast('Gagal memasang: ' + e.message, true); }
+  S.appBusy = false; renderApp();
 }
+
 async function grantSecure() {
-try {
-await B.grantSecure();
-S.secure = await B.secureGranted().catch(() => null);
-toast(S.secure ? 'Izin diberikan' : 'Izin belum terpasang', !S.secure);
-} catch (e) { toast('Gagal: ' + e.message, true); }
-renderBanners();
+  try {
+    await B.grantSecure();
+    S.secure = await B.secureGranted().catch(() => null);
+    toast(S.secure ? 'Izin diberikan' : 'Izin belum terpasang', !S.secure);
+  } catch (e) { toast('Gagal: ' + e.message, true); }
+  renderBanners();
 }
+
 async function setAllMode(on, reopen = true) {
-try {
-await B.setAll(on);
-S.all = on;
-toast(on ? 'Mode semua app diaktifkan' : 'Mode semua app dimatikan');
-} catch (e) { toast('Gagal: ' + e.message, true); }
-renderBanners(); render(); if (reopen) openSheet();
+  try {
+    await B.setAll(on);
+    S.all = on;
+    toast(on ? 'Mode semua app diaktifkan' : 'Mode semua app dimatikan');
+  } catch (e) { toast('Gagal: ' + e.message, true); }
+  renderBanners(); render(); if (reopen) openSheet();
 }
+
 async function setSysMode(on, reopen = true) {
-try {
-await B.setSys(on);
-applySys(await B.readSys());
-toast(S.sysMode === 'off' ? 'System hook mati' : (S.sysMode === 'live' || S.sysMode === 'heartbeat') ? 'Mode diterapkan' : 'Reboot untuk menerapkan');
-} catch (e) { toast('Gagal: ' + e.message, true); }
-renderBanners(); if (reopen) openSheet();
+  try {
+    await B.setSys(on);
+    applySys(await B.readSys());
+    toast(S.sysMode === 'off' ? 'System hook mati' : (S.sysMode === 'live' || S.sysMode === 'heartbeat') ? 'Mode diterapkan' : 'Reboot untuk menerapkan');
+  } catch (e) { toast('Gagal: ' + e.message, true); }
+  renderBanners(); if (reopen) openSheet();
 }
+
 async function setHide(which, on) {
-try {
-if (which === 'net') { await B.setNet(on); S.net = on; } else { await B.setBt(on); S.bt = on; }
-toast('Tersimpan');
-} catch (e) { toast('Gagal: ' + e.message, true); }
-openSheet();
+  try {
+    if (which === 'net') { await B.setNet(on); S.net = on; } else { await B.setBt(on); S.bt = on; }
+    toast('Tersimpan');
+  } catch (e) { toast('Gagal: ' + e.message, true); }
+  openSheet();
 }
+
 async function setHbMode() {
-try {
-await B.setHb();
-applySys(await B.readSys());
-toast(S.sysMode === 'heartbeat' ? 'Mode diterapkan' : 'Reboot untuk menerapkan');
-} catch (e) { toast('Gagal: ' + e.message, true); }
-renderBanners(); openSheet();
+  try {
+    await B.setHb();
+    applySys(await B.readSys());
+    toast(S.sysMode === 'heartbeat' ? 'Mode diterapkan' : 'Reboot untuk menerapkan');
+  } catch (e) { toast('Gagal: ' + e.message, true); }
+  renderBanners(); openSheet();
 }
+
 function theme() { try { return localStorage.getItem('gpsz_theme') || 'system'; } catch (e) { return 'system'; } }
 function applyTheme(t) {
-try { localStorage.setItem('gpsz_theme', t); } catch (e) {}
-const dark = t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
-document.documentElement.classList.toggle('dark', dark);
-$('#theme-color').content = dark ? '#1a2538' : '#f2f9ff';
+  try { localStorage.setItem('gpsz_theme', t); } catch (e) {}
+  const dark = t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.classList.toggle('dark', dark);
+  $('#theme-color').content = dark ? '#1a2538' : '#f2f9ff';
 }
 let sheetWant = false, sheetHave = false, sheetBusy = false;
 function hideSheetDom() { $('#scrim').classList.remove('show'); $('#sheet').classList.remove('show'); }
 function syncSheetHistory() {
-if (sheetBusy) return;
-if (sheetWant && !sheetHave) { history.pushState({ sheet: 1 }, ''); sheetHave = true; }
-else if (!sheetWant && sheetHave) { sheetBusy = true; history.back(); }
+  if (sheetBusy) return;
+  if (sheetWant && !sheetHave) { history.pushState({ sheet: 1 }, ''); sheetHave = true; }
+  else if (!sheetWant && sheetHave) { sheetBusy = true; history.back(); }
 }
 function showSheet(html) {
-$('#sheetBody').innerHTML = html;
-$('#scrim').classList.add('show'); $('#sheet').classList.add('show');
-sheetWant = true; syncSheetHistory();
+  $('#sheetBody').innerHTML = html;
+  $('#scrim').classList.add('show'); $('#sheet').classList.add('show');
+  sheetWant = true; syncSheetHistory();
 }
 function closeSheet() { hideSheetDom(); sheetWant = false; syncSheetHistory(); }
 window.addEventListener('popstate', () => {
-if (sheetBusy) { sheetBusy = false; sheetHave = false; syncSheetHistory(); return; }
-if (sheetHave) { sheetHave = false; sheetWant = false; hideSheetDom(); }
+  if (sheetBusy) { sheetBusy = false; sheetHave = false; syncSheetHistory(); return; }
+  if (sheetHave) { sheetHave = false; sheetWant = false; hideSheetDom(); }
 });
+
 let setTab = 'sys';
 function openSheet() {
-const t = theme();
-const panes = {
-sys: `
+  const t = theme();
+  const panes = {
+    sys: `
     <div class="set">
       <div class="grow">
         <div>Hook semua app</div>
@@ -713,7 +760,7 @@ sys: `
     <div class="set">
       <div class="grow"><div>Folder konfigurasi</div><div class="d mono">${esc(PKGDIR)}</div></div>
     </div>`,
-priv: `
+    priv: `
     <div class="set">
       <div class="grow">
         <div>Sembunyikan Wi-Fi dan seluler</div>
@@ -728,8 +775,8 @@ priv: `
       </div>
       <button class="switch" id="swBt" role="switch" aria-checked="${S.bt}"></button>
     </div>`
-};
-showSheet(`
+  };
+  showSheet(`
     <h2>Pengaturan</h2>
     <div class="seg tabs" id="segTab">
       ${[['sys', 'Sistem'], ['priv', 'Privasi']].map(([k, v]) => `<button data-tab="${k}" class="${setTab === k ? 'active' : ''}">${v}</button>`).join('')}
@@ -738,19 +785,20 @@ showSheet(`
     </div>
     ${panes[setTab] || panes.sys}`);
 }
+
 function parseCoords(txt) {
-const m = String(txt).trim().replace(/[()]/g, '').split(/[\s,;]+/).filter(Boolean);
-if (m.length !== 2) return null;
-const NUM = /^-?\d+(\.\d+)?$/;
-if (!NUM.test(m[0]) || !NUM.test(m[1])) return null;
-const la = Number(m[0]), lo = Number(m[1]);
-if (!(la >= -90 && la <= 90 && lo >= -180 && lo <= 180)) return null;
-return [String(Number(la.toFixed(6))), String(Number(lo.toFixed(6)))];
+  const m = String(txt).trim().replace(/[()]/g, '').split(/[\s,;]+/).filter(Boolean);
+  if (m.length !== 2) return null;
+  const NUM = /^-?\d+(\.\d+)?$/;
+  if (!NUM.test(m[0]) || !NUM.test(m[1])) return null;
+  const la = Number(m[0]), lo = Number(m[1]);
+  if (!(la >= -90 && la <= 90 && lo >= -180 && lo <= 180)) return null;
+  return [String(Number(la.toFixed(6))), String(Number(lo.toFixed(6)))];
 }
 function editCoords() {
-if (S.spoofBusy) return;
-if (S.spoofOn) {
-showSheet(`
+  if (S.spoofBusy) return;
+  if (S.spoofOn) {
+    showSheet(`
       <h2>Spoof sedang berjalan</h2>
       <p style="color:var(--text2);font-size:14px">
         Titik koordinat hanya bisa diubah saat spoof berhenti. Hentikan spoof sekarang, lalu ubah titiknya?
@@ -759,65 +807,65 @@ showSheet(`
         <button class="btn" id="pNo">Batal</button>
         <button class="btn danger" id="pYes">Stop spoof &amp; ubah</button>
       </div>`);
-return;
+    return;
   }
-coordSheet(S.lat && S.lng ? `${S.lat}, ${S.lng}` : '', '');
+  coordSheet(S.lat && S.lng ? `${S.lat}, ${S.lng}` : '', '');
 }
 let geoTimer = 0, geoSeq = 0, geoList = [];
 async function jfetch(url) {
-const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 8000);
-try { const r = await fetch(url, { signal: ac.signal }); if (!r.ok) throw new Error('HTTP ' + r.status); return await r.json(); }
-finally { clearTimeout(t); }
+  const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 8000);
+  try { const r = await fetch(url, { signal: ac.signal }); if (!r.ok) throw new Error('HTTP ' + r.status); return await r.json(); }
+  finally { clearTimeout(t); }
 }
 function fmtPlace(a) {
-return { lat: String(Number(a.lat.toFixed(6))), lng: String(Number(a.lng.toFixed(6))), name: a.name, sub: a.sub };
+  return { lat: String(Number(a.lat.toFixed(6))), lng: String(Number(a.lng.toFixed(6))), name: a.name, sub: a.sub };
 }
 async function geocode(q) {
-q = q.trim();
-try {
-const j = await jfetch('https://photon.komoot.io/api/?limit=5&q=' + encodeURIComponent(q));
-const out = (j.features || []).map(f => {
-const p = f.properties || {}, c = f.geometry.coordinates;
-const sub = [p.city || p.county, p.state, p.country].filter((v, i, arr) => v && v !== p.name && arr.indexOf(v) === i).join(', ');
-return fmtPlace({ lat: c[1], lng: c[0], name: p.name || q, sub });
-});
-if (out.length) return out;
-} catch (e) {}
-const j = await jfetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&q=' + encodeURIComponent(q));
-return (j || []).map(r => {
-const parts = String(r.display_name).split(', ');
-return fmtPlace({ lat: Number(r.lat), lng: Number(r.lon), name: parts[0], sub: parts.slice(1).join(', ') });
-});
+  q = q.trim();
+  try {
+    const j = await jfetch('https://photon.komoot.io/api/?limit=5&q=' + encodeURIComponent(q));
+    const out = (j.features || []).map(f => {
+      const p = f.properties || {}, c = f.geometry.coordinates;
+      const sub = [p.city || p.county, p.state, p.country].filter((v, i, arr) => v && v !== p.name && arr.indexOf(v) === i).join(', ');
+      return fmtPlace({ lat: c[1], lng: c[0], name: p.name || q, sub });
+    });
+    if (out.length) return out;
+  } catch (e) {}
+  const j = await jfetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&q=' + encodeURIComponent(q));
+  return (j || []).map(r => {
+    const parts = String(r.display_name).split(', ');
+    return fmtPlace({ lat: Number(r.lat), lng: Number(r.lon), name: parts[0], sub: parts.slice(1).join(', ') });
+  });
 }
 function showGeo(html) { const b = $('#geoRes'); if (b) b.innerHTML = html; }
 async function liveSearch(q) {
-const my = ++geoSeq;
-showGeo('<div class="geo-msg">Mencari…</div>');
-try {
-const res = await geocode(q);
-if (my !== geoSeq) return;
-geoList = res;
-showGeo(res.length ? res.map((r, i) => `<button class="geo-it" data-geo="${i}"><div class="t">${esc(r.name)}</div>${r.sub ? `<div class="s">${esc(r.sub)}</div>` : ''}<div class="c">${esc(r.lat)}, ${esc(r.lng)}</div></button>`).join('')
-: '<div class="geo-msg">Tidak ditemukan. Coba nama lain.</div>');
-} catch (e) {
-if (my === geoSeq) showGeo('<div class="geo-msg">Gagal mencari (cek koneksi internet).</div>');
+  const my = ++geoSeq;
+  showGeo('<div class="geo-msg">Mencari…</div>');
+  try {
+    const res = await geocode(q);
+    if (my !== geoSeq) return;
+    geoList = res;
+    showGeo(res.length ? res.map((r, i) => `<button class="geo-it" data-geo="${i}"><div class="t">${esc(r.name)}</div>${r.sub ? `<div class="s">${esc(r.sub)}</div>` : ''}<div class="c">${esc(r.lat)}, ${esc(r.lng)}</div></button>`).join('')
+                           : '<div class="geo-msg">Tidak ditemukan. Coba nama lain.</div>');
+  } catch (e) {
+    if (my === geoSeq) showGeo('<div class="geo-msg">Gagal mencari (cek koneksi internet).</div>');
   }
 }
 function onCoordInput(e) {
-const v = e.target.value.trim();
-clearTimeout(geoTimer); geoSeq++;
-if (v.length < 3 || parseCoords(v)) { showGeo(''); return; }
-geoTimer = setTimeout(() => liveSearch(v), 600);
+  const v = e.target.value.trim();
+  clearTimeout(geoTimer); geoSeq++;
+  if (v.length < 3 || parseCoords(v)) { showGeo(''); return; }
+  geoTimer = setTimeout(() => liveSearch(v), 600);
 }
 function pickGeo(i) {
-const r = geoList[i]; if (!r) return;
-geoSeq++;
-const inp = $('#coordIn'); inp.value = `${r.lat}, ${r.lng}`;
-showGeo('');
-const h = document.querySelector('#sheet .hint'); if (h) { h.classList.remove('err'); h.textContent = '📍 ' + r.name + (r.sub ? ', ' + r.sub : '') + ' — tekan Simpan.'; }
+  const r = geoList[i]; if (!r) return;
+  geoSeq++;
+  const inp = $('#coordIn'); inp.value = `${r.lat}, ${r.lng}`;
+  showGeo('');
+  const h = document.querySelector('#sheet .hint'); if (h) { h.classList.remove('err'); h.textContent = '📍 ' + r.name + (r.sub ? ', ' + r.sub : '') + ' — tekan Simpan.'; }
 }
 function coordSheet(val, err) {
-showSheet(`
+  showSheet(`
     <h2>Ubah titik lokasi</h2>
     <input class="field${err ? ' bad' : ''}" id="coordIn" type="text" value="${esc(val)}" placeholder="Nama kota, atau -7.804541, 110.48315"
       autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
@@ -827,50 +875,51 @@ showSheet(`
       <button class="btn" id="cdNo">Batal</button>
       <button class="btn primary" id="cdYes">Simpan</button>
     </div>`);
-setTimeout(() => { const i = $('#coordIn'); if (i) { i.focus(); i.select(); } }, 280);
+  setTimeout(() => { const i = $('#coordIn'); if (i) { i.focus(); i.select(); } }, 280);
 }
 async function saveCoords() {
-const raw = $('#coordIn').value;
-let p = parseCoords(raw);
-const btn = $('#cdYes');
-if (!p) {
-const q = raw.trim();
-if (q.length < 2 || /^[-\d\s.,;()]+$/.test(q)) return coordSheet(raw, 'Koordinat tidak valid. Contoh: -7.804541, 110.48315 (lintang -90..90, bujur -180..180).');
-btn.disabled = true; btn.textContent = '…';
-try {
-const res = await geocode(q);
-if (!res.length) return coordSheet(raw, 'Tempat "' + q + '" tidak ditemukan.');
-p = [res[0].lat, res[0].lng];
-if (!parseCoords(p[0] + ', ' + p[1])) return coordSheet(raw, 'Hasil pencarian tidak valid. Coba nama lain.');
-} catch (e) { return coordSheet(raw, 'Gagal mencari tempat (cek koneksi internet).'); }
+  const raw = $('#coordIn').value;
+  let p = parseCoords(raw);
+  const btn = $('#cdYes');
+  if (!p) {
+    const q = raw.trim();
+    if (q.length < 2 || /^[-\d\s.,;()]+$/.test(q)) return coordSheet(raw, 'Koordinat tidak valid. Contoh: -7.804541, 110.48315 (lintang -90..90, bujur -180..180).');
+    btn.disabled = true; btn.textContent = '…';
+    try {
+      const res = await geocode(q);
+      if (!res.length) return coordSheet(raw, 'Tempat "' + q + '" tidak ditemukan.');
+      p = [res[0].lat, res[0].lng];
+      if (!parseCoords(p[0] + ', ' + p[1])) return coordSheet(raw, 'Hasil pencarian tidak valid. Coba nama lain.');
+    } catch (e) { return coordSheet(raw, 'Gagal mencari tempat (cek koneksi internet).'); }
   }
-btn.disabled = true; btn.textContent = '…';
-try {
-await B.setPos(p[0], p[1]);
-closeSheet();
-renderStatus(await B.readCfg());
-toast('Titik lokasi disimpan');
-} catch (e) {
-coordSheet(raw, 'Gagal menyimpan: ' + e.message);
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    await B.setPos(p[0], p[1]);
+    closeSheet();
+    renderStatus(await B.readCfg());
+    toast('Titik lokasi disimpan');
+  } catch (e) {
+    coordSheet(raw, 'Gagal menyimpan: ' + e.message);
   }
 }
 async function stopThenEdit() {
-const btn = $('#pYes'); btn.disabled = true; btn.textContent = '…';
-S.spoofBusy = true;
-try {
-await B.setSpoof(false);
-S.spoofBusy = false;
-renderStatus(await B.readCfg());
-coordSheet(S.lat && S.lng ? `${S.lat}, ${S.lng}` : '', '');
-} catch (e) {
-S.spoofBusy = false;
-renderStatus(await B.readCfg().catch(() => ''));
-closeSheet();
-toast('Gagal menghentikan spoof: ' + e.message, true);
+  const btn = $('#pYes'); btn.disabled = true; btn.textContent = '…';
+  S.spoofBusy = true;
+  try {
+    await B.setSpoof(false);
+    S.spoofBusy = false;
+    renderStatus(await B.readCfg());
+    coordSheet(S.lat && S.lng ? `${S.lat}, ${S.lng}` : '', '');
+  } catch (e) {
+    S.spoofBusy = false;
+    renderStatus(await B.readCfg().catch(() => ''));
+    closeSheet();
+    toast('Gagal menghentikan spoof: ' + e.message, true);
   }
 }
+
 function confirmAll() {
-showSheet(`
+  showSheet(`
     <h2>Hook semua app?</h2>
     <p style="color:var(--text2);font-size:14px">
       Semua app, termasuk app sistem, akan di-hook. App di daftar "di-hook" sekarang
@@ -881,8 +930,9 @@ showSheet(`
       <button class="btn danger" id="cYes">Aktifkan</button>
     </div>`);
 }
+
 function confirmSys() {
-showSheet(`
+  showSheet(`
     <h2>Aktifkan system-wide?</h2>
     <p style="color:var(--text2);font-size:14px">
       Lokasi palsu berlaku untuk semua app dan sistem. Perlu reboot.
@@ -893,138 +943,141 @@ showSheet(`
       <button class="btn danger" id="sYes">Aktifkan</button>
     </div>`);
 }
+
 $('#list').addEventListener('click', e => {
-const row = e.target.closest('.row'); if (!row) return;
-toggle(row.dataset.pkg);
+  const row = e.target.closest('.row'); if (!row) return;
+  toggle(row.dataset.pkg);
 });
 document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => { S.tab = b.dataset.tab; render(); }));
 $('#chipSys').addEventListener('click', () => {
-S.showSys = !S.showSys;
-try { localStorage.setItem('gpsz_showsys', S.showSys ? '1' : '0'); } catch (e) {}
-render();
+  S.showSys = !S.showSys;
+  try { localStorage.setItem('gpsz_showsys', S.showSys ? '1' : '0'); } catch (e) {}
+  render();
 });
 $('#q').addEventListener('input', e => { S.q = e.target.value; render(); });
 $('#btnReload').addEventListener('click', load);
 $('#banners').addEventListener('click', e => {
-if (e.target.closest('#btnReboot')) B.reboot().catch(err => toast('Gagal reboot: ' + err.message, true));
-else if (e.target.closest('#btnSysOff')) setSysMode(false, false);
-else if (e.target.closest('#btnAllOff')) setAllMode(false, false);
-else if (e.target.closest('#btnGrant')) grantSecure();
+  if (e.target.closest('#btnReboot')) B.reboot().catch(err => toast('Gagal reboot: ' + err.message, true));
+  else if (e.target.closest('#btnSysOff')) setSysMode(false, false);
+  else if (e.target.closest('#btnAllOff')) setAllMode(false, false);
+  else if (e.target.closest('#btnGrant')) grantSecure();
 });
 $('#btnApp').addEventListener('click', appAction);
 $('#stBox').addEventListener('click', editCoords);
 $('#btnSpoof').addEventListener('click', async () => {
-if (S.spoofBusy || !S.spoofHas) return;
-const want = !S.spoofOn;
-S.spoofBusy = true; $('#btnSpoof').disabled = true; $('#btnSpoof').textContent = '…';
-try {
-await B.setSpoof(want);
-S.spoofBusy = false;
-renderStatus(await B.readCfg());
-toast(want ? 'Spoof dimulai' : 'Spoof dihentikan');
-} catch (e) {
-S.spoofBusy = false;
-renderStatus(await B.readCfg().catch(() => ''));
-toast('Gagal: ' + e.message, true);
+  if (S.spoofBusy || !S.spoofHas) return;
+  const want = !S.spoofOn;
+  S.spoofBusy = true; $('#btnSpoof').disabled = true; $('#btnSpoof').textContent = '…';
+  try {
+    await B.setSpoof(want);
+    S.spoofBusy = false;
+    renderStatus(await B.readCfg());
+    toast(want ? 'Spoof dimulai' : 'Spoof dihentikan');
+  } catch (e) {
+    S.spoofBusy = false;
+    renderStatus(await B.readCfg().catch(() => ''));
+    toast('Gagal: ' + e.message, true);
   }
 });
 $('#btnSettings').addEventListener('click', () => { setTab = 'sys'; openSheet(); });
 $('#scrim').addEventListener('click', closeSheet);
 $('#sheet').addEventListener('click', e => {
-const tb = e.target.closest('[data-tab]');
-if (tb) { setTab = tb.dataset.tab; openSheet(); return; }
-const th = e.target.closest('[data-th]');
-if (th) { applyTheme(theme() === th.dataset.th ? 'system' : th.dataset.th); openSheet(); return; }
-if (e.target.closest('#swAll')) { S.all ? setAllMode(false) : confirmAll(); return; }
-if (e.target.closest('#swSys')) { S.sys ? setSysMode(false) : confirmSys(); return; }
-if (e.target.closest('#swHb')) { S.hb ? setSysMode(false) : setHbMode(); return; }
-if (e.target.closest('#swNet')) { setHide('net', !S.net); return; }
-if (e.target.closest('#swBt')) { setHide('bt', !S.bt); return; }
-if (e.target.closest('#sNo')) { openSheet(); return; }
-if (e.target.closest('#sYes')) { setSysMode(true); return; }
-if (e.target.closest('#pNo') || e.target.closest('#cdNo')) { closeSheet(); return; }
-if (e.target.closest('#pYes')) { stopThenEdit(); return; }
-const gi = e.target.closest('[data-geo]'); if (gi) { pickGeo(Number(gi.dataset.geo)); return; }
-if (e.target.closest('#cdYes')) { saveCoords(); return; }
-if (e.target.closest('#cNo')) { openSheet(); return; }
-if (e.target.closest('#cYes')) { setAllMode(true); }
+  const tb = e.target.closest('[data-tab]');
+  if (tb) { setTab = tb.dataset.tab; openSheet(); return; }
+  const th = e.target.closest('[data-th]');
+  if (th) { applyTheme(theme() === th.dataset.th ? 'system' : th.dataset.th); openSheet(); return; }
+  if (e.target.closest('#swAll')) { S.all ? setAllMode(false) : confirmAll(); return; }
+  if (e.target.closest('#swSys')) { S.sys ? setSysMode(false) : confirmSys(); return; }
+  if (e.target.closest('#swHb')) { S.hb ? setSysMode(false) : setHbMode(); return; }
+  if (e.target.closest('#swNet')) { setHide('net', !S.net); return; }
+  if (e.target.closest('#swBt')) { setHide('bt', !S.bt); return; }
+  if (e.target.closest('#sNo')) { openSheet(); return; }
+  if (e.target.closest('#sYes')) { setSysMode(true); return; }
+  if (e.target.closest('#pNo') || e.target.closest('#cdNo')) { closeSheet(); return; }
+  if (e.target.closest('#pYes')) { stopThenEdit(); return; }
+  const gi = e.target.closest('[data-geo]'); if (gi) { pickGeo(Number(gi.dataset.geo)); return; }
+  if (e.target.closest('#cdYes')) { saveCoords(); return; }
+  if (e.target.closest('#cNo')) { openSheet(); return; }
+  if (e.target.closest('#cYes')) { setAllMode(true); }
 });
 $('#sheet').addEventListener('input', e => { if (e.target.id === 'coordIn') onCoordInput(e); });
 $('#sheet').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'coordIn') { e.preventDefault(); saveCoords(); } });
 try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => applyTheme(theme())); } catch (e) {}
 applyTheme(theme());
 load();
+
 const EdgeGuard = (() => {
-let EDGE = 48;
-const HOLD = 350;
-const RESUME = 4000;
-const probe = document.createElement('div');
-probe.style.cssText = 'position:fixed;left:0;bottom:0;width:0;visibility:hidden;pointer-events:none;height:var(--inset-bottom)';
-document.body.appendChild(probe);
-function measure() {
-const h = probe.getBoundingClientRect().height;
-EDGE = Math.min(Math.max(Math.round(h) + 8, 32), 72);
+  let EDGE = 48;
+  const HOLD = 350;
+  const RESUME = 4000;
+  const probe = document.createElement('div');
+  probe.style.cssText = 'position:fixed;left:0;bottom:0;width:0;visibility:hidden;pointer-events:none;height:var(--inset-bottom)';
+  document.body.appendChild(probe);
+  function measure() {
+    const h = probe.getBoundingClientRect().height;
+    EDGE = Math.min(Math.max(Math.round(h) + 8, 32), 72);
   }
-measure();
-window.addEventListener('resize', measure);
-window.addEventListener('orientationchange', measure);
-setTimeout(measure, 300);
-let active = false, hold = false, free = true, savedY = 0, stamp = 0, timer = 0, raf = 0, pending = [];
-const cur = () => window.scrollY || document.documentElement.scrollTop || 0;
-function apply() {
-if (free) return;
-if (cur() !== savedY) window.scrollTo(0, savedY);
+  measure();
+  window.addEventListener('resize', measure);
+  window.addEventListener('orientationchange', measure);
+  setTimeout(measure, 300);
+  let active = false, hold = false, free = true, savedY = 0, stamp = 0, timer = 0, raf = 0, pending = [];
+  const cur = () => window.scrollY || document.documentElement.scrollTop || 0;
+  function apply() {
+    if (free) return;
+    if (cur() !== savedY) window.scrollTo(0, savedY);
   }
-function cancelAll() {
-clearTimeout(timer);
-cancelAnimationFrame(raf);
-pending.forEach(clearTimeout);
-pending = [];
+  function cancelAll() {
+    clearTimeout(timer);
+    cancelAnimationFrame(raf);
+    pending.forEach(clearTimeout);
+    pending = [];
   }
-function release() {
-active = false;
-hold = true;
-clearTimeout(timer);
-timer = setTimeout(() => { apply(); hold = false; }, HOLD);
+  function release() {
+    active = false;
+    hold = true;
+    clearTimeout(timer);
+    timer = setTimeout(() => { apply(); hold = false; }, HOLD);
   }
-function restore() {
-if (free || !stamp || Date.now() - stamp > RESUME) return;
-cancelAll();
-apply();
-raf = requestAnimationFrame(apply);
-pending = [80, 250, 600].map(ms => setTimeout(apply, ms));
+  function restore() {
+    if (free || !stamp || Date.now() - stamp > RESUME) return;
+    cancelAll();
+    apply();
+    raf = requestAnimationFrame(apply);
+    pending = [80, 250, 600].map(ms => setTimeout(apply, ms));
   }
-window.addEventListener('touchstart', e => {
-const t = e.touches && e.touches[0];
-if (t && t.clientY > window.innerHeight - EDGE) {
-cancelAll();
-if (free || (!active && !hold)) savedY = cur();
-free = false; active = true; hold = false; stamp = Date.now();
-} else {
-cancelAll();
-free = true; active = false; hold = false; stamp = 0;
+  window.addEventListener('touchstart', e => {
+    const t = e.touches && e.touches[0];
+    if (t && t.clientY > window.innerHeight - EDGE) {
+      cancelAll();
+      if (free || (!active && !hold)) savedY = cur();
+      free = false; active = true; hold = false; stamp = Date.now();
+    } else {
+      cancelAll();
+      free = true; active = false; hold = false; stamp = 0;
     }
-}, { passive: true, capture: true });
-window.addEventListener('touchmove', e => {
-if (!active) return;
-if (e.cancelable) e.preventDefault();
-stamp = Date.now();
-}, { passive: false, capture: true });
-window.addEventListener('touchend', () => { if (active) { stamp = Date.now(); release(); } }, { passive: true, capture: true });
-window.addEventListener('touchcancel', () => { if (active) { stamp = Date.now(); apply(); release(); } }, { passive: true, capture: true });
-window.addEventListener('scroll', () => { if (active || hold) apply(); }, { passive: true });
-window.addEventListener('pagehide', restore);
-window.addEventListener('pageshow', restore);
-window.addEventListener('blur', () => { if (active || hold) { stamp = Date.now(); apply(); } });
-window.addEventListener('focus', restore);
-document.addEventListener('visibilitychange', () => { if (stamp) restore(); });
+  }, { passive: true, capture: true });
+  window.addEventListener('touchmove', e => {
+    if (!active) return;
+    if (e.cancelable) e.preventDefault();
+    stamp = Date.now();
+  }, { passive: false, capture: true });
+  window.addEventListener('touchend', () => { if (active) { stamp = Date.now(); release(); } }, { passive: true, capture: true });
+  window.addEventListener('touchcancel', () => { if (active) { stamp = Date.now(); apply(); release(); } }, { passive: true, capture: true });
+  window.addEventListener('scroll', () => { if (active || hold) apply(); }, { passive: true });
+  window.addEventListener('pagehide', restore);
+  window.addEventListener('pageshow', restore);
+  window.addEventListener('blur', () => { if (active || hold) { stamp = Date.now(); apply(); } });
+  window.addEventListener('focus', restore);
+  document.addEventListener('visibilitychange', () => { if (stamp) restore(); });
 })();
+
 let _statusBusy = false;
 async function refreshStatus() {
-if (_statusBusy || document.hidden) return;
-_statusBusy = true;
-try { renderStatus(await B.readCfg(false)); } catch (e) {}
-_statusBusy = false;
+  if (_statusBusy || document.hidden) return;
+  _statusBusy = true;
+  try { renderStatus(await B.readCfg(false)); } catch (e) {}
+  _statusBusy = false;
 }
 document.addEventListener('visibilitychange', refreshStatus);
 window.addEventListener('focus', refreshStatus);

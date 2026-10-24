@@ -267,6 +267,35 @@ mod tests {
     }
 
     #[test]
+    fn route_apply_reads_routecore_timeline() {
+        use routecore::timeline::{build, format, Rng, LINE_WIDTH};
+        let dir = std::env::temp_dir().join(format!("setlocd-rc-{}", std::process::id()));
+        fs::create_dir_all(dir.join("files")).unwrap();
+        fs::create_dir_all(dir.join("shared_prefs")).unwrap();
+        let pts = [(-7.7, 110.4), (-7.69, 110.41), (-7.68, 110.40)];
+        let ticks = build(&pts, 40.0, -1.0, &[10.0, 20.0], 0.0, &mut Rng::new(5));
+        fs::write(dir.join("files/route_timeline.txt"), format(&ticks)).unwrap();
+        let px = format!(
+            "{}\n<boolean name=\"route_play\" value=\"true\" /><long name=\"route_t0\" value=\"1000\" /><long name=\"route_tick\" value=\"500\" /><int name=\"route_n\" value=\"{}\" /><int name=\"route_bc\" value=\"7\" /><int name=\"route_tlw\" value=\"{}\" />",
+            PX,
+            ticks.len(),
+            LINE_WIDTH
+        );
+        let d = derive(&px, &dir.join("shared_prefs/p.xml"), "7", true).unwrap();
+        let rt = d.route.as_ref().unwrap();
+        assert_eq!(rt.tlw, LINE_WIDTH);
+        for k in [0usize, 1, ticks.len() / 2, ticks.len() - 1] {
+            let a = route_apply(&d.base, rt, 1000 + (k as i64) * 50);
+            assert_eq!(a.idx, k as i64 + 1);
+            let t = &ticks[k];
+            assert!((a.lat.parse::<f64>().unwrap() - t.lat).abs() < 1e-6);
+            assert!((a.lng.parse::<f64>().unwrap() - t.lng).abs() < 1e-6);
+            assert!((a.alt.parse::<f64>().unwrap() - t.alt as f64).abs() < 0.006);
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn stale_boot_count_ignored() {
         let px = format!("{}<boolean name=\"route_play\" value=\"true\" /><int name=\"route_bc\" value=\"7\" />", PX);
         let d = derive(&px, Path::new("/x/shared_prefs/p.xml"), "8", false).unwrap();

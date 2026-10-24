@@ -1,8 +1,8 @@
 # native/
 
-> Catatan: Fase 1-11 di bawah menggambarkan keadaan saat fase itu dikerjakan. Penyebutan "jalur lama", `Hooks.hook`, dan AndroidVMTools sudah usang sejak Fase 12 (lihat bagian terakhir).
+> Catatan: Fase 1-11 di bawah menggambarkan keadaan saat fase itu dikerjakan. Pembuangan jalur lama dan AndroidVMTools di Fase 12 dibalik sebagian di Fase 13: AndroidVMTools kembali, hanya untuk `system_server` (lihat bagian terakhir).
 
-Status: `configcore` dan `lochooks` sudah dikompilasi dan diuji di host (cargo test, paritas Java vs Rust, dan JNI lewat JVM). `hook/` (Fase 4) lolos cek sintaks terhadap header asli LSPlant dan ShadowHook, dan logika Java-nya diuji di JVM dengan mesin hook palsu. Fase 5 dan 6 memindahkan `LocationHooks` dan `SettingsGuard` ke jalur LSPlant, dan Fase 7 `SystemHooks` (opt-in, di `system_server`); semuanya diuji di JVM dengan mesin hook palsu yang sama. Fase 8 menyambungkan `ConfigNative` dan `LocationNative` ke `Config` dan `Fix`, dengan cadangan ke Java. Fase 9 menambah ekspor JNI `parse`, `parseTrack`, `applyTrack`, dan beat di `configcore` dan menyambungkannya ke `Config`, dengan cadangan ke Java. Fase 11 memindahkan bagian murni `GnssFake` (kumpulan satelit, snapshot, kalimat NMEA, angka measurements) ke `lochooks`; sejak Fase 13 tanpa cadangan Java. Belum ada yang dikompilasi untuk target Android atau diuji di perangkat.
+Status: `configcore` dan `lochooks` sudah dikompilasi dan diuji di host (cargo test, paritas Java vs Rust, dan JNI lewat JVM). `hook/` (Fase 4) lolos cek sintaks terhadap header asli LSPlant dan ShadowHook, dan logika Java-nya diuji di JVM dengan mesin hook palsu. Fase 5 dan 6 memindahkan `LocationHooks` dan `SettingsGuard` ke jalur LSPlant, dan Fase 7 `SystemHooks` (opt-in, di `system_server`); semuanya diuji di JVM dengan mesin hook palsu yang sama. Fase 8 menyambungkan `ConfigNative` dan `LocationNative` ke `Config` dan `Fix`, dengan cadangan ke Java. Fase 9 menambah ekspor JNI `parse`, `parseTrack`, `applyTrack`, dan beat di `configcore` dan menyambungkannya ke `Config`, dengan cadangan ke Java. Fase 11 memindahkan bagian murni `GnssFake` (kumpulan satelit, snapshot, kalimat NMEA, angka measurements) ke `lochooks`, dengan cadangan ke Java. Belum ada yang dikompilasi untuk target Android atau diuji di perangkat.
 
 ## hook (Fase 4)
 Target: pendaftaran hook ART lewat LSPlant, dipakai pertama untuk `PackageGuard`.
@@ -22,7 +22,7 @@ Target: pendaftaran hook ART lewat LSPlant, dipakai pertama untuk `PackageGuard`
 - `System.loadLibrary` dari dex yang dimuat ZygoteLoader bergantung pada jalur library yang ditambahkan `attachNativeLibs` dan pada namespace linker. Belum terbukti di perangkat.
 - LSPlant (hook ART di `libart.so`) dan AndroidVMTools (patch entrypoint) hidup berdampingan di proses yang sama untuk `LocationHooks`. Interaksinya belum diuji.
 - Race kecil: callback bisa terpanggil dari thread lain sebelum `backup` terisi; `LsHook` menunggu sebentar sampai terisi.
-- Versi `lsplant-standalone` 6.4 dan `shadowhook` 1.0.10 dipilih (lihat bagian ShadowHook 1.0.10 di bawah); belum diverifikasi di Maven Central.
+- Versi `lsplant-standalone` 6.4 dan `shadowhook` 2.0.0 dipilih dari tag repo; belum diverifikasi di Maven Central.
 
 ## LocationHooks di LSPlant (Fase 5)
 Target: hook di `LocationHooks` (Location, LocationManager, AppOps, Wi-Fi, seluler, Bluetooth, `CREATOR`, `getCurrentLocation`) berjalan di LSPlant, tanpa mengubah logikanya.
@@ -56,7 +56,7 @@ Target: 14 hook di `SettingsGuard` (kunci modul di `Settings.NameValueCache`, `C
 - Pemanggilan `Settings.NameValueCache.getStringForUser` sangat sering. Overhead alokasi/refleksi LSPlant per panggilan lebih besar daripada jalur lama; belum diukur di perangkat.
 - `ProcessBuilder.start` adalah method inti libcore; hook LSPlant di sana (di proses aplikasi) belum diuji di ART.
 
-## SystemHooks di LSPlant (Fase 7)
+## SystemHooks di LSPlant (Fase 7, dibuang di Fase 13)
 Target: 10 hook di `system_server` (`LocationProviderManager.onReportLocation`; di `LocationManagerService`: `getLastLocation`, `injectLocation`, daftar/hapus pendengar GNSS, blokir batching dan navigation message) memakai adaptor `Frames` yang sama. Perubahan di `SystemHooks.java` mekanis (`frame.accessor().getReference(i)` jadi `frame.get(i)`, `setValue(RETURN_VALUE_IDX, x)` jadi `set(Frames.RET, x)`, `invokeExactNoChecks` jadi `original.invoke()`); logika dan urutan cabang tidak berubah. Pemasangan lewat `Frames.hook(m, LsNative.sysEnabled(), tx)`, jadi tiap method yang gagal lewat LSPlant jatuh ke jalur lama sendiri.
 
 Default MATI. Tanpa file `enable_ls_system`, `system_server` berjalan persis seperti sebelum fase ini (AndroidVMTools, LSPlant tidak dimuat).
@@ -211,16 +211,16 @@ Yang dipindah (tiga ekspor baru di `LocationNative`, satu panggilan JNI per peke
 - `nativeGnssMeas(snap, nowMs, timeNs)` -> `long[2 + 2n]`: `gpsNs`, `tow`, lalu per satelit `travelNs` dan bit `double` dari `pseudorangeRate`.
 Tetap di Java: `Config.gnssExtrasAt` (dipakai jalur Java; Rust memakai `jitter::gnss_extras`), `Snapshot` sebagai wadah, semua pembuatan objek Android lewat refleksi.
 
-Perubahan kecil di Java agar bisa diuji: `Config.gnssExtras()` sekarang memanggil `gnssExtrasAt(t)` dan `GnssFake.snapshot()` membaca jam sekali (sebelumnya dua kali, `gnssExtras` dan `nowSec`). `snapshotJava`, `nmeaJava`, dan `measJava` dipindah ke `module/test/gnsswire/fake/GnssRef.java` sebagai referensi uji (Fase 13); kode produksi tidak memilikinya lagi.
+Perubahan kecil di Java agar bisa diuji: `Config.gnssExtras()` sekarang memanggil `gnssExtrasAt(t)` dan `GnssFake.snapshot()` membaca jam sekali (sebelumnya dua kali, `gnssExtras` dan `nowSec`). `GnssFake.snapshotJava`, `nmeaJava`, dan `measJava` adalah jalur Java lama tanpa perubahan logika, hanya dipisah dari pembacaan jam dan `Location`.
 
 ### Pengaman
-- Sejak Fase 13 tidak ada verifikasi saat kelas dimuat dan tidak ada jalur Java: `GnssFake.snapshot` memanggil `nativeGnssSnapshot`, dan bila hasilnya `null`, salah ukuran, atau melempar, snapshot kosong (0 satelit).
-- Setiap panggilan dibungkus `try/catch Throwable`; hasil `null`, array salah ukuran, atau string `null` memberi hasil kosong untuk panggilan itu (`nmea` daftar kosong, `measurementsEvent` null). `read_snap` di Rust menolak array dengan `n` di luar 0..64, `n` bukan bilangan bulat, atau panjang tidak cocok (hasil `null`).
-- `disable_rs` mematikan library Rust; sejak Fase 13 satelit, NMEA, dan measurements palsu ikut kosong (posisi palsu tetap lewat Java).
+- `GnssFake.NATIVE` ditetapkan sekali saat kelas dimuat: aktif hanya bila `Config.locNative()` (seed sama), lalu `snapshotNative` sama dengan `snapshotJava` di 12 kasus (6 waktu x fixed/tidak: type, svid, used, flags persis; cn0/elev/az/baseband dalam toleransi), NMEA native sama persis dengan Java di 5 masukan (termasuk `-0.04`, `0.25`, `1234.55`, akurasi 0, tanpa speed/bearing/altitude) dan `measNative` sama persis. Library lama tanpa ekspor ini (`UnsatisfiedLinkError`) atau yang hasilnya beda jatuh ke Java tanpa crash.
+- Setiap panggilan dibungkus `try/catch Throwable`; hasil `null`, array salah ukuran, atau string `null` jatuh ke Java untuk panggilan itu. `read_snap` di Rust menolak array dengan `n` di luar 0..64, `n` bukan bilangan bulat, atau panjang tidak cocok (hasil `null`).
+- `disable_rs` mematikan library Rust seperti sebelumnya, dan `GnssFake` otomatis memakai Java.
 
 ### Pengujian
 - `cargo test` di `native/lochooks` (`gnss.rs`, 10 tes baru): vektor `java.util.Random(42)` (-1170105035, 234785527), bentuk pool, `java_fixed` (0.25, 0.15, 9.96, 99.995, 1234.55, -0.04, -0.0, NaN, Infinity), `Math.round`, tanggal, invarian snapshot, pack/unpack dan penolakan masukan rusak, flags/baseband, struktur NMEA dan checksum, tata letak measurements.
-- `cargo xtask test gnssfake` (tanpa cargo): `GnssFake` asli dengan stub dan `LocationNative` palsu yang mengikuti kontrak (`gnsswire/fake`). Memeriksa paritas 400 snapshot dan 600 NMEA dan 600 measurements terhadap referensi Java di test (`GnssRef`), native dipakai (hitungan panggilan), kalimat valid; serta hasil kosong tanpa melempar saat native mengembalikan `null`, melempar, atau array salah ukuran. Mode `fake.bad` dihapus karena verifikasi saat muat sudah tidak ada. Uji mutasi (`used` terbalik, indeks `flags` salah, `hasAlt` tertukar, cek `null` dibuang) membuat tes gagal.
+- `cargo xtask test gnssfake` (tanpa cargo): `GnssFake` asli dengan stub dan `LocationNative` palsu yang mengikuti kontrak (`gnsswire/fake`). Memeriksa 18 hal: verifikasi lolos, paritas 400 snapshot dan 600 NMEA dan 600 measurements, native dipakai (hitungan panggilan), hasil sama dengan Java, kalimat valid; serta cadangan saat native mengembalikan `null`, melempar, atau array salah ukuran; dan mode `fake.bad` (satu keluaran beda) membuat verifikasi gagal dan native tidak dipanggil lagi. Uji mutasi (`used` terbalik, indeks `flags` salah, `hasAlt` tertukar, cek `null` dibuang) membuat tes gagal.
 - `cargo xtask test gnsswire` (butuh cargo atau `LOCHOOKS_SO`): `GnssWire` yang sama, tetapi dengan `liblochooks.so` asli lewat `System.loadLibrary`.
 - Tes lama yang memakai `GnssFake` (`lochook`, `syshook` empat mode) dan `rswire` tetap lulus.
 - Port Python dari `gnss.rs` (bukan kode Rust-nya) dibandingkan dengan keluaran Java asli: 16 snapshot, 400 kasus NMEA, 50 kasus measurements, dan 3.020 angka untuk `%.1f`/`%.2f`: 0 beda.
@@ -236,7 +236,7 @@ Perubahan kecil di Java agar bisa diuji: `Config.gnssExtras()` sekarang memanggi
 1. Jalankan `cargo xtask test` dan `cargo xtask test parity` di mesin build kamu (butuh cargo dan java).
 2. Untuk Android: `cargo build --release --target aarch64-linux-android` di `native/lochooks` dan `native/configcore`, taruh `.so` di `jniLibs`, lalu uji `LocationNative.ensureLoaded()` di perangkat cadangan sebelum menyambungkan ke `LocationHooks`, `Fix`, atau `Config`.
 3. Bangun modul lewat `cargo xtask build` (sekarang juga membangun `configcore` dan `lochooks` untuk Android; lihat Fase 8) (Gradle mengunduh LSPlant dan ShadowHook, NDK membangun `libgpsz_hook.so`), flash di perangkat cadangan, lalu cek `logcat` dan `gpsz.sh doctor`. Untuk mematikan library Rust tanpa membangun ulang, buat file `disable_rs` di folder modul. Untuk mematikan jalur LSPlant tanpa membangun ulang, buat file `disable_ls` di folder modul (atau `disable_ls_loc` untuk `LocationHooks` saja).
-4. Untuk mencoba Fase 7 (hanya setelah fase 5 dan 6 terbukti stabil): `gpsz.sh ls-system on`, reboot, lalu `gpsz.sh ls-system status` (harus `on` setelah sekitar 60 detik, bukan `pending` atau `blocked`) dan `logcat -s GpsZ`. Kalau boot gagal, reboot sekali lagi: percobaan kedua otomatis diblokir dan jalur lama dipakai.
+4. Fase 7 (LSPlant di `system_server`) sudah dibuang di Fase 13; `gpsz.sh ls-system` tidak ada lagi. Cek `gpsz.sh system status` dan `logcat -s GpsZ` untuk jumlah hook `system_server`.
 
 ## Fase 10: skrip dipindah ke xtask
 `make-keystore.sh`, `setup.sh`, `update.sh`, dan harness tes shell (`module/test/run.sh` serta `run.sh` di tiap subfolder) diganti perintah `cargo xtask` (Rust, tanpa dependensi):
@@ -270,14 +270,66 @@ Pengujian:
 
 Belum diverifikasi di lingkungan ini: kode `tools/xtask` yang diedit (tidak ada cargo di sini; hanya diedit hati-hati, belum dikompilasi) dan build Gradle penuh. Jalankan `cargo xtask test` lalu `cargo xtask build` di mesin build.
 
-## ShadowHook 1.0.10 (build 12r)
+## Fase 13: system_server kembali ke AndroidVMTools
+Alasan: di perangkat dengan LSPosed aktif, LSPlant dan ShadowHook milik modul ini di-load di `system_server` bersamaan dengan LSPlant milik LSPosed, dan boot macet di `Zygote:Preload End` (tanpa crash dan tanpa tombstone). Tanpa LSPosed boot normal dan heartbeat terdeteksi, jadi penyebabnya benturan dua mesin LSPlant. Phase 11 aman karena `system_server` memakai AndroidVMTools.
+
+Dikembalikan dari phase 11: `LegacyFrame.java`, modul Gradle `module/unsafe` dan `module/stub`, version catalog `androidvmtools`, source set `external/AndroidVMTools`, `cargo xtask setup` (dan langkah "siapkan AndroidVMTools" di `cargo xtask build`, kini 4 langkah), suite `unsafe`.
+
+Perubahan:
+- `SystemHooks` memasang hook lewat `Frames.hookSys` -> `LegacyFrame` (AndroidVMTools). Tidak memakai `LsNative`, `LsHook`, atau `Frames.hook`. Pencarian method dan field kembali memakai `com.v7878.unsafe.Reflection` sebagai cadangan.
+- `LegacyFrame` hanya menandai mesin rusak bila kelasnya gagal dimuat (`LinkageError`). Method yang gagal dihook tidak lagi mematikan pemasangan method lain.
+- Hook di app (`LocationHooks`, `SettingsGuard`, `PackageGuardLs`) tetap LSPlant saja; AndroidVMTools tidak disentuh di proses app.
+- `ZygoteEntry.premain()` tidak memuat library apa pun di `system_server` (LSPlant, ShadowHook, dan Rust). Config dan Fix di `system_server` memakai jalur Java.
+- Dibuang: `SysGuard`, `post-fs-data.sh` (penanda `.ls_sys_pending`, `ls_system_blocked`, `enable_ls_system`), `daemon/src/lsguard.rs` dan pemantau 60 detik di `service.rs`, perintah `gpsz.sh ls-system`, test `sysguard`. Pengaman itu hanya dibutuhkan selama LSPlant dimuat di `system_server`.
+- Dipertahankan: log `system hook lpm=.. lms=.. heartbeat=..` di `logcat -s GpsZ`, yang dibaca `gpsz.sh system status` dan `doctor`.
+
+Pengujian:
+- `cargo xtask test syshook`: tiga mode dengan mesin AndroidVMTools palsu: `ok` (10 hook, perilaku sama dengan sebelumnya), `broken` (kelas mesin tidak termuat: nol hook, tanpa crash), `partial` (satu method gagal, `onReportLocation` tidak terpasang, tidak dilaporkan hidup).
+- `cargo xtask test struktur` memeriksa AndroidVMTools hanya dirujuk `SystemHooks`, `Frames.hookSys`, `LegacyFrame`; `SystemHooks` tidak menyentuh `LsNative` atau `Frames.hook`; `premain()` tidak memuat library di `system_server`.
+- `cargo test` di `daemon/`: 13 tes lulus (7 tes `lsguard` dihapus bersama modulnya).
+
+Belum diverifikasi: build Gradle penuh (butuh `cargo xtask setup` untuk mengunduh AndroidVMTools pin `6fa2d5c`), build NDK, dan jalannya di perangkat. Memuat Rust di `system_server` sengaja tidak dicoba lagi sampai Fase 13 terbukti stabil di perangkat.
+
+### ShadowHook 1.0.10 (build 12r)
 `libs.versions.toml` memakai ShadowHook 1.0.10. Seri 2.x (2.0.0 dan 2.0.1) mengembalikan 12 (`SHADOWHOOK_ERRNO_INIT_LINKER`) di `shadowhook init` pada Infinix Android 15 dan Samsung Android 16, sehingga LSPlant tidak pernah diinisialisasi dan hook di app mati. Di Infinix, 1.0.10 init lolos (`return: 0`) dan `gpsz_hook: lsplant::Init=1 sdk=35`. Tiga baris `simbol tidak ada` (`AdjustThreadVisibilityCounter`, `SetEntryPointsToInterpreter`, `SetJavaDebuggable`) di Android 15 tidak menghalangi `Init=1`. Urutan muat `shadowhook`, `lsplant`, `gpsz_hook` tidak berubah. Yang harus dicek di logcat: `shadowhook version 1.0.10 ... return: 0` dan `lsplant::Init=1`. Kalau 1.0.10 gagal di perangkat lain, coba 1.1.1.
 
-## Sinkronisasi dengan varian hybrid
-Dibawa dari hybrid: cache KEY 30 detik dan pembacaan `csget` paralel di `engine.rs`, parsing `/proc/uptime` tanpa alokasi dan `pid_running` di `sys.rs`, pembandingan path tanpa alokasi di `daemon.rs`, serta pemakaian `pid_running` di `app.rs`. Tidak dibawa: AndroidVMTools untuk `system_server`. Profil build Rust tetap `opt-level = 3`. Belum dikompilasi dengan cargo; tes Java `lochook`, `setguard`, dan `lshook` lulus dengan javac, dan `rswire` terkompilasi.
+## Sinkronisasi dengan varian lsplant
+Dibawa dari lsplant: varian `Into` (`nativeApplyInto`, `nativeStampInto`, `nativeLastKnownInto`) di `Fix`, `LocationNative`, dan `lochooks`, `LsFrame` yang sekaligus `Orig` tanpa lambda per panggilan, `Hooker.self` di `LsHook`, jalur cepat non-primitif di `Frames.coerce`, serta kunci `live` di WebUI dan di alat `rotate-salt` dan xtask. Tidak dibawa: `SysGuard`, `lsguard`, `post-fs-data.sh`, dan LSPlant di `system_server`. Profil build Rust tetap `opt-level = "s"`. Belum dikompilasi dengan cargo; tes Java `lochook`, `setguard`, dan `lshook` lulus dengan javac, dan `rswire` terkompilasi.
 
 ## Status system hook seragam (daemon, WebUI, APK)
 Hook `system_server` dianggap aktif hanya bila setelan `sys` bernilai 1 atau 2, file `packages/android` sudah ada sebelum boot, dan kunci `live` sama dengan `boot_count`. `gpsz.sh system status` dan `doctor` (baris `system-hook=`) sekarang memakai aturan yang sama dengan APK dan WebUI. Status: `off`, `pending` (perlu reboot), `wait` (kurang dari 120 detik sejak boot), `live`, atau `failed`. Belum dikompilasi dengan cargo.
 
-## Fase 13: duplikat Java GnssFake dibuang
-`GnssFake` produksi tidak lagi punya `POOL`, `Sat`, `snapshotJava`, `nmeaJava`, `measJava`, `sameSnapshot`, `nativeOn`, dan verifikasi saat muat. Implementasi Java itu pindah ke `module/test/gnsswire/fake/GnssRef.java` dan hanya dipakai tes (fake `LocationNative` serta paritas terhadap `liblochooks.so` asli). Suite `lochook` dan `syshook` sekarang memakai `LocationNative` palsu dari `gnsswire/fake`. `Config` dan `Fix` belum disentuh: jalur Java mereka masih ada.
+## Arah pengembangan dan status hybrid (v3)
+Basis pengembangan: varian hybrid (daemon Rust, LSPlant di app, AndroidVMTools hanya untuk `system_server`). Jangka panjang: daemon Rust dengan lapisan hook Java di LSPlant (C++), bukan shell dan bukan full Rust, karena LSPlant hanya punya API C++ dan hook berjalan sebagai Java di proses zygote/app. Pindah ke varian `rust7-lsplant` (LSPlant di `system_server`, butuh `SysGuard`/`lsguard`) baru dilakukan setelah LSPlant di `system_server` terbukti tidak bootloop di beberapa perangkat dan versi Android.
+
+Tetap Java/C++: `LocationHooks`, `SettingsGuard`, `SystemHooks`, `PackageGuardLs`, `Frames`, `LsHook`, bagian framework di `GnssFake`, dan UI Kotlin.
+
+Risiko kompatibilitas Android baru ada di mesin hook: AndroidVMTools (internal ART, pin `6fa2d5c`) dan ShadowHook 2.x (gagal init di Android 15/16, sehingga dipakai 1.0.10).
+
+Langkah berikutnya, berurutan:
+1. Stabilkan hybrid di perangkat. Terverifikasi di satu perangkat (Android 15, sdk=35): `shadowhook version 1.0.10 ... return: 0, real-init: yes` dan `gpsz_hook: lsplant::Init=1 sdk=35`, di tiap proses app yang ter-hook. Belum diuji di Samsung Android 16 dan Android 13/14. `gpsz.sh doctor` kini menampilkan baris `hook-engine=` yang memeriksa dua log itu (`logcat -b all`).
+2. Pindahkan pembuatan timeline rute dari `RouteRunner.kt` ke daemon Rust, satu sumber kebenaran dengan `route_apply` dan bisa dites lewat `cargo test`.
+3. Buang salinan Java kembar (`tagJava`/`encJava`/`decJava`, `snapshotJava`/`nmeaJava`/`measJava`, sisa jitter di `Config.java`), setelah Rust bisa dimuat di `system_server`.
+
+Belum dikompilasi: perubahan `doctor` di `daemon/src/cli.rs`. Jalankan `cargo xtask test` lalu `cargo xtask build`.
+
+## Fase 14: timeline rute di Rust (`routecore`)
+Langkah 2 dari rencana hybrid. Pembuatan timeline rute (kecepatan, percepatan, pengereman di tikungan, jitter kecepatan, interpolasi ketinggian, bearing) dan format baris `route_timeline.txt` dipindah dari `RouteRunner.kt` ke crate `native/routecore`. Format baris (`%11.6f %11.6f %7.3f %6.2f %8.2f`, 48 karakter termasuk newline) kini didefinisikan di satu tempat, `routecore::timeline`, dan dibaca daemon lewat `route_apply`.
+
+Catatan arsitektur: app Android tidak bisa memanggil daemon (daemon berjalan sebagai root dan hanya membaca file milik app), jadi `routecore` dipakai di dua sisi: sebagai library JNI di app (`libroutecore.so`) dan sebagai dev-dependency daemon untuk tes lintas sisi.
+
+Isi:
+- `routecore::geo`: `bearing`, `meters`, `lerp_lng`, `route_length`.
+- `routecore::timeline`: `build`, `format`, `format_line`, `too_long`, `altitude_at`, `uniform_width`, `Rng` (splitmix64 + Gauss polar; diisi `System.nanoTime()` oleh app, tes memakai seed tetap).
+- `exports.rs`: `RouteNative.nativeBuild` (mengembalikan `DoubleArray` rata, 6 nilai per tick) dan `RouteNative.nativeFormat` (per potongan 2000 baris).
+- `app/.../route/RouteNative.kt` memuat `libroutecore.so`; `RouteRunner.buildTimeline` dan `writeTimeline` memakai Rust dulu dan jatuh ke implementasi Kotlin lama bila library tidak termuat (unit test JVM memakai jalur Kotlin).
+- `cargo xtask build` kini membangun `routecore` untuk Android sebelum Gradle app (langkah 0/4) dan menyalinnya ke `app/app/src/main/jniLibs/<abi>/`.
+
+Pengujian yang dijalankan di sini (cargo 1.75, JDK 21):
+- `cargo test` di `native/routecore`: 17 tes, termasuk port tes Kotlin `TimelineTest` dan `TimelineFormatTest` (batas akselerasi/pengereman di 200 seed, tikungan, rute padat, lebar baris di nilai ekstrem, ketinggian, jarak dekat/jauh).
+- `cargo test` di `daemon/`: 16 tes lulus; tes baru `route_apply_reads_routecore_timeline` menulis timeline dari `routecore` lalu membacanya lewat `derive` dan `route_apply`.
+- JNI nyata lewat JVM: `libroutecore.so` dimuat, 768 tick, panjang keluaran sama dengan `n * 48`, input rusak dan indeks di luar batas mengembalikan null.
+- `xtask` dikompilasi dan `cargo xtask test struktur` lulus (7 dari 7).
+
+Belum diverifikasi: kompilasi Kotlin (`RouteNative.kt`, `RouteRunner.kt`), build Gradle app dengan `jniLibs`, build NDK `routecore` untuk Android, dan jalannya di perangkat. `cargo xtask test native` belum dijalankan penuh di sini karena `jni-sys` 0.4 butuh rustc 1.77 ke atas. Cadangan Kotlin sengaja dipertahankan sampai library terbukti termuat di perangkat; setelah itu `buildTimelineKt`/`writeTimelineKt` dan tes Kotlin timeline bisa dibuang.
+

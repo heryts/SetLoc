@@ -44,16 +44,18 @@ public final class GnssWire {
     public static void main(String[] args) throws Exception {
         String[] spec = (args.length > 0 ? args[0] : "fake:on").split(":");
         boolean fake = spec[0].equals("fake");
+        boolean wantOn = spec.length < 2 || spec[1].equals("on");
         if (!fake) expect("library lochooks termuat", LocationNative.ensureLoaded());
         SystemClock.fake = 123_456_000L;
+        expect("verifikasi GnssFake: nativeOn == " + wantOn, GnssFake.nativeOn() == wantOn);
 
-        {
+        if (wantOn) {
             Random r = new Random(11);
             int badSnap = 0, n = 0;
             for (int k = 0; k < 400; k++) {
                 long t = (long) (r.nextDouble() * 2.0e8);
                 boolean fixed = (k & 1) == 0;
-                GnssFake.Snapshot j = GnssRef.snapshotJava(t, fixed);
+                GnssFake.Snapshot j = GnssFake.snapshotJava(t, fixed);
                 double[] a = LocationNative.nativeGnssSnapshot(t, fixed);
                 n++;
                 if (a == null || a.length != 1 + j.n * GnssFake.STRIDE_OUT) { badSnap++; continue; }
@@ -72,12 +74,12 @@ public final class GnssWire {
                     b.flagsRaw[i] = (int) a[o + 7];
                     b.basebandRaw[i] = (float) a[o + 8];
                 }
-                if (!GnssRef.sameSnapshot(j, b)) badSnap++;
+                if (!GnssFake.sameSnapshot(j, b)) badSnap++;
             }
             expect("snapshot native sama dengan Java (" + n + " kasus, fixed dan tidak)", badSnap == 0);
 
-            GnssFake.Snapshot base = GnssRef.snapshotJava(1_234_567L, true);
-            GnssFake.Snapshot idle = GnssRef.snapshotJava(86_400L, false);
+            GnssFake.Snapshot base = GnssFake.snapshotJava(1_234_567L, true);
+            GnssFake.Snapshot idle = GnssFake.snapshotJava(86_400L, false);
             int badNmea = 0, badMeas = 0;
             for (int k = 0; k < 600; k++) {
                 GnssFake.Snapshot sn = (k & 1) == 0 ? base : idle;
@@ -91,7 +93,7 @@ public final class GnssWire {
                 if (k % 13 == 0) acc = 0f;
                 if (k % 17 == 0) acc = 1000f;
                 long ms = 946_684_800_000L + (long) (r.nextDouble() * 2.5e12);
-                List<String> j = GnssRef.nmeaJava(sn, ms, lat, lng, acc, hs, spd, hb, brg, ha, alt);
+                List<String> j = GnssFake.nmeaJava(sn, ms, lat, lng, acc, hs, spd, hb, brg, ha, alt);
                 List<String> nn = GnssFake.nmeaNative(sn, ms, lat, lng, acc, hs, spd, hb, brg, ha, alt);
                 if (nn == null || !j.equals(nn)) {
                     badNmea++;
@@ -99,7 +101,7 @@ public final class GnssWire {
                 }
                 long now = 1_500_000_000_000L + (long) (r.nextDouble() * 1.0e12);
                 long tn = (long) (r.nextDouble() * 4.0e14);
-                long[] mj = GnssRef.measJava(sn, now, tn);
+                long[] mj = GnssFake.measJava(sn, now, tn);
                 long[] mn = GnssFake.measNative(sn, now, tn);
                 if (mn == null || !java.util.Arrays.equals(mj, mn)) badMeas++;
             }
@@ -109,25 +111,31 @@ public final class GnssWire {
             int c0 = calls(fake);
             GnssFake.Snapshot s = GnssFake.snapshot(true);
             expect("snapshot() memakai native (hitungan panggilan naik)", !fake || calls(fake) > c0);
-            expect("snapshot() sama dengan jalur Java di waktu yang sama", GnssRef.sameSnapshot(GnssRef.snapshotJava(123_456L, true), s));
+            expect("snapshot() sama dengan jalur Java di waktu yang sama", GnssFake.sameSnapshot(GnssFake.snapshotJava(123_456L, true), s));
             expect("flags() dan baseband() dari native sama dengan hitungan Java",
-                java.util.Arrays.equals(s.flags(), GnssRef.snapshotJava(123_456L, true).flags())
-                    && java.util.Arrays.equals(s.baseband(), GnssRef.snapshotJava(123_456L, true).baseband()));
+                java.util.Arrays.equals(s.flags(), GnssFake.snapshotJava(123_456L, true).flags())
+                    && java.util.Arrays.equals(s.baseband(), GnssFake.snapshotJava(123_456L, true).baseband()));
             c0 = calls(fake);
             List<String> v = GnssFake.nmea(s);
             expect("nmea(): kalimat valid (GGA ... RMC, checksum, CRLF)", valid(v));
             expect("nmea() memakai native", !fake || calls(fake) > c0);
+        } else {
+            int c0 = calls(fake);
+            GnssFake.Snapshot s = GnssFake.snapshot(true);
+            expect("snapshot() tanpa native sama dengan jalur Java", GnssFake.sameSnapshot(GnssFake.snapshotJava(123_456L, true), s));
+            expect("nmea() tanpa native tetap valid", valid(GnssFake.nmea(s)));
+            expect("native tidak dipanggil sama sekali sesudah verifikasi gagal", !fake || calls(fake) == c0);
         }
 
-        if (fake) {
+        if (fake && wantOn) {
             String[] names = {"null", "melempar", "array salah ukuran"};
             for (int mode = 1; mode <= 3; mode++) {
                 breakIt(mode);
+                GnssFake.Snapshot ref = GnssFake.snapshotJava(123_456L, true);
                 GnssFake.Snapshot s = GnssFake.snapshot(true);
-                expect("native " + names[mode - 1] + ": snapshot() kosong, tidak melempar", s != null && s.n == 0);
-                expect("native " + names[mode - 1] + ": nmea() kosong, tidak melempar", GnssFake.nmea(GnssRef.snapshotJava(123_456L, true)).isEmpty());
-                expect("native " + names[mode - 1] + ": measNative null", GnssFake.measNative(GnssRef.snapshotJava(123_456L, true), 1_700_000_000_000L, 5_000_000_000L) == null);
-                expect("native " + names[mode - 1] + ": measurementsEvent null", GnssFake.measurementsEvent(GnssRef.snapshotJava(123_456L, true)) == null);
+                expect("native " + names[mode - 1] + ": snapshot() jatuh ke Java dan benar", GnssFake.sameSnapshot(ref, s));
+                expect("native " + names[mode - 1] + ": nmea() jatuh ke Java dan valid", valid(GnssFake.nmea(s)));
+                expect("native " + names[mode - 1] + ": measNative null (measJava dipakai)", GnssFake.measNative(s, 1_700_000_000_000L, 5_000_000_000L) == null);
             }
             breakIt(0);
         }

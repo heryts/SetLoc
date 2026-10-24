@@ -1,5 +1,5 @@
 -keep class io.gpsz.zygote.ZygoteEntry { premain(); main(); }
--keep public class io.gpsz.zygote.LsHook$Hooker { public java.lang.Object callback(java.lang.Object[]); }
+-keep class io.gpsz.zygote.LsHook$Hooker { public java.lang.Object callback(java.lang.Object[]); }
 -keep class io.gpsz.zygote.LsNative { native <methods>; }
 -keep class io.gpsz.zygote.ConfigNative { native <methods>; }
 -keep class io.gpsz.zygote.LocationNative { native <methods>; }
