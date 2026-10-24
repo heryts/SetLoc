@@ -342,10 +342,13 @@ const B = {
     try {
       const gv = decHex(await sh(`settings get global ${SK.sys} 2>/dev/null`)).trim();
       const g = /^[0-9]$/.test(gv) ? gv : '';
-      const out = await sh(`F='${PKGDIR}/android'; O='${PKGDIR}/.sysoff'; boot=$(( $(date +%s) - $(cut -d. -f1 /proc/uptime) )); g='${g}'; ` +
-        `if [ -e "$F" ] && { [ "$g" = 1 ] || [ "$g" = 2 ]; }; then mt=$(stat -c %Y "$F" 2>/dev/null || echo 0); if [ "$mt" -lt "$boot" ]; then if [ "$g" = 2 ]; then echo heartbeat; else echo live; fi; else if [ "$g" = 2 ]; then echo pendinghb; else echo pending; fi; fi; ` +
+      const lv = decHex(await sh(`settings get global ${SK.live} 2>/dev/null`)).trim();
+      const bc = (await sh(`settings get global boot_count 2>/dev/null`)).trim();
+      const ok = /^[0-9]+$/.test(bc) && lv === bc ? 1 : 0;
+      const out = await sh(`F='${PKGDIR}/android'; O='${PKGDIR}/.sysoff'; boot=$(( $(date +%s) - $(cut -d. -f1 /proc/uptime) )); g='${g}'; ok=${ok}; up=$(cut -d. -f1 /proc/uptime); ` +
+        `if [ -e "$F" ] && { [ "$g" = 1 ] || [ "$g" = 2 ]; }; then mt=$(stat -c %Y "$F" 2>/dev/null || echo 0); if [ "$mt" -lt "$boot" ]; then if [ "$ok" = 1 ]; then if [ "$g" = 2 ]; then echo heartbeat; else echo live; fi; elif [ "$up" -lt 120 ]; then if [ "$g" = 2 ]; then echo waithb; else echo wait; fi; else if [ "$g" = 2 ]; then echo failedhb; else echo failed; fi; fi; else if [ "$g" = 2 ]; then echo pendinghb; else echo pending; fi; fi; ` +
         `elif [ -e "$O" ]; then mt=$(stat -c %Y "$O" 2>/dev/null || echo 0); if [ "$mt" -ge "$boot" ]; then echo offpending; else echo off; fi; else echo off; fi`);
-      const m = /(heartbeat|live|pendinghb|pending|offpending|off)/.exec(out || '');
+      const m = /(failedhb|failed|waithb|wait|heartbeat|live|pendinghb|pending|offpending|off)/.exec(out || '');
       return m ? m[1] : 'off';
     } catch (e) { return 'off'; }
   },
@@ -459,8 +462,8 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 function applySys(m) {
   S.sysMode = m;
-  S.sys = m === 'live' || m === 'pending';
-  S.hb = m === 'heartbeat' || m === 'pendinghb';
+  S.sys = m === 'live' || m === 'pending' || m === 'failed' || m === 'wait';
+  S.hb = m === 'heartbeat' || m === 'pendinghb' || m === 'failedhb' || m === 'waithb';
 }
 function toast(msg, err) {
   const t = $('#toast');
@@ -515,6 +518,9 @@ function renderBanners() {
   if (S.all) b.push('<div class="card syscard"><div class="dot on"></div><div class="grow"><div class="t">Mode semua app aktif</div></div><button class="btn stop" id="btnAllOff">Matikan</button></div>');
   if (S.sysMode === 'heartbeat') b.push('<div class="card syscard"><div class="dot on"></div><div class="grow"><div class="t">Mode heartbeat aktif</div></div><button class="btn stop" id="btnSysOff">Matikan</button></div>');
   else if (S.sysMode === 'live') b.push('<div class="card syscard"><div class="dot on"></div><div class="grow"><div class="t">System-wide aktif</div></div><button class="btn stop" id="btnSysOff">Matikan</button></div>');
+  else if (S.sysMode === 'failed') b.push('<div class="banner danger"><b>System-wide tidak aktif.</b> Hook system_server gagal terpasang di boot ini.<button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');
+  else if (S.sysMode === 'failedhb') b.push('<div class="banner danger"><b>Mode heartbeat tidak aktif.</b> Hook system_server gagal terpasang di boot ini.<button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');
+  else if (S.sysMode === 'wait' || S.sysMode === 'waithb') b.push('<div class="banner">Menunggu system hook aktif setelah boot…</div>');
   else if (S.sysMode === 'pendinghb') b.push('<div class="banner danger"><b>System hook (heartbeat) dinyalakan.</b> Perlu reboot.<button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');
   else if (S.sysMode === 'pending') b.push('<div class="banner danger"><b>System-wide dinyalakan.</b> Perlu reboot.<button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');
   else if (S.sysMode === 'offpending') b.push('<div class="banner danger"><b>System hook dimatikan.</b> Perlu reboot.<button class="btn-reboot" id="btnReboot">Reboot sekarang</button></div>');

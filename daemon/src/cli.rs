@@ -1,5 +1,5 @@
 use crate::bridge::{self, ensure, set_app_pos, set_app_random, set_app_start};
-use crate::codec::{dec, enc, inrange, BEATKEY, BTKEY, KEY, NETKEY, SYSKEY, TRKKEY};
+use crate::codec::{dec, enc, inrange, BEATKEY, BTKEY, KEY, LIVEKEY, NETKEY, SYSKEY, TRKKEY};
 use crate::engine::Core;
 use crate::sys::{self, csget, mtime_s, now_s, pidof, quiet, run, sget, sput, uptime_s};
 use std::fs;
@@ -86,6 +86,12 @@ fn bootts() -> i64 {
     now_s() - uptime_s()
 }
 
+fn hook_confirmed() -> bool {
+    let boot = sget("boot_count");
+    let boot = boot.trim();
+    !boot.is_empty() && boot.bytes().all(|b| b.is_ascii_digit()) && csget(LIVEKEY).as_deref() == Some(boot)
+}
+
 fn write_empty(p: &Path) {
     let _ = fs::write(p, "");
 }
@@ -125,6 +131,23 @@ impl Ctx {
     fn injected(&self) -> bool {
         let a = self.pkgdir.join("android");
         a.exists() && mtime_s(&a) < bootts()
+    }
+
+    fn sysstate(&self) -> &'static str {
+        let sv = csget(SYSKEY).unwrap_or_default();
+        if !(sv == "1" || sv == "2") || !self.pkgdir.join("android").exists() {
+            return "off";
+        }
+        if !self.injected() {
+            return "pending";
+        }
+        if hook_confirmed() {
+            "live"
+        } else if uptime_s() < 120 {
+            "wait"
+        } else {
+            "failed"
+        }
     }
 
     fn sysmode(&self, core: &Core, val: &str) -> bool {
@@ -184,11 +207,11 @@ impl Ctx {
             "status" => {
                 let f = android.exists();
                 let sv = csget(SYSKEY).unwrap_or_default();
-                let mut st = "off";
-                if (sv == "1" || sv == "2") && f {
-                    st = if self.injected() { "live" } else { "pending" };
-                }
+                let st = self.sysstate();
                 say!("packages/android: {}   sys={}   state={}", if f { "ya" } else { "tidak" }, sv, st);
+                if st == "failed" {
+                    say!("hook system_server belum terkonfirmasi di boot ini (key live tidak cocok dengan boot_count)");
+                }
                 say!("log system hook (logcat -s GpsZ):");
                 for l in log_lines(&["-d", "-s", "GpsZ:I"], "system hook", true, 12) {
                     say!("{}", l);
@@ -408,6 +431,7 @@ pub fn run_cli(args: &[String]) -> i32 {
                 csget(BEATKEY).unwrap_or_default(),
                 std::fs::read_to_string("/proc/uptime").unwrap_or_default().split_whitespace().next().unwrap_or("")
             );
+            say!("system-hook={}", ctx.sysstate());
             if moddir.join("disable_trk").exists() {
                 say!("trk=dimatikan (disable_trk)");
             } else {
