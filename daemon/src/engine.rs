@@ -139,7 +139,7 @@ impl Core {
         let pref = if !self.prefc.is_empty() && Path::new(&self.prefc).is_file() {
             self.prefc.clone()
         } else {
-            find_pref(false)
+            find_pref("", false)
         };
         if pref.is_empty() || !Path::new(&pref).is_file() {
             return 2;
@@ -285,16 +285,10 @@ impl Core {
     }
 
     pub fn trk_pump(&mut self) -> bool {
-        let rt = match self.route.take() {
-            Some(r) => r,
+        let rt = match &self.route {
+            Some(r) => r.clone(),
             None => return false,
         };
-        let ok = self.pump_route(&rt);
-        self.route = Some(rt);
-        ok
-    }
-
-    fn pump_route(&mut self, rt: &Route) -> bool {
         self.pc = uptime_cs().unwrap_or(0);
         let el = (self.pc - rt.t0) * 10;
         let mut ix = if el < 0 { 1 } else { el / rt.tk + 1 };
@@ -311,7 +305,7 @@ impl Core {
             ix >= rt.nn && self.pc - self.hold_at >= 1000
         };
         if need {
-            return self.trk_win(rt, ix);
+            return self.trk_win(&rt, ix);
         }
         true
     }
@@ -356,7 +350,8 @@ impl Core {
             return false;
         }
         let _ = fs::write(self.lastf(), format!("{}\n", self.new));
-        self.mirror_cfg(&self.new);
+        let n = self.new.clone();
+        self.mirror_cfg(&n);
         true
     }
 

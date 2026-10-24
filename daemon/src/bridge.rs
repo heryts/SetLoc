@@ -52,7 +52,7 @@ pub fn ensure(moddir: &Path, super_only: bool) -> i32 {
 }
 
 fn app_pref() -> Option<PathBuf> {
-    let p = find_pref(false);
+    let p = find_pref("", false);
     if !p.is_empty() && Path::new(&p).is_file() {
         Some(PathBuf::from(p))
     } else {
@@ -138,7 +138,7 @@ pub fn status(moddir: &Path, core: &mut Core) {
     say!("app={}", yn(app_installed(), "installed", "missing"));
     let granted = run_all("dumpsys", &["package", APP]).1.contains("WRITE_SECURE_SETTINGS: granted=true");
     say!("secure_settings={}", yn(granted, "granted", "missing"));
-    let pref = find_pref(true);
+    let pref = find_pref("", true);
     if !pref.is_empty() && Path::new(&pref).is_file() {
         let px = read(Path::new(&pref));
         say!("pref=found");

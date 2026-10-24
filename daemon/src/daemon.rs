@@ -205,10 +205,12 @@ impl Daemon {
             .and_then(|r| r.1.split_whitespace().next().map(String::from))
             .unwrap_or_default();
         let stored = fs::read_to_string(moddir.join(".apk_sum")).unwrap_or_default();
-        if (!app_installed() || sum != stored.trim_end_matches('\n')) && install_app(&apk) {
-            let _ = fs::write(moddir.join(".apk_sum"), format!("{}\n", sum));
+        if !app_installed() || sum != stored.trim_end_matches('\n') {
+            if install_app(&apk) {
+                let _ = fs::write(moddir.join(".apk_sum"), format!("{}\n", sum));
+            }
         }
-        self.core.prefc = find_pref(false);
+        self.core.prefc = find_pref("", false);
         self.core.cur_bc = sget("boot_count");
         let _ = fs::write(self.core.stamp(), "");
         self.synced = self.core.prefc.clone();
@@ -220,11 +222,17 @@ impl Daemon {
         }
         start_super(&moddir);
         self.last = sig(&self.core.prefc);
+        self.delay_ms = 500;
+        self.n = 0;
+        self.playing = false;
+        self.sigevery = 10;
     }
 
     fn step_sync(&mut self) {
         let _ = fs::write(self.core.stamp(), "");
-        if sig(&self.core.prefc) != self.last {
+        self.synced = self.core.prefc.clone();
+        let s = sig(&self.core.prefc);
+        if s != self.last {
             sleep_ms(100);
         }
         let mut ok = false;
@@ -235,16 +243,17 @@ impl Daemon {
                 break;
             }
             sleep_ms(50);
-            self.core.prefc = find_pref(false);
-        }
-        if !ok {
-            self.core.fast = false;
-            ok = self.core.sync_cfg(false);
+            self.core.prefc.clear();
+            self.core.prefc = find_pref("", false);
         }
         if ok {
-            self.last = sig(&self.core.prefc);
+            self.last = s;
+        } else {
+            self.core.fast = false;
+            if self.core.sync_cfg(false) {
+                self.last = s;
+            }
         }
-        self.synced = self.core.prefc.clone();
     }
 
     fn main_loop(&mut self) -> i32 {
@@ -258,7 +267,8 @@ impl Daemon {
             }
             let missing = !Path::new(&self.core.prefc).is_file();
             if self.n % 20 == 0 || (missing && (!self.core.prefc.is_empty() || self.n % 5 == 0)) {
-                self.core.prefc = find_pref(false);
+                self.core.prefc.clear();
+                self.core.prefc = find_pref("", false);
             }
             if let Some(i) = self.ino.as_ref() {
                 if i.dead {
@@ -324,7 +334,7 @@ impl Daemon {
             let sn = uptime_cs().unwrap_or(0);
             if sn - self.suat >= self.super_check {
                 self.suat = sn;
-                start_super(&self.core.moddir);
+                start_super(&self.core.moddir.clone());
             }
         }
     }

@@ -37,6 +37,7 @@
     <string name="delete_favourite_item">Delete favourite</string>
     <string name="title_activity_settings">Settings</string>
 
+    <string name="route_options">Route options</string>
     <string name="route_channel_name">Route simulation</string>
     <string name="route_running">Following route…</string>
     <string name="route_stop">Stop</string>

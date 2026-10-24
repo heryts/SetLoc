@@ -12,8 +12,6 @@ import java.util.Locale
 
 private val COORDS = Regex("[-+]?\\d{1,3}([.]\\d+)?, *[-+]?\\d{1,3}([.]\\d+)?")
 
-internal fun isCoords(text: String): Boolean = COORDS.matches(text)
-
 data class PlaceCandidate(val label: String, val lat: Double, val lon: Double)
 
 private const val PHOTON_URL = "https://photon.komoot.io/api/?limit=5&q="
@@ -73,7 +71,7 @@ private suspend fun nominatimSearch(text: String): List<PlaceCandidate> {
 internal suspend fun searchPlaces(input: String): List<PlaceCandidate> =
     withContext(Dispatchers.IO) {
         val text = input.trim()
-        if (isCoords(text)) {
+        if (COORDS.matches(text)) {
             return@withContext parseCoords(text)
                 ?.let { listOf(PlaceCandidate(fmtCoords(it.first, it.second), it.first, it.second)) }
                 ?: emptyList()

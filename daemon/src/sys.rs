@@ -274,18 +274,6 @@ pub fn pidof(name: &str) -> Vec<String> {
     out
 }
 
-pub fn pid_running(name: &str) -> bool {
-    fs::read_dir("/proc").map_or(false, |rd| {
-        rd.flatten().any(|e| {
-            let f = e.file_name();
-            let pid = f.to_string_lossy();
-            pid.bytes().all(|b| b.is_ascii_digit())
-                && fs::read(format!("/proc/{}/cmdline", pid))
-                    .map_or(false, |b| b.split(|&c| c == 0).next() == Some(name.as_bytes()))
-        })
-    })
-}
-
 pub fn oom_protect() {
     let _ = fs::write("/proc/self/oom_score_adj", "-1000");
 }

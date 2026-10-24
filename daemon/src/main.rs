@@ -17,7 +17,9 @@ mod pref;
 mod supervisor;
 mod sys;
 
+use crate::codec::KEY;
 use crate::engine::Core;
+use crate::sys::csget;
 
 fn bridge_cmd(args: &[String]) -> i32 {
     let moddir = sys::moddir();
@@ -30,7 +32,11 @@ fn bridge_cmd(args: &[String]) -> i32 {
             0
         }
         "mirror" => {
-            core.mirror_from_settings();
+            if let Some(c) = csget(KEY) {
+                if !c.is_empty() {
+                    core.mirror_cfg(&c);
+                }
+            }
             0
         }
         "force" => {

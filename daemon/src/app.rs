@@ -64,7 +64,7 @@ pub fn poke_check(prefc: &str) {
     if now_s() - mtime_s(Path::new(prefc)) < 15 {
         return;
     }
-    if !sys::pid_running(APP) {
+    if sys::pidof(APP).is_empty() {
         return;
     }
     quiet_bg(vec![vec![

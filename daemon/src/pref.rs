@@ -41,7 +41,10 @@ fn walk(dir: &Path, depth: usize, name: &str) -> Option<PathBuf> {
     subdirs.into_iter().find_map(|d| walk(&d, depth + 1, name))
 }
 
-pub fn find_pref(deep: bool) -> String {
+pub fn find_pref(current: &str, deep: bool) -> String {
+    if !current.is_empty() && Path::new(current).is_file() {
+        return current.to_string();
+    }
     let d = data();
     let name = format!("{}_prefs.xml", APP);
     let patterns = [

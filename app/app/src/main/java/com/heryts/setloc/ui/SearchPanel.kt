@@ -149,6 +149,8 @@ internal class SearchPanel(
         refresh()
     }
 
+    private fun isCoords(t: String) = Regex("[-+]?\\d{1,3}([.]\\d+)?, *[-+]?\\d{1,3}([.]\\d+)?").matches(t)
+
     private fun onTextChanged(text: String) {
         clearBtn.visibility = if (text.isEmpty()) View.GONE else View.VISIBLE
         job?.cancel()
