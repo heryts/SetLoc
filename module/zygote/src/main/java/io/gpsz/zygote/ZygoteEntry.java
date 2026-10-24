@@ -6,8 +6,6 @@ import com.v7878.r8.annotations.DoNotShrink;
 import com.v7878.r8.annotations.DoNotShrinkType;
 import com.v7878.zygisk.ZygoteLoader;
 
-import android.util.Log;
-
 import java.io.File;
 
 @DoNotObfuscateType
@@ -45,34 +43,11 @@ public final class ZygoteEntry {
         LocationNative.ensureLoaded();
     }
 
-    private static int systemArm() {
-        try {
-            return SysGuard.arm(
-                    new File(ZygoteLoader.getModuleDir(), SysGuard.ENABLE),
-                    new File(ZygoteLoader.getModuleDir(), SysGuard.PENDING),
-                    new File(ZygoteLoader.getModuleDir(), SysGuard.BLOCKED));
-        } catch (Throwable t) {
-            return SysGuard.FAILED;
-        }
-    }
-
     @DoNotObfuscate
     @DoNotShrink
     public static void premain() {
-        if (isSelf()) return;
-        boolean ls = !disabled("disable_ls");
-        if (isSystemServer()) {
-            int arm = ls ? systemArm() : SysGuard.OFF;
-            boolean ready = false;
-            if (arm == SysGuard.ARMED) {
-                LsNative.setSysEnabled(true);
-                ready = LsNative.ensureLoaded();
-                loadRust();
-            }
-            Log.i("GpsZ", "system hook premain arm=" + arm + " lsplant=" + ready + " err=" + LsNative.loadError());
-            return;
-        }
-        if (ls) {
+        if (isSelf() || isSystemServer()) return;
+        if (!disabled("disable_ls")) {
             LsNative.setLocEnabled(!disabled("disable_ls_loc"));
             LsNative.setSetEnabled(!disabled("disable_ls_set"));
             LsNative.ensureLoaded();

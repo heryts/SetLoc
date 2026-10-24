@@ -29,7 +29,12 @@ pub struct Core {
     we: i64,
     hold_at: i64,
     pc: i64,
+    kv: String,
+    kv_at: i64,
 }
+
+// Cache KEY dipercaya paling lama 30 detik (cs), setelah itu diverifikasi ulang.
+const KV_TTL: i64 = 3000;
 
 pub fn tr_squeeze(b: &[u8]) -> String {
     let mut out = String::with_capacity(b.len());
@@ -93,6 +98,8 @@ impl Core {
             we: 0,
             hold_at: 0,
             pc: 0,
+            kv: String::new(),
+            kv_at: 0,
         }
     }
 
@@ -198,13 +205,13 @@ impl Core {
         if mc.ends_with(";pl=1") {
             return;
         }
-        let body = format!(
-            "cfg:{}\nsys:{}\nnet:{}\nbt:{}",
-            mc,
-            csget(SYSKEY).unwrap_or_default(),
-            csget(NETKEY).unwrap_or_default(),
-            csget(BTKEY).unwrap_or_default()
-        );
+        let (sy, ne, bt) = std::thread::scope(|s| {
+            let a = s.spawn(|| csget(SYSKEY).unwrap_or_default());
+            let b = s.spawn(|| csget(NETKEY).unwrap_or_default());
+            let c = csget(BTKEY).unwrap_or_default();
+            (a.join().unwrap_or_default(), b.join().unwrap_or_default(), c)
+        });
+        let body = format!("cfg:{}\nsys:{}\nnet:{}\nbt:{}", mc, sy, ne, bt);
         self.write_mirror(&self.cfgs(), &body, true);
         self.write_mirror(&self.cfgf(), &body, false);
     }
@@ -343,8 +350,14 @@ impl Core {
         }
         let prev = fs::read_to_string(self.lastf()).ok().and_then(|s| s.lines().next().map(String::from)).unwrap_or_default();
         if !force && self.new == prev {
-            let cur = csget(KEY).unwrap_or_default();
+            let now = uptime_cs().unwrap_or(0);
+            let cached = !self.kv.is_empty() && self.kv == self.new && now - self.kv_at < KV_TTL;
+            let cur = if cached { self.new.clone() } else { csget(KEY).unwrap_or_default() };
             if cur == self.new {
+                if !cached {
+                    self.kv = cur.clone();
+                    self.kv_at = now;
+                }
                 if self.mirror_stale(&cur) {
                     self.mirror_cfg(&cur);
                 }
@@ -352,8 +365,11 @@ impl Core {
             }
         }
         if !csput(KEY, &self.new) {
+            self.kv.clear();
             return false;
         }
+        self.kv = self.new.clone();
+        self.kv_at = uptime_cs().unwrap_or(0);
         let _ = fs::write(self.lastf(), format!("{}\n", self.new));
         self.mirror_cfg(&self.new);
         true

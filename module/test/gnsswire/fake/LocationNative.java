@@ -31,18 +31,6 @@ final class LocationNative {
         throw new UnsatisfiedLinkError("fake");
     }
 
-    static boolean nativeApplyInto(String provider, double lat, double lng, float spd, float brg, double alt, float accJit, float acc, long nowMs, double[] out) {
-        throw new UnsatisfiedLinkError("fake");
-    }
-
-    static boolean nativeStampInto(String provider, long nowNs, long wallMs, long[] out) {
-        throw new UnsatisfiedLinkError("fake");
-    }
-
-    static boolean nativeLastKnownInto(String provider, long nowNs, long wallMs, long phaseNs, long[] out) {
-        throw new UnsatisfiedLinkError("fake");
-    }
-
     private static GnssFake.Snapshot unpack(double[] a) {
         int n = (int) a[0];
         GnssFake.Snapshot s = new GnssFake.Snapshot(n);

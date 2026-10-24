@@ -123,28 +123,5 @@ final class LocationNative {
         return new long[]{fix, wallMs - (nowNs - fix) / 1_000_000L};
     }
 
-    static boolean nativeApplyInto(String provider, double lat, double lng, float spd, float brg, double alt, float accJit, float acc, long nowMs, double[] out) {
-        double[] r = nativeApply(provider, lat, lng, spd, brg, alt, accJit, acc, nowMs);
-        if (r == null || r.length < 13 || out == null || out.length < 13) return false;
-        System.arraycopy(r, 0, out, 0, 13);
-        return true;
-    }
-
-    static boolean nativeStampInto(String provider, long nowNs, long wallMs, long[] out) {
-        long[] r = nativeStamp(provider, nowNs, wallMs);
-        if (r == null || r.length < 2 || out == null || out.length < 2) return false;
-        out[0] = r[0];
-        out[1] = r[1];
-        return true;
-    }
-
-    static boolean nativeLastKnownInto(String provider, long nowNs, long wallMs, long phaseNs, long[] out) {
-        long[] r = nativeLastKnown(provider, nowNs, wallMs, phaseNs);
-        if (r == null || r.length < 2 || out == null || out.length < 2) return false;
-        out[0] = r[0];
-        out[1] = r[1];
-        return true;
-    }
-
     private LocationNative() { }
 }

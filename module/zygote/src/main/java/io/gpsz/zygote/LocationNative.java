@@ -24,12 +24,6 @@ final class LocationNative {
 
     static native long[] nativeLastKnown(String provider, long nowNs, long wallMs, long phaseNs);
 
-    static native boolean nativeApplyInto(String provider, double lat, double lng, float spd, float brg, double alt, float accJit, float acc, long nowMs, double[] out);
-
-    static native boolean nativeStampInto(String provider, long nowNs, long wallMs, long[] out);
-
-    static native boolean nativeLastKnownInto(String provider, long nowNs, long wallMs, long phaseNs, long[] out);
-
     static native long nativePhaseNs(long bootNs);
 
     static native double[] nativeSnapshot(double lat, double lng, float spd, float brg, double alt, float altVar, boolean random, float rr, long nowMs);

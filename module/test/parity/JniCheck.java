@@ -41,20 +41,6 @@ public class JniCheck {
     }
     check("nativeApply via JNI sama dengan Fix.apply Java (4 provider x 4 waktu x 5 varian)", applyOk);
 
-    boolean intoOk = true;
-    double[] buf = new double[13];
-    for (String pr : provs) for (long t : ts) for (float[] v : vars) {
-      double[] r = LocationNative.nativeApply(pr, -7.7, 110.4, v[0], v[1], 100.0, v[2], 10f, t);
-      java.util.Arrays.fill(buf, -999.0);
-      boolean ok = LocationNative.nativeApplyInto(pr, -7.7, 110.4, v[0], v[1], 100.0, v[2], 10f, t, buf);
-      for (int i = 0; i < 13 && ok; i++) if (Double.doubleToLongBits(r[i]) != Double.doubleToLongBits(buf[i])) ok = false;
-      if (!ok) { intoOk = false; System.out.println("  beda into: " + pr + " t=" + t); }
-    }
-    check("nativeApplyInto sama bit-per-bit dengan nativeApply", intoOk);
-    check("nativeApplyInto menolak array null dan array pendek",
-        !LocationNative.nativeApplyInto("gps", 0, 0, 0f, 0f, 0, 0f, 10f, 0L, null)
-        && !LocationNative.nativeApplyInto("gps", 0, 0, 0f, 0f, 0, 0f, 10f, 0L, new double[12]));
-
     long[] a = LocationNative.nativeStamp("gps", 10_000_000_000L, 1_000_000L);
     long[] b = LocationNative.nativeStamp("gps", 11_000_000_000L, 1_001_000L);
     check("nativeStamp: ns tidak lebih dari now, monoton, time konsisten",
@@ -62,17 +48,6 @@ public class JniCheck {
         && a[1] == 1_000_000L - (10_000_000_000L - a[0]) / 1_000_000L);
     long[] k = LocationNative.nativeLastKnown("gps", 12_000_000_000L, 1_002_000L, 123L);
     check("nativeLastKnown memakai stamp terakhir bila < 5 dtk", k != null && k[0] == b[0]);
-    long[] pb = new long[2];
-    boolean si = LocationNative.nativeStampInto("gps", 13_000_000_000L, 1_003_000L, pb);
-    check("nativeStampInto: ns tidak lebih dari now, monoton terhadap stamp sebelumnya, time konsisten",
-        si && pb[0] <= 13_000_000_000L && pb[0] > b[0] && pb[1] == 1_003_000L - (13_000_000_000L - pb[0]) / 1_000_000L);
-    long[] pk = new long[2];
-    boolean ki = LocationNative.nativeLastKnownInto("gps", 14_000_000_000L, 1_004_000L, 123L, pk);
-    long[] k2 = LocationNative.nativeLastKnown("gps", 14_000_000_000L, 1_004_000L, 123L);
-    check("nativeLastKnownInto sama dengan nativeLastKnown", ki && k2 != null && pk[0] == k2[0] && pk[1] == k2[1]);
-    check("nativeStampInto dan nativeLastKnownInto menolak null dan array pendek",
-        !LocationNative.nativeStampInto("gps", 1L, 1L, null) && !LocationNative.nativeStampInto("gps", 1L, 1L, new long[1])
-        && !LocationNative.nativeLastKnownInto("gps", 1L, 1L, 1L, null) && !LocationNative.nativeLastKnownInto("gps", 1L, 1L, 1L, new long[1]));
     long ph = LocationNative.nativePhaseNs(123_000_000_005L);
     check("nativePhaseNs dalam [0, 1 dtk)", ph >= 0 && ph < 1_000_000_000L);
     SystemClock.fake = 700000;

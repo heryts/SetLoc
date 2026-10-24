@@ -211,10 +211,19 @@ pub fn csput(key: &str, val: &str) -> bool {
 }
 
 pub fn uptime_cs() -> Option<i64> {
-    let s = fs::read_to_string("/proc/uptime").ok()?;
-    let first = s.split_whitespace().next()?;
-    let (i, f) = first.split_once('.')?;
-    format!("{}{}", i, f).parse().ok()
+    let mut buf = [0u8; 64];
+    let n = fs::File::open("/proc/uptime").and_then(|mut f| std::io::Read::read(&mut f, &mut buf)).ok()?;
+    let first = buf[..n].split(|b| b.is_ascii_whitespace()).next()?;
+    let mut v: i64 = 0;
+    let mut seen = false;
+    for &b in first {
+        match b {
+            b'0'..=b'9' => v = v.checked_mul(10)?.checked_add((b - b'0') as i64)?,
+            b'.' if !seen => seen = true,
+            _ => return None,
+        }
+    }
+    if seen { Some(v) } else { None }
 }
 
 pub fn uptime_s() -> i64 {
@@ -274,6 +283,16 @@ pub fn pidof(name: &str) -> Vec<String> {
     out
 }
 
+pub fn pid_running(name: &str) -> bool {
+    fs::read_dir("/proc").is_ok_and(|rd| {
+        rd.flatten().any(|e| {
+            let pid = e.file_name();
+            let pid = pid.to_string_lossy();
+            pid.bytes().all(|b| b.is_ascii_digit()) && cmdline(&pid).first().map(String::as_str) == Some(name)
+        })
+    })
+}
+
 pub fn oom_protect() {
     let _ = fs::write("/proc/self/oom_score_adj", "-1000");
 }
@@ -304,4 +323,31 @@ pub fn spawn_detached(args: &[&str]) -> bool {
 
 pub fn boot_completed() -> bool {
     run("getprop", &["sys.boot_completed"]).is_some_and(|r| r.1 == "1")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn uptime_parses_and_is_monotonic() {
+        let a = uptime_cs().unwrap();
+        let b = uptime_cs().unwrap();
+        assert!(a > 0 && b >= a);
+        let legacy = {
+            let s = fs::read_to_string("/proc/uptime").unwrap();
+            let (i, f) = s.split_whitespace().next().unwrap().split_once('.').unwrap();
+            format!("{}{}", i, f).parse::<i64>().unwrap()
+        };
+        assert!((legacy - uptime_cs().unwrap()).abs() < 100);
+    }
+
+    #[test]
+    fn pid_running_matches_pidof() {
+        let me = cmdline(&std::process::id().to_string());
+        let name = me.first().cloned().unwrap();
+        assert!(pid_running(&name));
+        assert!(!pid_running("/nonexistent/zzz"));
+        assert_eq!(pid_running(&name), !pidof(&name).is_empty());
+    }
 }

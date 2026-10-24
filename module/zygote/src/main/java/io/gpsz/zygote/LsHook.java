@@ -20,7 +20,6 @@ final class LsHook {
         private final Handler handler;
         private final boolean isStatic;
         private volatile Method backup;
-        private final Call self = this::invoke;
 
         Hooker(Handler handler, boolean isStatic) {
             this.handler = handler;
@@ -28,7 +27,7 @@ final class LsHook {
         }
 
         public Object callback(Object[] args) throws Throwable {
-            return handler.handle(args, self);
+            return handler.handle(args, this::invoke);
         }
 
         private Object invoke(Object[] args) throws Throwable {

@@ -2,8 +2,8 @@ pub mod fix;
 pub mod gnss;
 pub mod snapshot;
 
-use jni::objects::{JClass, JDoubleArray, JLongArray, JObject, JString};
-use jni::sys::{jboolean, jdouble, jdoubleArray, jfloat, jlong, jlongArray, jobjectArray, JNI_FALSE, JNI_TRUE};
+use jni::objects::{JClass, JDoubleArray, JObject, JString};
+use jni::sys::{jboolean, jdouble, jdoubleArray, jfloat, jlong, jlongArray, jobjectArray, JNI_FALSE};
 use jni::JNIEnv;
 use std::sync::{Mutex, OnceLock};
 
@@ -93,10 +93,23 @@ fn double_array(env: &JNIEnv, v: &[f64]) -> jdoubleArray {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn apply_out(p: &str, lat: f64, lng: f64, spd: f32, brg: f32, alt: f64, acc_jit: f32, acc: f32, now_ms: i64) -> [f64; 13] {
+#[no_mangle]
+pub extern "system" fn Java_io_gpsz_zygote_LocationNative_nativeApply(
+    mut env: JNIEnv,
+    _c: JClass,
+    provider: JString,
+    lat: jdouble,
+    lng: jdouble,
+    spd: jfloat,
+    brg: jfloat,
+    alt: jdouble,
+    acc_jit: jfloat,
+    acc: jfloat,
+    now_ms: jlong,
+) -> jdoubleArray {
+    let p = opt_string(&mut env, &provider).unwrap_or_default();
     let pt = fix::Pt { lat, lng, at: now_ms, spd, brg, alt, acc_jit };
-    let a = fix::apply(p, &pt, acc, seed(), now_ms);
+    let a = fix::apply(&p, &pt, acc, seed(), now_ms);
     let mut out = [0.0f64; 13];
     out[0] = a.lat;
     out[1] = a.lng;
@@ -121,57 +134,7 @@ fn apply_out(p: &str, lat: f64, lng: f64, spd: f32, brg: f32, alt: f64, acc_jit:
         out[12] = third as f64;
     }
     out[3] = flags as f64;
-    out
-}
-
-#[no_mangle]
-pub extern "system" fn Java_io_gpsz_zygote_LocationNative_nativeApply(
-    mut env: JNIEnv,
-    _c: JClass,
-    provider: JString,
-    lat: jdouble,
-    lng: jdouble,
-    spd: jfloat,
-    brg: jfloat,
-    alt: jdouble,
-    acc_jit: jfloat,
-    acc: jfloat,
-    now_ms: jlong,
-) -> jdoubleArray {
-    let p = opt_string(&mut env, &provider).unwrap_or_default();
-    let out = apply_out(&p, lat, lng, spd, brg, alt, acc_jit, acc, now_ms);
     double_array(&env, &out)
-}
-
-#[no_mangle]
-pub extern "system" fn Java_io_gpsz_zygote_LocationNative_nativeApplyInto(
-    mut env: JNIEnv,
-    _c: JClass,
-    provider: JString,
-    lat: jdouble,
-    lng: jdouble,
-    spd: jfloat,
-    brg: jfloat,
-    alt: jdouble,
-    acc_jit: jfloat,
-    acc: jfloat,
-    now_ms: jlong,
-    out: JDoubleArray,
-) -> jboolean {
-    if out.as_raw().is_null() {
-        return JNI_FALSE;
-    }
-    match env.get_array_length(&out) {
-        Ok(n) if n >= 13 => {}
-        _ => return JNI_FALSE,
-    }
-    let p = opt_string(&mut env, &provider).unwrap_or_default();
-    let a = apply_out(&p, lat, lng, spd, brg, alt, acc_jit, acc, now_ms);
-    if env.set_double_array_region(&out, 0, &a).is_ok() {
-        JNI_TRUE
-    } else {
-        JNI_FALSE
-    }
 }
 
 #[no_mangle]
@@ -204,61 +167,6 @@ pub extern "system" fn Java_io_gpsz_zygote_LocationNative_nativeLastKnown(
     let (ns, ms) = g.stamper.last_known(&p, now_ns, wall_ms, phase_ns);
     drop(g);
     long_pair(&env, ns, ms)
-}
-
-fn pair_into(env: &JNIEnv, out: &JLongArray, a: i64, c: i64) -> jboolean {
-    if env.set_long_array_region(out, 0, &[a, c]).is_ok() {
-        JNI_TRUE
-    } else {
-        JNI_FALSE
-    }
-}
-
-fn pair_ok(env: &JNIEnv, out: &JLongArray) -> bool {
-    if out.as_raw().is_null() {
-        return false;
-    }
-    matches!(env.get_array_length(out), Ok(n) if n >= 2)
-}
-
-#[no_mangle]
-pub extern "system" fn Java_io_gpsz_zygote_LocationNative_nativeStampInto(
-    mut env: JNIEnv,
-    _c: JClass,
-    provider: JString,
-    now_ns: jlong,
-    wall_ms: jlong,
-    out: JLongArray,
-) -> jboolean {
-    if !pair_ok(&env, &out) {
-        return JNI_FALSE;
-    }
-    let p = opt_string(&mut env, &provider).unwrap_or_default();
-    let mut g = state().lock().unwrap_or_else(|e| e.into_inner());
-    let State { stamper, rng } = &mut *g;
-    let (ns, ms) = stamper.stamp(&p, now_ns, wall_ms, &mut |bound| next_int(rng, bound));
-    drop(g);
-    pair_into(&env, &out, ns, ms)
-}
-
-#[no_mangle]
-pub extern "system" fn Java_io_gpsz_zygote_LocationNative_nativeLastKnownInto(
-    mut env: JNIEnv,
-    _c: JClass,
-    provider: JString,
-    now_ns: jlong,
-    wall_ms: jlong,
-    phase_ns: jlong,
-    out: JLongArray,
-) -> jboolean {
-    if !pair_ok(&env, &out) {
-        return JNI_FALSE;
-    }
-    let p = opt_string(&mut env, &provider).unwrap_or_default();
-    let g = state().lock().unwrap_or_else(|e| e.into_inner());
-    let (ns, ms) = g.stamper.last_known(&p, now_ns, wall_ms, phase_ns);
-    drop(g);
-    pair_into(&env, &out, ns, ms)
 }
 
 #[no_mangle]

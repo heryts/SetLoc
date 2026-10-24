@@ -273,8 +273,8 @@ impl Daemon {
             } else if self.n % 20 == 0 {
                 self.ino_up();
             }
-            let parent = Path::new(&self.core.prefc).parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
-            if self.ino.as_ref().is_some_and(|i| !i.dead && i.dir != parent) {
+            let parent = Path::new(&self.core.prefc).parent().unwrap_or(Path::new(""));
+            if self.ino.as_ref().is_some_and(|i| !i.dead && Path::new(&i.dir) != parent) {
                 self.ino_up();
             }
             let rt_ok = self.core.route.is_some();
