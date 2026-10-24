@@ -33,12 +33,14 @@ final class Frames {
         BOX.put(double.class, Double.class);
     }
 
-    private static final class LsFrame implements Fr {
+    private static final class LsFrame implements Fr, Orig {
         final Object[] args;
+        final LsHook.Call original;
         Object ret;
 
-        LsFrame(Object[] args) {
+        LsFrame(Object[] args, LsHook.Call original) {
             this.args = args;
+            this.original = original;
         }
 
         @Override
@@ -51,10 +53,16 @@ final class Frames {
             if (idx == RET) ret = value;
             else args[idx] = value;
         }
+
+        @Override
+        public void invoke() throws Throwable {
+            ret = original.call(args);
+        }
     }
 
     static Object coerce(Class<?> rt, Object v) {
         if (rt == void.class) return null;
+        if (!rt.isPrimitive()) return rt.isInstance(v) ? v : null;
         Class<?> box = BOX.get(rt);
         if (box == null) return rt.isInstance(v) ? v : null;
         if (box.isInstance(v)) return v;
@@ -80,8 +88,8 @@ final class Frames {
         if (!ls || !LsNative.isReady()) return false;
         final Class<?> rt = m.getReturnType();
         return LsHook.hook(m, (args, original) -> {
-            final LsFrame f = new LsFrame(args);
-            tx.run(() -> f.ret = original.call(f.args), f);
+            final LsFrame f = new LsFrame(args, original);
+            tx.run(f, f);
             return coerce(rt, f.ret);
         });
     }
