@@ -12,7 +12,7 @@ type UnhookFn = unsafe extern "C" fn(*mut c_void) -> bool;
 type ResolveFn = unsafe extern "C" fn(*const c_char) -> *mut c_void;
 
 #[repr(C)]
-struct InvokeInterface {
+pub struct InvokeInterface {
     reserved0: *mut c_void,
     reserved1: *mut c_void,
     reserved2: *mut c_void,
