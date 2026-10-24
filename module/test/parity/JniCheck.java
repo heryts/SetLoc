@@ -15,7 +15,8 @@ public class JniCheck {
   }
 
   public static void main(String[] x) {
-    System.load(System.getenv("LOCHOOKS_SO"));
+    check("library configcore dan lochooks termuat", ConfigNative.ensureLoaded() && LocationNative.ensureLoaded());
+    check("Config.ready(): codec, cfg, dan loc lolos verifikasi", Config.ready());
     String[] provs = {"gps", "network", "fused", "passive"};
     float[][] vars = {{0f, Float.NaN, 0.2f}, {5f, 90f, 0.2f}, {0.3f, 10f, -0.6f}, {1f, Float.NaN, -10f}, {33f, 359.5f, 0.9f}};
     long[] ts = {0, 77000, 1234567, 99999999};
@@ -39,7 +40,7 @@ public class JniCheck {
       }
       if (!ok) { applyOk = false; System.out.println("  beda: " + pr + " t=" + t + " v=" + java.util.Arrays.toString(v)); }
     }
-    check("nativeApply via JNI sama dengan Fix.apply Java (4 provider x 4 waktu x 5 varian)", applyOk);
+    check("nativeApply via JNI sama dengan Fix.apply (4 provider x 4 waktu x 5 varian)", applyOk);
 
     boolean intoOk = true;
     double[] buf = new double[13];
@@ -80,7 +81,7 @@ public class JniCheck {
     Config.snap = null;
     Config.Pt jp = Config.snapshot();
     double[] sp = LocationNative.nativeSnapshot(-7.7, 110.4, 5f, 45f, 100.0, 3f, true, 8f, 700000);
-    check("nativeSnapshot via JNI sama dengan Config.snapshot Java",
+    check("nativeSnapshot via JNI sama dengan Config.snapshot",
         near(jp.lat, sp[0], 1e-12) && near(jp.lng, sp[1], 1e-12) && near(jp.alt, sp[5], 1e-12) && near(jp.accJit, sp[6], 1e-6) && near(jp.spd, sp[3], 1e-9) && near(jp.brg, sp[4], 1e-9));
     System.out.println(fails == 0 ? "SEMUA LULUS" : "GAGAL: " + fails);
     System.exit(fails == 0 ? 0 : 1);

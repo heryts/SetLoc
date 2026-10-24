@@ -1,33 +1,25 @@
 package io.gpsz.zygote;
 
 import android.location.Location;
-import android.location.LocationManager;
 import android.os.Bundle;
 import android.os.SystemClock;
 
 import java.lang.reflect.Method;
-import java.util.Map;
-import java.util.Random;
-import java.util.concurrent.ConcurrentHashMap;
 
 final class Fix {
-    private static final Random RND = new Random();
     private static final long PHASE_NS = initPhase();
 
     private static long initPhase() {
-        long boot = SystemClock.elapsedRealtimeNanos();
-        if (Config.locNative()) {
-            try {
-                return LocationNative.nativePhaseNs(boot);
-            } catch (Throwable ignored) { }
+        try {
+            return LocationNative.nativePhaseNs(SystemClock.elapsedRealtimeNanos());
+        } catch (Throwable ignored) {
+            return 0L;
         }
-        return (long) (Config.hashUnit(901, boot / 1_000_000_000L) * 1e9);
     }
 
     private static final ThreadLocal<double[]> APPLY_BUF = ThreadLocal.withInitial(() -> new double[13]);
     private static final ThreadLocal<long[]> PAIR_BUF = ThreadLocal.withInitial(() -> new long[2]);
 
-    private static final Map<String, Long> LAST_NS = new ConcurrentHashMap<>();
     private static boolean resolved = false;
     private static Method setMock, removeMsl, removeMslAcc;
 
@@ -51,10 +43,6 @@ final class Fix {
         return null;
     }
 
-    static boolean isNetwork(String provider) {
-        return LocationManager.NETWORK_PROVIDER.equals(provider);
-    }
-
     static void clearMock(Location l) {
         resolve();
         if (setMock == null) return;
@@ -68,21 +56,6 @@ final class Fix {
         } catch (Throwable ignored) { }
     }
 
-    private static void applyMotion(Location l, Config.Pt p) {
-        l.setAltitude(p.alt);
-        l.setSpeed(p.spd > 0.3f ? Math.max(0f, p.spd + p.accJit * 0.15f) : p.spd);
-        l.setVerticalAccuracyMeters(Config.vAcc(p));
-        l.setSpeedAccuracyMetersPerSecond(Config.sAcc(p));
-        if (Float.isNaN(p.brg)) {
-            l.removeBearing();
-            l.removeBearingAccuracy();
-        } else {
-            l.setBearing(p.brg);
-            l.setBearingAccuracyDegrees(Config.bAcc(p));
-        }
-        clearHidden(l);
-    }
-
     private static void clearMotion(Location l) {
         l.removeSpeedAccuracy();
         l.removeBearingAccuracy();
@@ -91,11 +64,6 @@ final class Fix {
         l.removeAltitude();
         l.removeBearing();
         clearHidden(l);
-    }
-
-    private static void putExtras(Location l) {
-        int[] g = Config.gnssExtras();
-        putExtras(l, g[0], g[1], g[2]);
     }
 
     private static void putExtras(Location l, int sat, int mean, int maxCn0) {
@@ -145,57 +113,22 @@ final class Fix {
 
     static void apply(Location l, String provider, Config.Pt p) {
         resolve();
-        if (Config.locNative() && applyNative(l, provider, p)) {
-            clearMock(l);
-            return;
-        }
-        if (isNetwork(provider)) {
-            double[] off = Config.networkOffset(p.lat);
-            l.setLatitude(p.lat + off[0]);
-            l.setLongitude(p.lng + off[1]);
-            l.setAccuracy(Config.networkAccuracy(Config.accNow(p)));
-            clearMotion(l);
-        } else {
-            l.setLatitude(p.lat);
-            l.setLongitude(p.lng);
-            l.setAccuracy(Config.accNow(p));
-            applyMotion(l, p);
-            if (LocationManager.GPS_PROVIDER.equals(provider)
-                    || LocationManager.FUSED_PROVIDER.equals(provider)) putExtras(l);
-        }
+        if (!applyNative(l, provider, p)) return;
         clearMock(l);
     }
 
     static void stamp(Location l, String provider) {
         long nowNs = SystemClock.elapsedRealtimeNanos();
-        if (Config.locNative()) {
-            try {
-                final long[] r = PAIR_BUF.get();
-                if (LocationNative.nativeStampInto(provider, nowNs, System.currentTimeMillis(), r)) {
-                    l.setElapsedRealtimeNanos(r[0]);
-                    l.setTime(r[1]);
-                    return;
-                }
-            } catch (Throwable ignored) { }
-        }
-        long fixNs = nowNs - (30L + RND.nextInt(90)) * 1_000_000L;
-        synchronized (LAST_NS) {
-            Long last = LAST_NS.get(provider);
-            if (last != null) {
-                if (!isNetwork(provider)) {
-                    long jitter = (RND.nextInt(101) - 50) * 1_000_000L;
-                    long snapped = last + 1_000_000_000L + jitter;
-                    long age = nowNs - snapped;
-                    if (Math.abs(snapped - fixNs) < 100_000_000L && age >= 20_000_000L && age <= 160_000_000L) fixNs = snapped;
-                }
-                if (fixNs <= last) fixNs = Math.min(last + 1_000_000L, nowNs);
+        try {
+            final long[] r = PAIR_BUF.get();
+            if (LocationNative.nativeStampInto(provider, nowNs, System.currentTimeMillis(), r)) {
+                l.setElapsedRealtimeNanos(r[0]);
+                l.setTime(r[1]);
+                return;
             }
-            if (fixNs > nowNs) fixNs = nowNs;
-            LAST_NS.put(provider, fixNs);
-        }
-        long ageMs = (nowNs - fixNs) / 1_000_000L;
-        l.setElapsedRealtimeNanos(fixNs);
-        l.setTime(System.currentTimeMillis() - ageMs);
+        } catch (Throwable ignored) { }
+        l.setElapsedRealtimeNanos(nowNs);
+        l.setTime(System.currentTimeMillis());
     }
 
     static Location at(String provider) {
@@ -213,26 +146,16 @@ final class Fix {
     static Location lastKnown(String provider) {
         Location l = at(provider);
         long nowNs = SystemClock.elapsedRealtimeNanos();
-        if (Config.locNative()) {
-            try {
-                final long[] r = PAIR_BUF.get();
-                if (LocationNative.nativeLastKnownInto(provider, nowNs, System.currentTimeMillis(), PHASE_NS, r)) {
-                    l.setElapsedRealtimeNanos(r[0]);
-                    l.setTime(r[1]);
-                    return l;
-                }
-            } catch (Throwable ignored) { }
-        }
-        long fixNs;
-        Long last = LAST_NS.get(provider);
-        if (last != null && nowNs - last < 5_000_000_000L) {
-            fixNs = last;
-        } else {
-            fixNs = nowNs - Math.floorMod(nowNs - PHASE_NS, 1_000_000_000L);
-            if (fixNs > nowNs) fixNs = nowNs;
-        }
-        l.setElapsedRealtimeNanos(fixNs);
-        l.setTime(System.currentTimeMillis() - (nowNs - fixNs) / 1_000_000L);
+        try {
+            final long[] r = PAIR_BUF.get();
+            if (LocationNative.nativeLastKnownInto(provider, nowNs, System.currentTimeMillis(), PHASE_NS, r)) {
+                l.setElapsedRealtimeNanos(r[0]);
+                l.setTime(r[1]);
+                return l;
+            }
+        } catch (Throwable ignored) { }
+        l.setElapsedRealtimeNanos(nowNs);
+        l.setTime(System.currentTimeMillis());
         return l;
     }
 

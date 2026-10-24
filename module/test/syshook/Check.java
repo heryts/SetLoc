@@ -79,6 +79,7 @@ public final class Check {
     }
 
     public static void main(String[] args) throws Throwable {
+    ConfigNative.ensureLoaded(); LocationNative.ensureLoaded();
         String mode = args.length > 0 ? args[0] : "ok";
         resolve();
         LegacyFrame.broken = mode.equals("broken");

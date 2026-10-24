@@ -13,6 +13,7 @@ public class ParseTest {
     Config.parse("enabled=1;lat=-7.7;lng=110.4;acc=10;random=0;spd=0;alt=5;altv=0;rr=8");
   }
   public static void main(String[] x) {
+    ConfigNative.ensureLoaded(); LocationNative.ensureLoaded();
     eq("null tidak melempar", noThrow(null), true);
     eq("null mematikan", Config.enabled, false);
     eq("string \"null\" tidak melempar", noThrow("null"), true);

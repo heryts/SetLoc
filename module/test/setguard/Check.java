@@ -37,6 +37,7 @@ public final class Check {
     }
 
     public static void main(String[] args) throws Throwable {
+    ConfigNative.ensureLoaded(); LocationNative.ensureLoaded();
         System.out.println("[pemasangan]");
         reset();
         LsNative.ready = true;

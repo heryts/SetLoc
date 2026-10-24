@@ -1,5 +1,7 @@
 # native/
 
+> Catatan (v11): semua penyebutan "cadangan ke Java", "jalur Java", `snapshotJava`/`nmeaJava`/`measJava`, `tagJava`/`encJava`/`decJava`, serta suite `rswire`, `cfgwire`, `gnssfake`, dan `ParityDump` di bawah adalah sejarah; semuanya sudah dibuang (lihat bagian v11 di akhir).
+
 > Catatan: Fase 1-11 di bawah menggambarkan keadaan saat fase itu dikerjakan. Pembuangan jalur lama dan AndroidVMTools di Fase 12 dibalik sebagian di Fase 13: AndroidVMTools kembali, hanya untuk `system_server` (lihat bagian terakhir).
 
 Status: `configcore` dan `lochooks` sudah dikompilasi dan diuji di host (cargo test, paritas Java vs Rust, dan JNI lewat JVM). `hook/` (Fase 4) lolos cek sintaks terhadap header asli LSPlant dan ShadowHook, dan logika Java-nya diuji di JVM dengan mesin hook palsu. Fase 5 dan 6 memindahkan `LocationHooks` dan `SettingsGuard` ke jalur LSPlant, dan Fase 7 `SystemHooks` (opt-in, di `system_server`); semuanya diuji di JVM dengan mesin hook palsu yang sama. Fase 8 menyambungkan `ConfigNative` dan `LocationNative` ke `Config` dan `Fix`, dengan cadangan ke Java. Fase 9 menambah ekspor JNI `parse`, `parseTrack`, `applyTrack`, dan beat di `configcore` dan menyambungkannya ke `Config`, dengan cadangan ke Java. Fase 11 memindahkan bagian murni `GnssFake` (kumpulan satelit, snapshot, kalimat NMEA, angka measurements) ke `lochooks`, dengan cadangan ke Java. Belum ada yang dikompilasi untuk target Android atau diuji di perangkat.
@@ -243,7 +245,7 @@ Perubahan kecil di Java agar bisa diuji: `Config.gnssExtras()` sekarang memanggi
 - `cargo xtask keystore <key.pem> <cert.pem> [out.p12]` membuat PKCS12 dan `app/keystore.properties`; password dibaca dari terminal tanpa echo dan diteruskan ke `openssl` lewat env.
 - `cargo xtask setup` sudah dihapus di Fase 12 (AndroidVMTools tidak dipakai lagi).
 - `cargo xtask update [zip-atau-folder]` seperti sebelumnya; kalau `tools/xtask` di source baru berbeda dari yang sedang berjalan, xtask baru dibangun dari source baru dulu (sama seperti shim `update.sh` lama). `make-keystore.sh`, `setup.sh`, dan `update.sh` yang masih ada di repo dihapus.
-- `cargo xtask test [bagian...]` menjalankan harness: `sintaks`, `daemon`, `supervisor`, `keystore`, `install`, `service`, `kunci`, `struktur`, `webui`, `native` (cargo test configcore dan lochooks), serta suite Java `beat`, `idmap`, `lshook`, `lochook`, `setguard`, `syshook`, `sysguard`, `rswire`, `parity`, `cfgwire`. Grup `java` dan `native` menjalankan semua suite di grupnya. Binary daemon dari `SETLOCD_BIN` atau dibangun dengan `cargo build --release` di `daemon/`; `CONFIGCORE_SO` menunjuk ke `libconfigcore.so` host untuk `cfgwire`.
+- `cargo xtask test [bagian...]` menjalankan harness: `sintaks`, `daemon`, `supervisor`, `keystore`, `install`, `service`, `kunci`, `struktur`, `webui`, `native` (cargo test configcore dan lochooks), serta suite Java `beat`, `idmap`, `unsafe`, `lshook`, `lochook`, `setguard`, `syshook`, `parity`, `gnsswire` (suite `rswire`, `cfgwire`, `gnssfake` dibuang di v11). Grup `java` dan `native` menjalankan semua suite di grupnya. Binary daemon dari `SETLOCD_BIN` atau dibangun dengan `cargo build --release` di `daemon/`; `CONFIGCORE_SO` dan `LOCHOOKS_SO` menunjuk ke `.so` host bila tidak mau membangun lewat cargo; suite Java memuatnya lewat `-Djava.library.path`.
 - Salt dan tag kunci dibaca dari `.salt` (bukan lagi ditulis ulang ke `run.sh`), jadi `rotate-salt` tidak menyentuh file tes lagi. Kunci `Config` untuk `beat` dihitung dari salt, bukan dibaca dari `bridge.sh`/`gpsz.sh` yang kini hanya stub.
 - Kode xtask belum pernah dikompilasi atau dijalankan di lingkungan tempat ini ditulis (tidak ada cargo); jalankan `cargo test --manifest-path tools/xtask/Cargo.toml` dan `cargo xtask test` di mesin build.
 
@@ -362,3 +364,20 @@ Bukti di perangkat (Infinix X6886): `logcat -s SetLocRoute` menampilkan `routeco
 
 ## v10: baris `system hook ... rs=` diulang tiap 5 menit
 Bukti di perangkat (Infinix X6886): `/proc/<system_server>/maps` memuat `libconfigcore.so` dan `liblochooks.so` dari folder modul, jadi digit 1 dan 2 pada `rs=` terbukti. Digit 3 dan 4 (paritas `Config` dan `Fix`) belum terlihat: baris log hanya ditulis sekali saat boot dan sudah hilang dari buffer logcat (`logcat -b all -d | grep -c GpsZ` = 0). `SystemHooks.note()` sekarang mengulang baris status yang sama tiap 5 menit (`NOTE_REPEAT_MS`), dan jalur "hook sudah terpasang" di `install()` ikut memanggilnya, jadi baris itu tetap ada di buffer selama `system_server` hidup. Tes `syshook`, `sysguard`, `struktur`, dan `lochook` lulus. Step 3 (buang Java kembar) menunggu `rs=1111`.
+
+## v11: salinan Java kembar dibuang, modul gagal tertutup
+Dibuang dari `module/zygote`: `tagJava`/`encJava`/`decJava`, parse dan `parseTrack` Java, `applyTrack` Java, `checkBeat` Java, jitter dan snapshot Java, `gauss`, `accNow`/`vAcc`/`sAcc`/`bAcc`, `networkOffset`/`networkAccuracy`, `gnssExtras`, `altitudeNow`, `lerpAngle`, `inRange`, serta di `GnssFake`: `Sat`/`POOL`/`snapshotJava`/`nmeaJava`/`measJava`/`sameSnapshot`. Tetap di Java: `SALT`, `SEED`, `hashUnit`, `verifyLoc` (dipakai `LocationHooks` dan penjadwalan `GnssFake`).
+
+Perilaku:
+- `Config.ready()` = codec, cfg, dan loc lolos verifikasi. Verifikasi codec membandingkan `nativeEnc` dari NUL dengan hex `SALT`, jadi library yang dibangun dengan salt lama ditolak.
+- Bila `!Config.ready()`: `Config.startPolling` tidak berjalan, `SettingsGuard.install()` tidak memasang apa pun, dan `Config.enabled` tetap false, sehingga lokasi asli lewat tanpa diubah. `Fix` hanya punya jalur native; bila native gagal di tengah jalan, lokasi tidak diubah dan `stamp`/`lastKnown` memakai waktu sekarang.
+- `disable_rs` dan `disable_rs_sys` kini berarti modul inert di proses terkait, bukan kembali ke Java.
+- Batas salin track ke Rust naik dari 200.000 ke 4.000.000 titik (sama dengan batas Rust), supaya tidak ada rute yang dulu jatuh ke Java.
+- Risiko yang harus diuji di perangkat: bila `rs=` bukan `1111` (mis. Samsung Android 16, Android 13/14), modul inert. Uji dulu di perangkat lain sebelum rilis luas, atau simpan v10 sebagai cadangan.
+
+Tes:
+- `parity` (`JniCheck`), `gnsswire`, `beat`, `lochook`, `setguard`, `syshook` memuat `libconfigcore.so` dan `liblochooks.so` asli lewat `-Djava.library.path` (dibangun `cargo build --release` atau lewat `CONFIGCORE_SO`/`LOCHOOKS_SO`). Tiap `main` memanggil `ConfigNative.ensureLoaded()` dan `LocationNative.ensureLoaded()` lebih dulu.
+- `GnssWire` memakai vektor tetap: NMEA dicocokkan persis, waktu tempuh dan epoch `measurements` dicocokkan persis, laju pseudorange hanya dalam ±3 dari dasarnya (bergantung salt), snapshot lewat invarian dan determinisme.
+- Dihapus: `module/test/rswire`, `cfgwire`, `parity/ParityDump.java`, `gnsswire/fake`, `native/lochooks/examples/parity.rs`. Cek `accNow`/`networkOffset` di `BeatTest` dibuang.
+- Status verifikasi: seluruh kode produksi dan tes dikompilasi dengan javac tanpa error, dan harness xtask terkompilasi. Suite yang butuh library Rust asli belum dijalankan setelah perubahan ini (sandbox tanpa akses crates.io); jalankan `cargo xtask test` di mesin build sebelum memakai hasilnya.
+

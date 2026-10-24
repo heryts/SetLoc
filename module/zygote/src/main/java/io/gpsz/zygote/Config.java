@@ -21,25 +21,25 @@ import java.util.function.BooleanSupplier;
 
 final class Config {
     private static final String SALT = "Vzvwk4Rxj7Ps";
-    private static final String HEX = "0123456789abcdef";
-
     private static final boolean CODEC_NATIVE = verifyCodec();
 
     private static boolean verifyCodec() {
         if (!ConfigNative.ready()) return false;
         try {
+            StringBuilder saltHex = new StringBuilder();
+            for (int i = 0; i < SALT.length(); i++) saltHex.append(String.format("%02x", SALT.charAt(i) & 0xFF));
             String probe = "cfg:1;ab";
-            String e = encJava(probe);
-            return tagJava("cfg").equals(ConfigNative.nativeTag("cfg"))
-                    && e.equals(ConfigNative.nativeEnc(probe))
-                    && probe.equals(ConfigNative.nativeDec(e));
+            String tag = ConfigNative.nativeTag("cfg");
+            return saltHex.toString().equals(ConfigNative.nativeEnc("\0".repeat(SALT.length())))
+                    && probe.equals(ConfigNative.nativeDec(ConfigNative.nativeEnc(probe)))
+                    && tag != null && tag.length() == 6;
         } catch (Throwable t) {
             return false;
         }
     }
 
     private static final AtomicLong TRACK_GEN = new AtomicLong();
-    private static final int NATIVE_TRACK_MAX_N = 200_000;
+    private static final int NATIVE_TRACK_MAX_N = 4_000_000;
 
     private static final boolean CFG_NATIVE = verifyCfg();
 
@@ -72,58 +72,39 @@ final class Config {
     }
 
     static boolean cfgNative() {
-        return CFG_NATIVE;
+        return CODEC_NATIVE && CFG_NATIVE;
+    }
+
+    static boolean ready() {
+        return CODEC_NATIVE && CFG_NATIVE && LOC_NATIVE;
     }
 
     static String tag(String logical) {
-        if (CODEC_NATIVE) {
-            try {
-                String r = ConfigNative.nativeTag(logical);
-                if (r != null) return r;
-            } catch (Throwable ignored) { }
+        if (!CODEC_NATIVE) return null;
+        try {
+            return ConfigNative.nativeTag(logical);
+        } catch (Throwable t) {
+            return null;
         }
-        return tagJava(logical);
-    }
-
-    private static String tagJava(String logical) {
-        String s = SALT + logical;
-        int h = 0x811C9DC5;
-        for (int i = 0; i < s.length(); i++) {
-            int o = s.charAt(i) & 0xFF;
-            h = ((h ^ o) * 16777619) & 0x7FFFFFFF;
-        }
-        return String.format("%06x", h & 0xFFFFFF);
     }
 
     static String enc(String plain) {
-        if (plain == null) return null;
-        if (CODEC_NATIVE && isAscii(plain)) {
-            try {
-                String r = ConfigNative.nativeEnc(plain);
-                if (r != null) return r;
-            } catch (Throwable ignored) { }
+        if (plain == null || !CODEC_NATIVE || !isAscii(plain)) return null;
+        try {
+            return ConfigNative.nativeEnc(plain);
+        } catch (Throwable t) {
+            return null;
         }
-        return encJava(plain);
-    }
-
-    private static String encJava(String plain) {
-        StringBuilder out = new StringBuilder(plain.length() * 2);
-        for (int i = 0; i < plain.length(); i++) {
-            int v = ((plain.charAt(i) & 0xFF) + (SALT.charAt(i % SALT.length()) & 0xFF)) & 0xFF;
-            out.append(HEX.charAt(v >>> 4)).append(HEX.charAt(v & 15));
-        }
-        return out.toString();
     }
 
     static String dec(String hex) {
-        if (hex == null) return null;
-        if (CODEC_NATIVE) {
-            try {
-                String r = ConfigNative.nativeDec(hex);
-                if (r != null && isAscii(r)) return r;
-            } catch (Throwable ignored) { }
+        if (hex == null || !CODEC_NATIVE) return null;
+        try {
+            String r = ConfigNative.nativeDec(hex);
+            return r != null && isAscii(r) ? r : null;
+        } catch (Throwable t) {
+            return null;
         }
-        return decJava(hex);
     }
 
     private static boolean isAscii(String s) {
@@ -131,21 +112,6 @@ final class Config {
             if (s.charAt(i) > 0x7F) return false;
         }
         return true;
-    }
-
-    private static String decJava(String hex) {
-        StringBuilder out = new StringBuilder(hex.length() / 2);
-        try {
-            for (int i = 0; i + 1 < hex.length(); i += 2) {
-                int xv = Integer.parseInt(hex.substring(i, i + 2), 16);
-                int kv = SALT.charAt((i / 2) % SALT.length()) & 0xFF;
-                int v = ((xv - kv) % 256 + 256) % 256;
-                out.append((char) v);
-            }
-        } catch (Throwable t) {
-            return null;
-        }
-        return out.toString();
     }
 
     static final String KEY = tag("cfg");
@@ -157,7 +123,6 @@ final class Config {
     static final String KEY_LIVE = tag("live");
     private static final String[] FILE_PATHS = {"/data/system/gpsz_config", "/data/adb/gpsz_config"};
     private static final int FILE_MAX = 8192;
-    private static final long FREEZE_MS = 10_000;
     private static final long OFF_MS = 60_000;
     private static final long TRK_GRACE_MS = 3_000;
     private static final long GAP_MS = 3_000;
@@ -195,9 +160,6 @@ final class Config {
     static volatile double alt = 0.0;
     static volatile float altVar = 0f;
     static volatile float rr = 8f;
-    private static final double FLOOR_RADIUS_M = 0.8;
-    private static double jitN = 0.0, jitE = 0.0;
-    private static final double[] JIT_PERIOD_S = {7.0, 13.0, 23.0, 41.0};
 
     static final class Pt {
         final double lat, lng;
@@ -234,10 +196,6 @@ final class Config {
     private static volatile int trkStale;
     private static volatile long trkMissAt;
     private static volatile long tickAt;
-    private static String beatSeen;
-    private static long beatChangedAt;
-    private static long lastPollAt;
-    private static boolean beatArmed;
     private static volatile int beatStale = 0;
     private static final Object REFRESH_LOCK = new Object();
     private static long lastTry = -RETRY_MS;
@@ -258,60 +216,17 @@ final class Config {
         Pt p = snap;
         if (p != null && now - p.at < SNAP_MS) return p;
         Pos q = pos;
-        if (LOC_NATIVE) {
-            try {
-                double[] r = LocationNative.nativeSnapshot(q.lat, q.lng, spd, brg, alt, altVar, jitter, rr, now);
-                if (r != null && r.length >= 7) {
-                    p = new Pt(r[0], r[1], (long) r[2], (float) r[3], (float) r[4], r[5], (float) r[6]);
-                    snap = p;
-                    return p;
-                }
-            } catch (Throwable ignored) { }
-        }
-        double la = q.lat, lo = q.lng;
-        float sSpd = spd, sBrg = brg;
-        double sAlt = altitudeNow();
-        stepJitter(now, jitter ? rr : FLOOR_RADIUS_M);
-        double c = Math.cos(Math.toRadians(la));
-        if (Math.abs(c) < 1e-6) c = 1e-6;
-        la += jitN / 111320.0;
-        lo += jitE / (111320.0 * c);
-        la = Math.max(-90.0, Math.min(90.0, la));
-        if (lo > 180.0) lo -= 360.0; else if (lo < -180.0) lo += 360.0;
-        float jit = (float) (gauss(31, now / SNAP_MS) * 0.35);
-        p = new Pt(la, lo, now, sSpd, sBrg, sAlt, jit);
+        try {
+            double[] r = LocationNative.nativeSnapshot(q.lat, q.lng, spd, brg, alt, altVar, jitter, rr, now);
+            if (r != null && r.length >= 7) {
+                p = new Pt(r[0], r[1], (long) r[2], (float) r[3], (float) r[4], r[5], (float) r[6]);
+                snap = p;
+                return p;
+            }
+        } catch (Throwable ignored) { }
+        p = new Pt(q.lat, q.lng, now, spd, brg, alt, 0f);
         snap = p;
         return p;
-    }
-
-    private static double wave(long axis, double tSec, double sigma) {
-        double sum = 0.0;
-        for (int i = 0; i < JIT_PERIOD_S.length; i++) {
-            double phase = hashUnit(100 + axis, i) * 2 * Math.PI;
-            sum += Math.sin(2 * Math.PI * tSec / JIT_PERIOD_S[i] + phase);
-        }
-        return sum * sigma / Math.sqrt(JIT_PERIOD_S.length / 2.0);
-    }
-
-    private static void stepJitter(long now, double r) {
-        if (r <= 0f) { jitN = 0; jitE = 0; return; }
-        double sigma = r / 3.0;
-        double t = now / 1000.0;
-        jitN = wave(1, t, sigma);
-        jitE = wave(2, t, sigma);
-        double d = Math.hypot(jitN, jitE);
-        if (d > r) {
-            jitN *= r / d;
-            jitE *= r / d;
-        }
-    }
-
-    static double gauss(long salt, long bucket) {
-        return (hashUnit(salt, bucket) + hashUnit(salt + 1000, bucket) + hashUnit(salt + 2000, bucket) - 1.5) * 2.0;
-    }
-
-    static float accNow(Pt p) {
-        return Math.max(1f, acc + (p != null ? p.accJit : 0f));
     }
 
     private static final long SEED = seedFromSalt();
@@ -357,68 +272,6 @@ final class Config {
         return (h >>> 11) * (1.0 / (1L << 53));
     }
 
-    static int[] gnssExtras() {
-        return gnssExtrasAt(SystemClock.elapsedRealtime() / 1000);
-    }
-
-    static int[] gnssExtrasAt(long t) {
-        double p1 = hashUnit(11, 0) * 2 * Math.PI, p2 = hashUnit(12, 0) * 2 * Math.PI;
-        double p3 = hashUnit(13, 0) * 2 * Math.PI, p4 = hashUnit(14, 0) * 2 * Math.PI;
-        int sat = 9 + (int) Math.round(2.2 * Math.sin(t / 53.0 + p1) + 1.6 * Math.sin(t / 17.0 + p2));
-        int mean = 29 + (int) Math.round(3.0 * Math.sin(t / 71.0 + p3) + 1.5 * Math.sin(t / 23.0 + p4));
-        sat = Math.max(5, Math.min(14, sat));
-        mean = Math.max(22, Math.min(36, mean));
-        return new int[]{sat, mean, mean + 9 + (int) (hashUnit(15, t) * 3)};
-    }
-
-    static float vAcc(Pt p) {
-        return Math.max(1f, accNow(p) * 1.3f + p.accJit * 1.5f);
-    }
-
-    static float sAcc(Pt p) {
-        return Math.max(0.1f, 0.4f + Math.abs(p.accJit) * 0.5f);
-    }
-
-    static float bAcc(Pt p) {
-        return Math.max(1f, 10f + Math.abs(p.accJit) * 8f);
-    }
-
-    private static final long NET_GRID_MS = 30_000;
-
-    private static long netBoundary(long k) {
-        return k * NET_GRID_MS + (long) ((hashUnit(20, k) - 0.5) * 10_000);
-    }
-
-    static double[] networkOffset(double refLat) {
-        long t = SystemClock.elapsedRealtime();
-        long k = t / NET_GRID_MS;
-        if (netBoundary(k + 1) <= t) k++;
-        else if (netBoundary(k) > t) k--;
-        double ang = hashUnit(21, k) * 2 * Math.PI;
-        double dist = 35 + hashUnit(22, k) * 90;
-        double c = Math.cos(Math.toRadians(refLat));
-        if (Math.abs(c) < 1e-6) c = 1e-6;
-        return new double[]{Math.sin(ang) * dist / 111320.0, Math.cos(ang) * dist / (111320.0 * c)};
-    }
-
-    static float networkAccuracy(float gpsAcc) {
-        return Math.max(25f, gpsAcc * 2.5f + 20f + (float) (gauss(51, SystemClock.elapsedRealtime() / 1000) * 6));
-    }
-
-    static double altitudeNow() {
-        float v = altVar;
-        if (v <= 0f) return alt;
-        long sec = SystemClock.elapsedRealtime() / 1000;
-        double n = 0.0;
-        double w = 4.0, tot = 0.0;
-        for (int i = 0; i < 3; i++) {
-            n += w * (hashUnit(41, sec - i) * 2.0 - 1.0);
-            tot += w;
-            w /= 2.0;
-        }
-        return alt + v * n / tot;
-    }
-
     private static void live(Application app, boolean on) {
         try {
             ContentResolver cr = app.getContentResolver();
@@ -458,7 +311,6 @@ final class Config {
 
     private static void setTrack(Track t) {
         track = t;
-        if (!CFG_NATIVE) return;
         long g = 0;
         try {
             if (t == null) ConfigNative.nativeTrackClear();
@@ -468,53 +320,8 @@ final class Config {
     }
 
     static Track parseTrack(String s) {
-        if (s == null) return null;
-        if (CFG_NATIVE && isAscii(s)) {
-            Track nt = parseTrackNative(s);
-            if (nt != null) return nt;
-        }
-        long t0 = Long.MIN_VALUE, a = Long.MIN_VALUE;
-        int tk = 0;
-        String d = null;
-        for (String kv : s.split(";")) {
-            int i = kv.indexOf('=');
-            if (i < 0) continue;
-            String v = kv.substring(i + 1);
-            try {
-                switch (kv.substring(0, i)) {
-                    case "t": t0 = Long.parseLong(v); break;
-                    case "a": a = Long.parseLong(v); break;
-                    case "k": tk = Integer.parseInt(v); break;
-                    case "d": d = v; break;
-                }
-            } catch (NumberFormatException e) {
-                return null;
-            }
-        }
-        if (d == null || tk <= 0 || t0 == Long.MIN_VALUE) return null;
-        String[] rows = d.split("\\|");
-        double[] la = new double[rows.length], lo = new double[rows.length], al = new double[rows.length];
-        float[] sp = new float[rows.length], br = new float[rows.length];
-        int n = 0;
-        for (String r : rows) {
-            int st = 0;
-            while (st < r.length() && r.charAt(st) == ',') st++;
-            if (st == r.length()) continue;
-            String[] f = r.substring(st).split(",");
-            if (f.length < 5) return null;
-            try {
-                la[n] = Double.parseDouble(f[0]);
-                lo[n] = Double.parseDouble(f[1]);
-                sp[n] = Float.parseFloat(f[2]);
-                br[n] = Float.parseFloat(f[3]);
-                al[n] = Double.parseDouble(f[4]);
-            } catch (NumberFormatException e) {
-                return null;
-            }
-            n++;
-        }
-        if (n == 0) return null;
-        return new Track(t0, a == Long.MIN_VALUE ? t0 : a, tk, n, la, lo, al, sp, br);
+        if (s == null || !isAscii(s)) return null;
+        return parseTrackNative(s);
     }
 
     private static synchronized void noteResume(long now) {
@@ -609,11 +416,6 @@ final class Config {
         return late >= OFF_MS ? 2 : late >= TRK_GRACE_MS ? 1 : 0;
     }
 
-    private static float lerpAngle(float a, float b, double f) {
-        double d = ((b - a + 540.0) % 360.0) - 180.0;
-        return (float) ((a + d * f + 360.0) % 360.0);
-    }
-
     static void tick() {
         if (!tkMode) return;
         long now = SystemClock.elapsedRealtime();
@@ -628,34 +430,16 @@ final class Config {
         trkStale = st;
         enabled = cfgEn && st < 2;
         Track t = track;
-        if (t == null) return;
-        if (CFG_NATIVE && t.gen == nativeGen) {
-            try {
-                double[] r = ConfigNative.nativeApplyTrack(t.gen, now, st);
-                if (r != null && r.length >= 5) {
-                    pos = new Pos(r[0], r[1]);
-                    alt = r[2];
-                    spd = (float) r[3];
-                    brg = (float) r[4];
-                    return;
-                }
-            } catch (Throwable ignored) { }
-        }
-        long rel = now - t.t0;
-        double at = rel <= 0 ? 0.0 : (double) rel / t.tk;
-        int i;
-        double f;
-        if (at >= t.n - 1) { i = t.n - 1; f = 0.0; } else { i = (int) at; f = at - i; }
-        int j = f > 0.0 ? i + 1 : i;
-        double tla = t.la[i] + (t.la[j] - t.la[i]) * f;
-        double dl = t.lo[j] - t.lo[i];
-        if (dl > 180.0) dl -= 360.0; else if (dl < -180.0) dl += 360.0;
-        double lo = t.lo[i] + dl * f;
-        if (lo > 180.0) lo -= 360.0; else if (lo < -180.0) lo += 360.0;
-        pos = new Pos(tla, lo);
-        alt = t.al[i] + (t.al[j] - t.al[i]) * f;
-        spd = st >= 1 ? 0f : Math.max(0f, (float) (t.sp[i] + (t.sp[j] - t.sp[i]) * f));
-        brg = lerpAngle(t.br[i], t.br[j], f);
+        if (t == null || t.gen != nativeGen) return;
+        try {
+            double[] r = ConfigNative.nativeApplyTrack(t.gen, now, st);
+            if (r != null && r.length >= 5) {
+                pos = new Pos(r[0], r[1]);
+                alt = r[2];
+                spd = (float) r[3];
+                brg = (float) r[4];
+            }
+        } catch (Throwable ignored) { }
     }
 
     private static boolean tkOn(String s) {
@@ -664,120 +448,61 @@ final class Config {
         return false;
     }
 
-    private static double inRange(double v, double limit, double fallback) {
-        return Math.abs(v) <= limit ? v : fallback;
+    private static void disable() {
+        enabled = false;
+        playing = false;
+        tkMode = false;
+        cfgEn = false;
+        beatStale = 0;
+        try { ConfigNative.nativeBeatDisarm(); } catch (Throwable ignored) { }
+        system = false;
+        sysHeartbeat = false;
+        hideNet = true;
+        hideBt = false;
     }
 
     static void parse(String s) {
-        if (s == null || s.equals("null")) {
-            enabled = false;
-            playing = false;
-            tkMode = false;
-            cfgEn = false;
-            beatStale = 0;
-            beatArmed = false;
-            if (CFG_NATIVE) {
-                try { ConfigNative.nativeBeatDisarm(); } catch (Throwable ignored) { }
-            }
-            system = false;
-            sysHeartbeat = false;
-            hideNet = true;
-            hideBt = false;
+        if (s == null || s.equals("null") || !isAscii(s)) {
+            disable();
             return;
         }
-        boolean en = false, jit = false, pl = false, tk = false;
         Pos q0 = pos;
-        double la = q0.lat, lo = q0.lng;
-        float ac = acc, sp = 0f, br = Float.NaN, av = 0f, rad = 8f;
-        double al = 0.0;
-        boolean done = false;
-        if (CFG_NATIVE && isAscii(s)) {
-            try {
-                double[] r = ConfigNative.nativeParse(s, la, lo, ac);
-                if (r != null && r.length >= 12) {
-                    en = r[0] != 0; jit = r[1] != 0; pl = r[2] != 0; tk = r[3] != 0;
-                    la = r[4]; lo = r[5]; ac = (float) r[6]; sp = (float) r[7]; br = (float) r[8];
-                    al = r[9]; av = (float) r[10]; rad = (float) r[11];
-                    done = true;
-                }
-            } catch (Throwable ignored) { }
+        double[] r = null;
+        try {
+            r = ConfigNative.nativeParse(s, q0.lat, q0.lng, acc);
+        } catch (Throwable ignored) { }
+        if (r == null || r.length < 12) {
+            disable();
+            return;
         }
-        if (!done) for (String kv : s.split(";")) {
-            int i = kv.indexOf('=');
-            if (i < 0) continue;
-            String k = kv.substring(0, i).trim();
-            String v = kv.substring(i + 1).trim();
-            try {
-                switch (k) {
-                    case "enabled": en = v.equals("1"); break;
-                    case "lat": la = inRange(Double.parseDouble(v), 90.0, la); break;
-                    case "lng": lo = inRange(Double.parseDouble(v), 180.0, lo); break;
-                    case "acc": ac = (float) inRange(Float.parseFloat(v), 1e5, ac); break;
-                    case "random": jit = v.equals("1"); break;
-                    case "spd": sp = Math.max(0f, (float) inRange(Float.parseFloat(v), 1e4, 0.0)); break;
-                    case "brg": {
-                        float b = Float.parseFloat(v);
-                        br = (Float.isNaN(b) || Float.isInfinite(b) || b < 0f) ? Float.NaN : b % 360f;
-                        break;
-                    }
-                    case "alt": al = inRange(Double.parseDouble(v), 1e5, 0.0); break;
-                    case "altv": av = Math.max(0f, (float) inRange(Float.parseFloat(v), 1e4, 0.0)); break;
-                    case "rr": rad = Math.max(0f, Math.min(100f, (float) inRange(Float.parseFloat(v), 1e4, 8.0))); break;
-                    case "pl": pl = v.equals("1"); break;
-                    case "tk": tk = v.equals("1"); break;
-                }
-            } catch (NumberFormatException ignored) { }
-        }
+        boolean en = r[0] != 0, tk = r[3] != 0;
         tkMode = tk;
         cfgEn = en;
-        acc = ac; altVar = av; rr = rad; jitter = jit; playing = pl;
+        acc = (float) r[6]; altVar = (float) r[10]; rr = (float) r[11]; jitter = r[1] != 0; playing = r[2] != 0;
         if (!(tk && track != null)) {
-            pos = new Pos(la, lo); spd = sp; brg = br; alt = al;
+            pos = new Pos(r[4], r[5]); spd = (float) r[7]; brg = (float) r[8]; alt = r[9];
         }
         enabled = en && beatStale < 2 && (!tk || trkStale < 2);
     }
 
     static void checkBeat(String beat) {
         long now = SystemClock.elapsedRealtime();
-        if (CFG_NATIVE) {
-            try {
-                int c = ConfigNative.nativeBeatCheck(beat, playing, now);
-                if (c >= 0) {
-                    int level = c & 3;
-                    if (level == 2) {
-                        beatStale = 2;
-                        enabled = false;
-                    } else if (level == 1 && (c & 4) != 0) {
-                        beatStale = 1;
-                        spd = 0f;
-                    } else {
-                        beatStale = 0;
-                    }
-                    return;
-                }
-            } catch (Throwable ignored) { }
-        }
-        boolean gap = lastPollAt != 0 && now - lastPollAt > GAP_MS;
-        lastPollAt = now;
-        if (!playing) {
-            beatArmed = false;
-            beatStale = 0;
+        int c;
+        try {
+            c = ConfigNative.nativeBeatCheck(beat, playing, now);
+        } catch (Throwable t) {
             return;
         }
-        if (!beatArmed || gap || !Objects.equals(beat, beatSeen)) {
-            beatArmed = true;
-            beatSeen = beat;
-            beatChangedAt = now;
-            beatStale = 0;
-            return;
-        }
-        long stale = now - beatChangedAt;
-        if (stale >= OFF_MS) {
+        if (c < 0) return;
+        int level = c & 3;
+        if (level == 2) {
             beatStale = 2;
             enabled = false;
-        } else if (stale >= FREEZE_MS) {
+        } else if (level == 1 && (c & 4) != 0) {
             beatStale = 1;
             spd = 0f;
+        } else {
+            beatStale = 0;
         }
     }
 
@@ -960,6 +685,7 @@ final class Config {
     }
 
     static void startPolling(final BooleanSupplier onReady) {
+        if (!ready()) return;
         Thread finder = new Thread(() -> {
             if (onReady != null) tryLoadFromFile();
             Application found = null;

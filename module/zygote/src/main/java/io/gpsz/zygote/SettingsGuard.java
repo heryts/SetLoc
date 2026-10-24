@@ -40,7 +40,7 @@ final class SettingsGuard {
     private static final String LOCATION_MODE = "location_mode";
 
     static void install() {
-        if (ZygoteEntry.isSelf()) return;
+        if (ZygoteEntry.isSelf() || !Config.ready()) return;
         KEYS = new HashSet<>(Arrays.asList(
                 Config.KEY, Config.KEY_SYS, Config.KEY_BEAT, Config.KEY_TRK,
                 Config.KEY_NET, Config.KEY_BT, Config.KEY_LIVE));

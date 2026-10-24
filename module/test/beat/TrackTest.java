@@ -12,6 +12,7 @@ public class TrackTest {
     Config.refresh(null,null,null);
   }
   public static void main(String[] x) throws Exception {
+    ConfigNative.ensureLoaded(); LocationNative.ensureLoaded();
     Map<String,String> st=android.provider.Settings.Global.store;
     String rows=",-7.000000,110.000000,0.000,350.00,10.00|,-7.100000,110.200000,10.000,10.00,20.00|,-7.200000,110.400000,10.000,10.00,30.00|";
     Config.Track t=Config.parseTrack(trk(100000,100000,500,rows));

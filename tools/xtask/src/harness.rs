@@ -240,8 +240,8 @@ impl H {
             return true;
         }
         let group = match name {
-            "beat" | "unsafe" | "idmap" | "lshook" | "lochook" | "setguard" | "syshook" | "rswire" | "gnssfake" => "java",
-            "parity" | "cfgwire" | "gnsswire" | "native" => "native",
+            "unsafe" | "idmap" | "lshook" => "java",
+            "beat" | "lochook" | "setguard" | "syshook" | "parity" | "gnsswire" | "native" => "native",
             _ => "",
         };
         self.filters.iter().any(|f| f == name || (!group.is_empty() && f == group))
@@ -1029,7 +1029,7 @@ impl H {
         if self.want("webui") {
             self.sec_webui();
         }
-        if self.want("native") || self.want("parity") || self.want("cfgwire") || self.want("gnsswire") {
+        if self.want("native") || self.want("parity") || self.want("gnsswire") {
             println!("[native: configcore, lochooks, routecore]");
             if which("cargo").is_none() {
                 self.bad("tes native dilewati: cargo tidak ada");
@@ -1039,20 +1039,17 @@ impl H {
                     self.cargo_suite("lochooks");
                     self.cargo_suite("routecore");
                 }
-                self.java_suite(&jc, "parity", "paritas Java vs Rust (Config, Fix, snapshot) dan JNI lochooks");
-                self.java_suite(&jc, "cfgwire", "paritas Java vs Rust lewat JNI asli: parse, track, beat (Fase 9)");
-                self.java_suite(&jc, "gnsswire", "paritas Java vs Rust lewat JNI asli: snapshot satelit, NMEA, angka measurements GnssFake (Fase 11)");
+                self.java_suite(&jc, "parity", "JNI lochooks asli: Fix.apply, stamp, lastKnown, snapshot sama dengan panggilan native langsung");
+                self.java_suite(&jc, "gnsswire", "GnssFake lewat JNI asli: verifikasi vektor tetap, snapshot satelit, NMEA, angka measurements");
             }
         }
-        if ["lshook", "lochook", "setguard", "syshook", "rswire", "gnssfake"].iter().any(|s| self.want(s)) {
+        if ["lshook", "lochook", "setguard", "syshook"].iter().any(|s| self.want(s)) {
             println!("[hook LSPlant]");
         }
         self.java_suite(&jc, "lshook", "PackageGuardLs lewat mesin hook palsu");
         self.java_suite(&jc, "lochook", "LocationHooks lewat mesin hook palsu (LSPlant, disable_ls_loc)");
         self.java_suite(&jc, "setguard", "SettingsGuard lewat mesin hook palsu (LSPlant, disable_ls_set)");
         self.java_suite(&jc, "syshook", "SystemHooks lewat mesin hook AndroidVMTools palsu (10 hook, mesin tidak termuat, satu method gagal)");
-        self.java_suite(&jc, "rswire", "Penyambungan Java ke Rust (Fase 8): jalur Java vs native palsu, verifikasi salt/seed, cadangan");
-        self.java_suite(&jc, "gnssfake", "GnssFake (Fase 11): native palsu dipakai bila verifikasi lolos, cadangan Java bila gagal");
     }
 }
 

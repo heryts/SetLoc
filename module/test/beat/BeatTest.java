@@ -7,6 +7,8 @@ public class BeatTest {
   static String sget(String k){ return Config.dec(android.provider.Settings.Global.store.get(Config.tag(k))); }
   static void poll(long t,String cfg,String beat){ SystemClock.fake=t; Config.parse(cfg); Config.checkBeat(beat); }
   public static void main(String[] x){
+    ConfigNative.ensureLoaded(); LocationNative.ensureLoaded();
+    eq("Config.ready()",Config.ready(),true);
     for(String[] w:new String[][]{{"WIRE_PLAIN","WIRE_HEX"},{"WIRE_PLAIN5","WIRE_HEX5"}}){ String pl=System.getenv(w[0]), hx=System.getenv(w[1]); if(pl==null||hx==null||pl.isEmpty()||hx.isEmpty()){ fails++; System.out.println("FAIL interop: "+w[0]+"/"+w[1]+" tidak diisi dari bridge.sh"); } else eq("interop: nilai beat bridge.sh terbaca Config.dec ("+pl+")",Config.dec(hx),pl); }
     String PL="enabled=1;lat=-7.7;lng=110.4;acc=10;random=0;spd=33.0;alt=1;altv=0;rr=8;brg=30;pl=1";
     String SP="enabled=1;lat=-7.7;lng=110.4;acc=10;random=1;spd=0;alt=1;altv=0;rr=8";
@@ -54,11 +56,10 @@ public class BeatTest {
     eq("jitter: lingkaran (bukan persegi) radius rr",in2,true);
     eq("jitter: loncatan antar fix 1 dtk <= 8 m (dulu bisa ~22 m)",maxStep<=8.0,true);
     Config.parse("enabled=1;lat=-7.7;lng=110.4;acc=0;random=0;rr=8");
-    eq("accNow: akurasi 0 -> 1",Config.accNow(null),1f);
     Config.parse("enabled=1;lat=-7.7;lng=110.4;acc=10;random=0;rr=8;spd=3");
     Config.parse("enabled=1;lat=200;lng=999;acc=NaN;spd=Infinity;alt=NaN;altv=-5;rr=NaN");
     eq("input tidak valid: lat/lng di luar rentang diabaikan",Config.pos.lat==-7.7&&Config.pos.lng==110.4,true);
-    eq("input tidak valid: acc NaN diabaikan",Config.accNow(null)==10f,true);
+    eq("input tidak valid: acc NaN diabaikan",Config.acc==10f,true);
     { String ck=Config.KEY+","+Config.KEY_SYS+","+Config.KEY_BEAT+","+Config.KEY_TRK+","+Config.KEY_NET+","+Config.KEY_BT+",";
       eq("kunci Config sama dengan bridge.sh",ck,System.getenv("BRIDGE_KEYS"));
       eq("kunci Config sama dengan gpsz.sh",ck,System.getenv("GPSZ_KEYS")); }
@@ -112,9 +113,6 @@ public class BeatTest {
     eq("refresh: beat basi 72 dtk -> spoof off",Config.enabled,false);
     sput("beat","resume1"); SystemClock.fake+=1000; Config.refresh(null,null,null);
     eq("refresh: beat kembali -> enabled langsung di refresh yang sama",Config.enabled,true); eq("refresh: beat kembali -> spd langsung pulih",Config.spd,33.0f);
-    SystemClock.fake=2_000_000; double[] pv=Config.networkOffset(-7.7); long lc=-1, mn=Long.MAX_VALUE, mx=0, sm=0; int cn=0;
-    for(long tt=2_000_000;tt<2_000_000+900_000L;tt+=50){ SystemClock.fake=tt; double[] o=Config.networkOffset(-7.7); if(o[0]!=pv[0]||o[1]!=pv[1]){ if(lc>=0){ long d=tt-lc; mn=Math.min(mn,d); mx=Math.max(mx,d); sm+=d; cn++; } lc=tt; pv=o; } }
-    eq("networkOffset: interval ganti acak 20-40 dtk",cn>=10&&mn>=19950&&mx<=40100&&sm/cn>=24000,true);
     { final String CA="enabled=1;lat=-7.0;lng=110.0;acc=10;random=0", CB="enabled=1;lat=40.0;lng=-74.0;acc=10;random=0";
       final java.util.concurrent.atomic.AtomicBoolean stop=new java.util.concurrent.atomic.AtomicBoolean(false);
       Thread w=new Thread(()->{ boolean f=false; while(!stop.get()){ Config.parse(f?CA:CB); f=!f; } });

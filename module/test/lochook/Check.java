@@ -56,6 +56,7 @@ public final class Check {
     }
 
     public static void main(String[] args) throws Throwable {
+    ConfigNative.ensureLoaded(); LocationNative.ensureLoaded();
         System.out.println("[Frames.coerce]");
         expect("void -> null", Frames.coerce(void.class, Boolean.TRUE) == null);
         expect("boolean null -> false", Boolean.FALSE.equals(Frames.coerce(boolean.class, null)));

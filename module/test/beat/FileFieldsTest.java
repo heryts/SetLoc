@@ -23,6 +23,7 @@ public class FileFieldsTest {
     return f;
   }
   public static void main(String[] x) throws Exception {
+    ConfigNative.ensureLoaded(); LocationNative.ensureLoaded();
     String[] r = read(tmp("cfg:enabled=1;lat=1;lng=2\nsys:2\nnet:0\nbt:1\n"));
     eq("cfg terbaca", r[0], "enabled=1;lat=1;lng=2");
     eq("sys terbaca", r[1], "2");
