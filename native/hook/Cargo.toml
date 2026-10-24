@@ -1,0 +1,14 @@
+[package]
+name = "hookcore"
+version = "0.0.0"
+edition = "2021"
+
+[lib]
+name = "gpsz_hookrs"
+crate-type = ["staticlib", "rlib"]
+
+[profile.release]
+opt-level = "s"
+lto = true
+panic = "abort"
+strip = true

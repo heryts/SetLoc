@@ -1,13 +1,13 @@
 use crate::codec::{BTKEY, KEY, NETKEY, SYSKEY, TRKKEY};
-use crate::config::{compose, derive, fval, route_apply, static_apply, Base, Route};
+use crate::config::{compose, derive, route_apply, static_apply, Base, Route};
 use crate::pref::find_pref;
 use crate::sys::{self, csget, csput, data, sget, uptime_cs};
+use routecore::appstate;
 use std::fs;
-use std::io::{Read, Seek, SeekFrom};
 use std::os::unix::fs::{chown, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
-pub const TRK_W: i64 = 48;
+pub const TRK_W: i64 = routecore::timeline::LINE_WIDTH as i64;
 pub const TRK_LEAD: i64 = 24;
 
 pub struct Core {
@@ -61,19 +61,6 @@ pub fn sig(prefc: &str) -> String {
         Ok(m) => format!("{} {} {}.{} {}", prefc, m.ino(), m.mtime(), m.mtime_nsec(), m.size()),
         Err(_) => format!("{} 0 0 0", prefc),
     }
-}
-
-fn window(rt: &Route, start: i64, count: i64) -> Vec<u8> {
-    let mut f = match fs::File::open(&rt.tf) {
-        Ok(f) => f,
-        Err(_) => return Vec::new(),
-    };
-    if f.seek(SeekFrom::Start((start - 1) as u64 * rt.tlw as u64)).is_err() {
-        return Vec::new();
-    }
-    let mut buf = Vec::new();
-    let _ = f.take(count as u64 * rt.tlw as u64).read_to_end(&mut buf);
-    buf
 }
 
 impl Core {
@@ -150,12 +137,12 @@ impl Core {
         if pref.is_empty() || !Path::new(&pref).is_file() {
             return 2;
         }
-        let px = fs::read_to_string(&pref).unwrap_or_default();
-        if self.cur_bc.is_empty() && fval(&px, "boolean", "route_play") == Some("true") {
+        let st = appstate::load(Path::new(&pref));
+        if self.cur_bc.is_empty() && st.flag("route_play") {
             self.cur_bc = sget("boot_count");
         }
         let trk_disabled = self.moddir.join("disable_trk").exists();
-        match derive(&px, Path::new(&pref), &self.cur_bc, trk_disabled) {
+        match derive(&st, Path::new(&pref), &self.cur_bc, trk_disabled) {
             None => 1,
             Some(d) => {
                 self.base = d.base;
@@ -274,7 +261,7 @@ impl Core {
         if s + c - 1 > rt.nn {
             c = rt.nn - s + 1;
         }
-        let d = tr_squeeze(&window(rt, s, c));
+        let d = tr_squeeze(&routecore::timeline::read_window(&rt.tf, rt.tlw, s, c));
         if d.is_empty() {
             return false;
         }

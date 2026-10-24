@@ -8,57 +8,18 @@ import com.heryts.setloc.BuildConfig
 import com.heryts.setloc.gsApp
 import java.io.File
 import java.io.Writer
-import java.util.Locale
 import java.util.concurrent.Executors
+import kotlin.math.abs
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.edit
 
 object PrefManager {
-    private const val SALT = "Vzvwk4Rxj7Ps"
-    private const val HEX = "0123456789abcdef"
+    fun tag(logical: String): String? = CodecNative.tag(logical)
 
-    fun tag(logical: String): String {
-        val s = SALT + logical
-        var h = 0x811C9DC5.toInt()
-        for (c in s) {
-            val o = c.code and 0xFF
-            h = ((h xor o) * 16777619) and 0x7FFFFFFF
-        }
-        return String.format(Locale.US, "%06x", h and 0xFFFFFF)
-    }
+    private fun enc(plain: String): String? = CodecNative.enc(plain)
 
-    fun enc(plain: String): String {
-        val out = StringBuilder(plain.length * 2)
-        for (i in plain.indices) {
-            val v = ((plain[i].code and 0xFF) + (SALT[i % SALT.length].code and 0xFF)) and 0xFF
-            out.append(HEX[v ushr 4]).append(HEX[v and 15])
-        }
-        return out.toString()
-    }
+    fun dec(hex: String?): String? = if (hex == null) null else CodecNative.dec(hex)
 
-    fun dec(hex: String?): String? {
-        if (hex == null) return null
-        val out = StringBuilder()
-        var i = 0
-        try {
-            while (i + 1 < hex.length) {
-                val xv = hex.substring(i, i + 2).toInt(16)
-                val kv = SALT[(i / 2) % SALT.length].code and 0xFF
-                val v = ((xv - kv) % 256 + 256) % 256
-                out.append(v.toChar())
-                i += 2
-            }
-        } catch (_: Exception) {
-            return null
-        }
-        return out.toString()
-    }
-
-    private const val START = "start"
-    private const val LATITUDE = "latitude"
-    private const val LONGITUDE = "longitude"
-    private const val RANDOM_POSITION = "random_position"
-    private const val ACCURACY_SETTING = "accuracy_settings"
     private const val MAP_TYPE = "map_type"
     private const val DARK_THEME = "dark_theme"
     private const val ROUTE_TRAFFIC = "route_traffic_aware"
@@ -69,49 +30,91 @@ object PrefManager {
     private const val SPEED_UNIT_MPH = "speed_unit_mph"
     private const val SPEED_VAR_UNIT = "speed_var_unit"
     private const val ROUTE_WAIT_END = "route_wait_end"
-    private const val SPEED_MS = "speed_ms"
-    private const val BEARING = "bearing"
-    private const val ALTITUDE = "altitude"
     private const val ALTITUDE_MANUAL = "altitude_manual"
-    private const val ALTITUDE_VAR = "altitude_var"
-    private const val RANDOM_RADIUS = "random_radius"
-    private const val ROUTE_PLAY = "route_play"
-    private const val ROUTE_T0 = "route_t0"
-    private const val ROUTE_TICK = "route_tick"
-    private const val ROUTE_N = "route_n"
-    private const val ROUTE_HOLD_END = "route_hold_end"
-    private const val ROUTE_BC = "route_bc"
-    private const val ROUTE_ACTIVE = "route_active"
-    private const val ROUTE_TLW = "route_tlw"
-    private const val LATITUDE_D = "latitude_d"
-    private const val LONGITUDE_D = "longitude_d"
     private const val ALTITUDE_SERVER = "altitude_from_server"
+
+    private val LEGACY_STATE = listOf(
+        "start" to "start",
+        "random_position" to "random",
+        "accuracy_settings" to "acc",
+        "speed_ms" to "spd",
+        "bearing" to "brg",
+        "altitude" to "alt",
+        "altitude_var" to "altv",
+        "random_radius" to "rr",
+        "route_active" to "route_active",
+        "route_play" to "route_play",
+        "route_t0" to "route_t0",
+        "route_tick" to "route_tick",
+        "route_n" to "route_n",
+        "route_hold_end" to "route_hold_end",
+        "route_bc" to "route_bc",
+        "route_tlw" to "route_tlw"
+    )
 
     private val pref: SharedPreferences by lazy {
         gsApp.getSharedPreferences("${BuildConfig.APPLICATION_ID}_prefs", Context.MODE_PRIVATE)
     }
 
-    val isStarted: Boolean
-        get() = pref.getBoolean(START, false)
-
-    val getLat: Double
-        get() = precise(LATITUDE_D, pref.getFloat(LATITUDE, -7.7829F).toDouble())
-
-    val getLng: Double
-        get() = precise(LONGITUDE_D, pref.getFloat(LONGITUDE, 110.3671F).toDouble())
-
-    private fun precise(key: String, coarse: Double): Double {
-        val d = pref.getString(key, null)?.toDoubleOrNull() ?: return coarse
-        return if (kotlin.math.abs(d - coarse) < 1e-4) d else coarse
+    private val stateFile: String by lazy {
+        val f = File(gsApp.filesDir, PrefNative.STATE_FILE)
+        if (!f.exists()) migrateLegacy(f.path)
+        f.path
     }
 
+    private fun legacyCoord(coarseKey: String, preciseKey: String): Double? {
+        val coarse = (pref.all[coarseKey] as? Float)?.toDouble() ?: return null
+        val fine = (pref.all[preciseKey] as? String)?.toDoubleOrNull()
+        return if (fine != null && abs(fine - coarse) < 1e-4) fine else coarse
+    }
+
+    private fun migrateLegacy(path: String) {
+        val lines = ArrayList<String>()
+        legacyCoord("latitude", "latitude_d")?.let { lines.add("lat:$it") }
+        legacyCoord("longitude", "longitude_d")?.let { lines.add("lng:$it") }
+        for ((old, new) in LEGACY_STATE) {
+            pref.all[old]?.let { lines.add("$new:$it") }
+        }
+        if (lines.isEmpty()) return
+        val moved = PrefNative.statePatch(path, lines.joinToString("\n")) ||
+            lines.count { PrefNative.statePatch(path, it) } > 0
+        if (!moved) return
+        pref.edit {
+            remove("latitude").remove("longitude").remove("latitude_d").remove("longitude_d")
+            LEGACY_STATE.forEach { remove(it.first) }
+        }
+    }
+
+    private fun read(key: String): String? = PrefNative.stateGet(stateFile, key)
+
+    private fun write(patch: String): Boolean = PrefNative.statePatch(stateFile, patch)
+
+    private fun flag(key: String, default: Boolean): Boolean = read(key)?.let { it == "1" } ?: default
+
+    private fun number(key: String, default: Double): Double = read(key)?.toDoubleOrNull() ?: default
+
+    private fun bit(value: Boolean) = if (value) 1 else 0
+
+    val isStarted: Boolean
+        get() = flag("start", false)
+
+    val getLat: Double
+        get() = number("lat", -7.7829)
+
+    val getLng: Double
+        get() = number("lng", 110.3671)
+
     var isRandomPosition: Boolean
-        get() = pref.getBoolean(RANDOM_POSITION, true)
-        set(value) = pref.edit { putBoolean(RANDOM_POSITION, value) }
+        get() = flag("random", true)
+        set(value) {
+            write("random:${bit(value)}")
+        }
 
     var accuracy: String?
-        get() = pref.getString(ACCURACY_SETTING, "10")
-        set(value) = pref.edit { putString(ACCURACY_SETTING, value) }
+        get() = read("acc") ?: "10"
+        set(value) {
+            if (value != null) write("acc:$value")
+        }
 
     var mapType: Int
         get() = pref.getInt(MAP_TYPE, 1)
@@ -145,15 +148,7 @@ object PrefManager {
         get() = pref.getInt(SPEED_VAR_UNIT, 0)
         set(value) = pref.edit { putInt(SPEED_VAR_UNIT, value) }
 
-    fun routeSpeedVarFor(speedKmh: Float): Float {
-        val raw = routeSpeedVarRaw
-        if (raw < 0f) return -1f
-        return when (speedVarUnit) {
-            0 -> speedKmh * raw / 100f
-            2 -> raw * 1.609344f
-            else -> raw
-        }
-    }
+    fun routeSpeedVarFor(speedKmh: Float): Float = PrefNative.speedVar(speedVarUnit, speedKmh, routeSpeedVarRaw)
 
     var routeWaitStart: Float
         get() = pref.getFloat(ROUTE_WAIT, 0f)
@@ -164,16 +159,22 @@ object PrefManager {
         set(value) = pref.edit { putFloat(ROUTE_WAIT_END, value) }
 
     var altitudeM: Float
-        get() = pref.getFloat(ALTITUDE, 0f)
-        set(value) = pref.edit { putFloat(ALTITUDE, value) }
+        get() = number("alt", 0.0).toFloat()
+        set(value) {
+            write("alt:$value")
+        }
 
     var routeActive: Boolean
-        get() = pref.getBoolean(ROUTE_ACTIVE, false)
-        set(value) = pref.edit { putBoolean(ROUTE_ACTIVE, value) }
+        get() = flag("route_active", false)
+        set(value) {
+            write("route_active:${bit(value)}")
+        }
 
     var routePlay: Boolean
-        get() = pref.getBoolean(ROUTE_PLAY, false)
-        set(value) = pref.edit { putBoolean(ROUTE_PLAY, value) }
+        get() = flag("route_play", false)
+        set(value) {
+            write("route_play:${bit(value)}")
+        }
 
     fun writeRouteTimeline(write: (Writer) -> Unit): Boolean = try {
         val dir = gsApp.filesDir
@@ -190,61 +191,54 @@ object PrefManager {
         -1
     }
 
-    private fun routeEnd(hold: Long): Long =
-        pref.getLong(ROUTE_T0, 0L) * 10 + (pref.getInt(ROUTE_N, 1) - 1) * pref.getLong(ROUTE_TICK, 0L) + hold
+    private fun routeState(): Int = PrefNative.routeState(stateFile, bootCount(), SystemClock.elapsedRealtime())
 
-    fun routeLive(): Boolean {
-        if (!routePlay) return false
-        val end = routeEnd(pref.getLong(ROUTE_HOLD_END, 0L))
-        return pref.getInt(ROUTE_BC, -1) == bootCount() && SystemClock.elapsedRealtime() < end
-    }
+    fun routeLive(): Boolean = routeState() == PrefNative.ROUTE_LIVE
 
-    fun routeEndedOff(): Boolean {
-        if (!routePlay) return false
-        val hold = pref.getLong(ROUTE_HOLD_END, 0L)
-        if (hold <= 0L) return false
-        return pref.getInt(ROUTE_BC, -1) == bootCount() && SystemClock.elapsedRealtime() >= routeEnd(hold)
-    }
+    fun routeEndedOff(): Boolean = routeState() == PrefNative.ROUTE_ENDED_OFF
 
     fun beginPlayback(t0Centis: Long, tickMs: Long, n: Int, holdEndMs: Long, lineWidth: Int) {
-        pref.edit {
-            putLong(ROUTE_T0, t0Centis)
-            putLong(ROUTE_TICK, tickMs)
-            putInt(ROUTE_N, n)
-            putLong(ROUTE_HOLD_END, holdEndMs)
-            putInt(ROUTE_BC, bootCount())
-            putInt(ROUTE_TLW, lineWidth)
-        }
+        write(
+            "route_t0:$t0Centis\nroute_tick:$tickMs\nroute_n:$n\nroute_hold_end:$holdEndMs\n" +
+                "route_bc:${bootCount()}\nroute_tlw:$lineWidth"
+        )
     }
 
-    private fun globalFlag(key: String): String? = try {
-        dec(Settings.Global.getString(gsApp.contentResolver, key))
+    private fun globalFlag(logical: String): String? = try {
+        val key = tag(logical)
+        if (key == null) null else dec(Settings.Global.getString(gsApp.contentResolver, key))
     } catch (_: Throwable) {
         null
     }
 
-    private fun putGlobalFlag(key: String, value: Boolean) {
+    private fun putGlobalFlag(logical: String, value: Boolean) {
         try {
-            Settings.Global.putString(gsApp.contentResolver, key, enc(if (value) "1" else "0"))
+            val key = tag(logical) ?: return
+            val data = enc(if (value) "1" else "0") ?: return
+            Settings.Global.putString(gsApp.contentResolver, key, data)
         } catch (_: Throwable) {
         }
     }
 
     var hideNetwork: Boolean
-        get() = globalFlag(tag("net")) != "0"
-        set(value) = putGlobalFlag(tag("net"), value)
+        get() = globalFlag("net") != "0"
+        set(value) = putGlobalFlag("net", value)
 
     var hideBluetooth: Boolean
-        get() = globalFlag(tag("bt")) == "1"
-        set(value) = putGlobalFlag(tag("bt"), value)
+        get() = globalFlag("bt") == "1"
+        set(value) = putGlobalFlag("bt", value)
 
     var randomRadius: Float
-        get() = pref.getFloat(RANDOM_RADIUS, 8f)
-        set(value) = pref.edit { putFloat(RANDOM_RADIUS, value.coerceIn(0f, 100f)) }
+        get() = number("rr", 8.0).toFloat()
+        set(value) {
+            write("rr:${value.coerceIn(0f, 100f)}")
+        }
 
     var altitudeVariation: Float
-        get() = pref.getFloat(ALTITUDE_VAR, 0f)
-        set(value) = pref.edit { putFloat(ALTITUDE_VAR, value.coerceAtLeast(0f)) }
+        get() = number("altv", 0.0).toFloat()
+        set(value) {
+            write("altv:${value.coerceAtLeast(0f)}")
+        }
 
     var altitudeFromServer: Boolean
         get() = pref.getBoolean(ALTITUDE_SERVER, true)
@@ -259,19 +253,17 @@ object PrefManager {
         speedMs: Float = 0f, bearing: Float = -1f, altitude: Float? = null,
         routeActive: Boolean = false, routePlay: Boolean = false
     ) {
-        val e = pref.edit()
-            .putFloat(LATITUDE, la.toFloat())
-            .putFloat(LONGITUDE, ln.toFloat())
-            .putString(LATITUDE_D, "%.7f".format(Locale.US, la))
-            .putString(LONGITUDE_D, "%.7f".format(Locale.US, ln))
-            .putBoolean(START, start)
-            .putFloat(SPEED_MS, speedMs.coerceAtLeast(0f))
-            .putFloat(BEARING, bearing)
-            .putBoolean(ROUTE_ACTIVE, routeActive)
-            .putBoolean(ROUTE_PLAY, routePlay)
-        if (altitude != null) e.putFloat(ALTITUDE, altitude)
-        if (!routePlay) e.remove(ROUTE_T0).remove(ROUTE_N).remove(ROUTE_TLW)
-        save(e, start, la, ln)
+        val patch = StringBuilder()
+            .append("lat:").append(la).append("\nlng:").append(ln)
+            .append("\nstart:").append(bit(start))
+            .append("\nspd:").append(speedMs.coerceAtLeast(0f))
+            .append("\nbrg:").append(bearing)
+            .append("\nroute_active:").append(bit(routeActive))
+            .append("\nroute_play:").append(bit(routePlay))
+        if (altitude != null) patch.append("\nalt:").append(altitude)
+        if (!routePlay) patch.append("\n-route_t0\n-route_n\n-route_tlw")
+        write(patch.toString())
+        if (!start) pushOff(la, ln)
     }
 
     private val io = Executors.newSingleThreadExecutor { Thread(it, "pref-io").apply { isDaemon = true } }
@@ -280,20 +272,13 @@ object PrefManager {
         io.execute { updateNow(start, la, ln) }
     }
 
-    private fun save(e: SharedPreferences.Editor, start: Boolean, la: Double, ln: Double) {
-        if (start) {
-            e.apply()
-        } else {
-            e.commit()
-            pushOff(la, ln)
-        }
-    }
-
     private fun pushOff(la: Double, ln: Double) {
         try {
             val acc = accuracy?.toFloatOrNull() ?: 10f
-            val cfg = "enabled=0;lat=%.6f;lng=%.6f;acc=%s;random=0".format(Locale.US, la, ln, acc)
-            Settings.Global.putString(gsApp.contentResolver, tag("cfg"), enc(cfg))
+            val cfg = PrefNative.cfgOff(la, ln, acc) ?: return
+            val key = tag("cfg") ?: return
+            val data = enc(cfg) ?: return
+            Settings.Global.putString(gsApp.contentResolver, key, data)
         } catch (_: Throwable) {
         }
     }

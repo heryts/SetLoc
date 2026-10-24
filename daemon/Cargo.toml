@@ -5,8 +5,7 @@ edition = "2021"
 build = "build.rs"
 
 [dependencies]
-
-[dev-dependencies]
+configcore = { path = "../native/configcore", default-features = false }
 routecore = { path = "../native/routecore", default-features = false }
 
 [profile.release]

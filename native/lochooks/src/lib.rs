@@ -1,9 +1,11 @@
+pub mod envsim;
+pub mod feed;
 pub mod fix;
 pub mod gnss;
 pub mod snapshot;
 
 use jni::objects::{JClass, JDoubleArray, JLongArray, JObject, JString};
-use jni::sys::{jboolean, jdouble, jdoubleArray, jfloat, jlong, jlongArray, jobjectArray, JNI_FALSE, JNI_TRUE};
+use jni::sys::{jboolean, jdouble, jdoubleArray, jfloat, jint, jlong, jlongArray, jobjectArray, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 use std::sync::{Mutex, OnceLock};
 
@@ -262,6 +264,27 @@ pub extern "system" fn Java_io_gpsz_zygote_LocationNative_nativeLastKnownInto(
 }
 
 #[no_mangle]
+pub extern "system" fn Java_io_gpsz_zygote_LocationNative_nativeHashUnit(_e: JNIEnv, _c: JClass, a: jlong, b: jlong) -> jdouble {
+    jitter::hash_unit(seed(), a, b)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_io_gpsz_zygote_LocationNative_nativeFeedPlan(env: JNIEnv, _c: JClass, kind: jint, minute: jlong) -> jlongArray {
+    match feed::plan(seed(), kind, minute) {
+        Some(p) => long_array(&env, &[p.initial_ms, p.period_ms, p.ttff_ms]),
+        None => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_io_gpsz_zygote_LocationNative_nativeFeedStep(_e: JNIEnv, _c: JClass, kind: jint, live: jboolean, state: jint, elapsed_ms: jlong, ttff_ms: jlong) -> jlong {
+    match feed::step(kind, live != JNI_FALSE, state as u32, elapsed_ms, ttff_ms) {
+        Some(s) => feed::pack_step(s),
+        None => -1,
+    }
+}
+
+#[no_mangle]
 pub extern "system" fn Java_io_gpsz_zygote_LocationNative_nativePhaseNs(_e: JNIEnv, _c: JClass, boot_ns: jlong) -> jlong {
     fix::phase_ns(seed(), boot_ns)
 }
@@ -353,4 +376,52 @@ pub extern "system" fn Java_io_gpsz_zygote_LocationNative_nativeGnssMeas(env: JN
         Some(s) => long_array(&env, &gnss::meas(seed(), &s, now_ms, time_ns)),
         None => std::ptr::null_mut(),
     }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_io_gpsz_zygote_LocationNative_nativeWifi(
+    mut env: JNIEnv,
+    _c: JClass,
+    lat: jdouble,
+    lng: jdouble,
+    now_ms: jlong,
+    meta: jni::objects::JIntArray,
+) -> jobjectArray {
+    let null = std::ptr::null_mut();
+    if meta.as_raw().is_null() || !lat.is_finite() || !lng.is_finite() {
+        return null;
+    }
+    match env.get_array_length(&meta) {
+        Ok(n) if n as usize >= envsim::MAX_APS * 2 => {}
+        _ => return null,
+    }
+    let aps = envsim::wifi_for(lat, lng, now_ms);
+    if aps.len() > envsim::MAX_APS {
+        return null;
+    }
+    let mut m = Vec::with_capacity(aps.len() * 2);
+    for a in &aps {
+        m.push(a.rssi);
+        m.push(a.freq);
+    }
+    if env.set_int_array_region(&meta, 0, &m).is_err() {
+        return null;
+    }
+    let out = match env.new_object_array(aps.len() as i32 * 2, "java/lang/String", JObject::null()) {
+        Ok(a) => a,
+        Err(_) => return null,
+    };
+    for (i, a) in aps.iter().enumerate() {
+        for (j, s) in [&a.ssid, &a.bssid].into_iter().enumerate() {
+            match env.new_string(s) {
+                Ok(js) => {
+                    if env.set_object_array_element(&out, (i * 2 + j) as i32, &js).is_err() {
+                        return null;
+                    }
+                }
+                Err(_) => return null,
+            }
+        }
+    }
+    out.into_raw()
 }

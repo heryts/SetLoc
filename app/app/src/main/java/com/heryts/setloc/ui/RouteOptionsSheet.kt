@@ -6,7 +6,7 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.widget.doAfterTextChanged
 import com.heryts.setloc.R
-import com.heryts.setloc.route.AutoSpeed
+import com.heryts.setloc.route.RouteNative
 import com.heryts.setloc.route.RouteRunner
 import com.heryts.setloc.utils.PrefManager
 import com.heryts.setloc.utils.ext.fmtNum
@@ -54,10 +54,10 @@ internal fun AppCompatActivity.openRouteOptions(h: RouteOptionsHost) {
 
     val modeIds = intArrayOf(R.id.mode_walk, R.id.mode_bike, R.id.mode_motor, R.id.mode_car)
     val oldMode = PrefManager.routeMode.coerceIn(0, modeIds.size - 1)
-    val distance = RouteRunner.routeLength(h.points())
+    val distance = RouteNative.routeLength(h.points())
 
     fun selectedMode() = modeIds.indexOf(chips.checkedChipId).let { if (it < 0) oldMode else it }
-    fun autoSpeedKmh() = AutoSpeed.kmh(
+    fun autoSpeedKmh() = RouteNative.autoSpeed(
         selectedMode(), distance, if (selectedMode() == oldMode) h.durationS() else null
     )
 

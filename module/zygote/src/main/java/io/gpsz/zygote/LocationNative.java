@@ -32,13 +32,21 @@ final class LocationNative {
 
     static native long nativePhaseNs(long bootNs);
 
+    static native double nativeHashUnit(long a, long b);
+
     static native double[] nativeSnapshot(double lat, double lng, float spd, float brg, double alt, float altVar, boolean random, float rr, long nowMs);
+
+    static native long[] nativeFeedPlan(int kind, long minute);
+
+    static native long nativeFeedStep(int kind, boolean live, int state, long elapsedMs, long ttffMs);
 
     static native double[] nativeGnssSnapshot(long nowSec, boolean fixed);
 
     static native String[] nativeGnssNmea(double[] snap, long ms, double lat, double lng, float acc, boolean hasSpd, float spd, boolean hasBrg, float brg, boolean hasAlt, double alt);
 
     static native long[] nativeGnssMeas(double[] snap, long nowMs, long timeNs);
+
+    static native String[] nativeWifi(double lat, double lng, long nowMs, int[] meta);
 
     private LocationNative() { }
 }

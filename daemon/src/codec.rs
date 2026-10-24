@@ -1,25 +1,13 @@
 include!(concat!(env!("OUT_DIR"), "/keys.rs"));
 
-pub fn enc(s: &str) -> String {
-    use std::fmt::Write;
-    let mut out = String::with_capacity(s.len() * 2);
-    for (i, b) in s.bytes().enumerate() {
-        let _ = write!(out, "{:02x}", b.wrapping_add(KV[i % KV.len()]));
-    }
-    out
-}
+pub use configcore::codec::enc;
 
 pub fn dec(s: &str) -> Option<String> {
     let s = s.trim();
-    if s.is_empty() || s == "null" || s.len() % 2 != 0 || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
+    if s.is_empty() || s == "null" {
         return None;
     }
-    let mut raw = Vec::with_capacity(s.len() / 2);
-    for i in 0..s.len() / 2 {
-        let p = u8::from_str_radix(&s[i * 2..i * 2 + 2], 16).ok()?;
-        raw.push(((p as u16 + 256 - KV[i % KV.len()] as u16) % 256) as u8);
-    }
-    Some(String::from_utf8_lossy(&raw).into_owned())
+    configcore::codec::dec(s)
 }
 
 pub fn numok(s: &str) -> bool {

@@ -15,13 +15,14 @@ public class TrackTest {
     ConfigNative.ensureLoaded(); LocationNative.ensureLoaded();
     Map<String,String> st=android.provider.Settings.Global.store;
     String rows=",-7.000000,110.000000,0.000,350.00,10.00|,-7.100000,110.200000,10.000,10.00,20.00|,-7.200000,110.400000,10.000,10.00,30.00|";
-    Config.Track t=Config.parseTrack(trk(100000,100000,500,rows));
-    eq("parseTrack: 3 baris, baris awal berkoma diabaikan", t!=null&&t.n==3, true);
-    eq("parseTrack: nilai baris kedua", t.la[1]+","+t.lo[1]+","+t.sp[1]+","+t.br[1]+","+t.al[1], "-7.1,110.2,10.0,10.0,20.0");
-    eq("parseTrack: data rusak -> null", Config.parseTrack(trk(1,1,500,",1,2,3|")), null);
-    eq("parseTrack: angka rusak -> null", Config.parseTrack(trk(1,1,500,",a,b,c,d,e|")), null);
-    eq("parseTrack: k<=0 -> null", Config.parseTrack(trk(1,1,0,rows)), null);
-    eq("parseTrack: null -> null", Config.parseTrack(null), null);
+    long[] hdr=new long[4];
+    double[] d=ConfigNative.nativeParseTrack(trk(100000,100000,500,rows),hdr);
+    eq("parseTrack: 3 baris, baris awal berkoma diabaikan", d!=null&&hdr[3]==3, true);
+    eq("parseTrack: nilai baris kedua", d[5]+","+d[6]+","+(float)d[8]+","+(float)d[9]+","+d[7], "-7.1,110.2,10.0,10.0,20.0");
+    eq("parseTrack: data rusak -> null", ConfigNative.nativeParseTrack(trk(1,1,500,",1,2,3|"),new long[4]), null);
+    eq("parseTrack: angka rusak -> null", ConfigNative.nativeParseTrack(trk(1,1,500,",a,b,c,d,e|"),new long[4]), null);
+    eq("parseTrack: k<=0 -> null", ConfigNative.nativeParseTrack(trk(1,1,0,rows),new long[4]), null);
+    eq("parseTrack: null -> null", ConfigNative.nativeParseTrack(null,new long[4]), null);
 
     long T0=100000;
     refresh(st,T0,CFG,trk(T0,T0,500,rows));

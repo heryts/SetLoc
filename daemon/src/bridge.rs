@@ -1,10 +1,10 @@
 use crate::app::{app_installed, install_app};
 use crate::codec::{inrange, numok, KEY};
-use crate::config::fval;
 use crate::engine::Core;
 use crate::lock::{is_empty, running, Lock};
-use crate::pref::{find_pref, pref_del, pref_set, pref_str};
+use crate::pref::{find_pref, pref_update};
 use crate::sys::{csget, is_self_cmd, quiet, run, run_all, sleep_ms, spawn_detached, APP};
+use routecore::appstate;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -31,7 +31,7 @@ fn start_daemon(moddir: &Path) -> bool {
     running(&dir)
 }
 
-pub fn ensure(moddir: &Path, super_only: bool) -> i32 {
+pub fn ensure_up(moddir: &Path, super_only: bool) -> bool {
     let dir = Lock::dir(moddir);
     let mut up = running(&dir);
     if !up {
@@ -44,11 +44,19 @@ pub fn ensure(moddir: &Path, super_only: bool) -> i32 {
         if !super_only {
             start_super(moddir);
         }
-        say!("daemon=running");
-        return 0;
+        return true;
     }
-    say!("daemon=stopped");
-    1
+    false
+}
+
+pub fn ensure(moddir: &Path, super_only: bool) -> i32 {
+    if ensure_up(moddir, super_only) {
+        say!("daemon=running");
+        0
+    } else {
+        say!("daemon=stopped");
+        1
+    }
 }
 
 fn app_pref() -> Option<PathBuf> {
@@ -60,23 +68,19 @@ fn app_pref() -> Option<PathBuf> {
     }
 }
 
-fn read(p: &Path) -> String {
-    fs::read_to_string(p).unwrap_or_default()
-}
-
 pub fn set_app_start(core: &mut Core, on: bool) -> i32 {
-    let v = if on { "true" } else { "false" };
+    let v = if on { "1" } else { "0" };
     let pref = match app_pref() {
         Some(p) => p,
         None => return 1,
     };
-    if fval(&read(&pref), "boolean", "start") == Some(v) {
+    if appstate::load(&pref).get("start") == Some(v) {
         return 0;
     }
     quiet("am", &["force-stop", APP]);
-    pref_set(&pref, "boolean", "start", v);
+    let ok = pref_update(&pref, &format!("start:{}", v));
     core.remember();
-    0
+    if ok { 0 } else { 1 }
 }
 
 pub fn set_app_pos(core: &mut Core, lat: &str, lng: &str, acc: &str) -> i32 {
@@ -91,36 +95,30 @@ pub fn set_app_pos(core: &mut Core, lat: &str, lng: &str, acc: &str) -> i32 {
         None => return 1,
     };
     quiet("am", &["force-stop", APP]);
-    pref_del(&pref, "latitude_d");
-    pref_del(&pref, "longitude_d");
-    pref_set(&pref, "float", "latitude", lat);
-    pref_set(&pref, "float", "longitude", lng);
-    pref_set(&pref, "float", "speed_ms", "0");
-    pref_set(&pref, "float", "bearing", "-1");
+    let mut patch = format!("lat:{}\nlng:{}\nspd:0\nbrg:-1", lat, lng);
     if !acc.is_empty() {
-        pref_str(&pref, "accuracy_settings", acc);
+        patch.push_str(&format!("\nacc:{}", acc));
     }
+    let ok = pref_update(&pref, &patch);
     core.remember();
-    0
+    if ok { 0 } else { 1 }
 }
 
 pub fn set_app_random(core: &mut Core, arg: &str) -> i32 {
-    let v = match arg {
-        "0" => "false",
-        "1" => "true",
-        _ => return 1,
-    };
+    if arg != "0" && arg != "1" {
+        return 1;
+    }
     let pref = match app_pref() {
         Some(p) => p,
         None => return 1,
     };
-    if fval(&read(&pref), "boolean", "random_position") == Some(v) {
+    if appstate::load(&pref).get("random") == Some(arg) {
         return 0;
     }
     quiet("am", &["force-stop", APP]);
-    pref_set(&pref, "boolean", "random_position", v);
+    let ok = pref_update(&pref, &format!("random:{}", arg));
     core.remember();
-    0
+    if ok { 0 } else { 1 }
 }
 
 pub fn install(moddir: &Path) -> i32 {
@@ -140,15 +138,15 @@ pub fn status(moddir: &Path, core: &mut Core) {
     say!("secure_settings={}", yn(granted, "granted", "missing"));
     let pref = find_pref("", true);
     if !pref.is_empty() && Path::new(&pref).is_file() {
-        let px = read(Path::new(&pref));
+        let st = appstate::load(Path::new(&pref));
         say!("pref=found");
         say!("pref_path={}", pref);
         say!("pref_mtime={}", run("stat", &["-c", "%y", &pref]).map(|r| r.1).unwrap_or_default());
         say!(
             "pref_start={} lat={} lng={}",
-            fval(&px, "boolean", "start").unwrap_or(""),
-            fval(&px, "float", "latitude").unwrap_or(""),
-            fval(&px, "float", "longitude").unwrap_or("")
+            st.get("start").unwrap_or(""),
+            st.get("lat").unwrap_or(""),
+            st.get("lng").unwrap_or("")
         );
     } else {
         say!("pref=missing");
@@ -164,5 +162,41 @@ pub fn status(moddir: &Path, core: &mut Core) {
         } else {
             say!("mirror=tidak ada ({})", f.display());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cli_setters_edit_state_file_and_resync_core() {
+        let root = std::env::temp_dir().join(format!("setlocd-bridge-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let files = root.join("data").join(APP).join("files");
+        fs::create_dir_all(&files).unwrap();
+        let state = files.join(routecore::appstate::FILE);
+        fs::write(&state, "start:0\nlat:1.0000000\nlng:2.0000000\nacc:10\nrandom:1\nspd:5\nbrg:30\n").unwrap();
+        std::env::set_var("SETLOCD_DATA", &root);
+        let mut core = Core::new(&root);
+
+        assert_eq!(set_app_start(&mut core, true), 0);
+        assert_eq!(set_app_pos(&mut core, "-7.25", "110.5", "12.5"), 0);
+        assert_eq!(set_app_random(&mut core, "0"), 0);
+        assert_eq!(set_app_random(&mut core, "2"), 1);
+        assert_eq!(set_app_pos(&mut core, "95", "110.5", ""), 1);
+
+        let st = appstate::load(&state);
+        assert!(st.flag("start"));
+        assert_eq!(st.get("lat"), Some("-7.2500000"));
+        assert_eq!(st.get("lng"), Some("110.5000000"));
+        assert_eq!(st.get("acc"), Some("12.5"));
+        assert_eq!(st.get("random"), Some("0"));
+        assert_eq!(st.get("spd"), Some("0"));
+        assert_eq!(st.get("brg"), Some("-1"));
+        assert_eq!(core.new, "enabled=1;lat=-7.2500000;lng=110.5000000;acc=12.5;random=0;spd=0;alt=0;altv=0;rr=8;brg=-1");
+
+        std::env::remove_var("SETLOCD_DATA");
+        let _ = fs::remove_dir_all(&root);
     }
 }

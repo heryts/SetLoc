@@ -15,6 +15,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.heryts.setloc.R
 import com.heryts.setloc.favourite.FavouriteStore
 import com.heryts.setloc.history.SearchHistoryStore
+import com.heryts.setloc.utils.NetNative
 import com.heryts.setloc.utils.ext.isNetworkConnected
 import com.heryts.setloc.utils.ext.showToast
 import kotlinx.coroutines.CancellationException
@@ -149,7 +150,7 @@ internal class SearchPanel(
         refresh()
     }
 
-    private fun isCoords(t: String) = Regex("[-+]?\\d{1,3}([.]\\d+)?, *[-+]?\\d{1,3}([.]\\d+)?").matches(t)
+    private fun isCoords(t: String) = NetNative.isCoords(t)
 
     private fun onTextChanged(text: String) {
         clearBtn.visibility = if (text.isEmpty()) View.GONE else View.VISIBLE

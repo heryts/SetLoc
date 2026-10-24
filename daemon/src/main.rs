@@ -18,6 +18,7 @@ mod pref;
 mod service;
 mod supervisor;
 mod sys;
+mod webui;
 
 use crate::codec::KEY;
 use crate::engine::Core;
@@ -65,7 +66,7 @@ fn bridge_cmd(args: &[String]) -> i32 {
         "super" => supervisor::run(),
         "daemon" => daemon::run(),
         _ => {
-            say!("usage: setlocd ensure [super]|service|sync|mirror|force|setstart 0|1|setpos <lat> <lng> [acc]|setrandom 0|1|status|install|modinstall <MODPATH> [OLD_MOD] [MODID]|sysdefault|gpsz ...");
+            say!("usage: setlocd ensure [super]|service|sync|mirror|force|setstart 0|1|setpos <lat> <lng> [acc]|setrandom 0|1|status|install|modinstall <MODPATH> [OLD_MOD] [MODID]|sysdefault|webui status|cfg [--nosync]|pkgs user|system|sys|app|gpsz ...");
             1
         }
     }
@@ -75,6 +76,7 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let code = match args.first().map(String::as_str) {
         Some("gpsz") => cli::run_cli(&args[1..]),
+        Some("webui") => webui::exec(&args[1..]),
         _ => bridge_cmd(&args),
     };
     std::process::exit(code);

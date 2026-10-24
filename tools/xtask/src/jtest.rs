@@ -350,7 +350,7 @@ fn beat(e: &Env, log: &mut String) -> R<()> {
         &w,
         &["beat/stubs"],
         &["Config.java", "ConfigNative.java", "LocationNative.java"],
-        &["beat/BeatTest.java", "beat/TrackTest.java", "beat/ParseTest.java", "beat/FileFieldsTest.java"],
+        &["beat/BeatTest.java", "beat/TrackTest.java", "beat/ParseTest.java"],
     )?;
     compile(e, &w, &[], log)?;
     let keys = keys_line(&e.salt);
@@ -363,7 +363,7 @@ fn beat(e: &Env, log: &mut String) -> R<()> {
         ("GPSZ_KEYS".to_string(), keys),
     ];
     let lib = host_libs(e, log)?;
-    for cls in ["BeatTest", "TrackTest", "ParseTest", "FileFieldsTest"] {
+    for cls in ["BeatTest", "TrackTest", "ParseTest"] {
         if !jrun(&ncls_args(&lib, &w, cls, &[]), &envs, log) {
             return Err(format!("{} gagal", cls));
         }

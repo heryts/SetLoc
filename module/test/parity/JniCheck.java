@@ -76,6 +76,9 @@ public class JniCheck {
         && !LocationNative.nativeLastKnownInto("gps", 1L, 1L, 1L, null) && !LocationNative.nativeLastKnownInto("gps", 1L, 1L, 1L, new long[1]));
     long ph = LocationNative.nativePhaseNs(123_000_000_005L);
     check("nativePhaseNs dalam [0, 1 dtk)", ph >= 0 && ph < 1_000_000_000L);
+    double hu = LocationNative.nativeHashUnit(901, 123L);
+    check("nativeHashUnit dalam [0, 1) dan deterministik", hu >= 0.0 && hu < 1.0 && hu == LocationNative.nativeHashUnit(901, 123L));
+    check("nativePhaseNs sama dengan nativeHashUnit(901, detik) dalam ns", LocationNative.nativePhaseNs(123_000_000_005L) == (long) (LocationNative.nativeHashUnit(901, 123L) * 1e9));
     SystemClock.fake = 700000;
     Config.parse("enabled=1;lat=-7.7;lng=110.4;acc=10;random=1;rr=8;spd=5;alt=100;altv=3;brg=45");
     Config.snap = null;

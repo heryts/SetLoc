@@ -3,12 +3,20 @@
 version = 4
 
 [[package]]
+name = "configcore"
+version = "0.0.0"
+
+[[package]]
 name = "routecore"
 version = "0.0.0"
+dependencies = [
+ "configcore",
+]
 
 [[package]]
 name = "setlocd"
 version = "0.0.0"
 dependencies = [
+ "configcore",
  "routecore",
 ]

@@ -2,7 +2,17 @@ package com.heryts.setloc.route
 
 import com.google.android.gms.maps.model.LatLng
 
-internal object RouteNative {
+internal class Plan(val waitMs: Long, val autoStop: Boolean, val endWaitMs: Long, val lineWidth: Int, val holdEndMs: Long)
+
+internal interface RouteSchedule {
+    fun plan(waitStartMin: Float, waitEndMin: Float, n: Int, chars: Long): Plan?
+    fun tickAt(now: Long, t0: Long, n: Int): Int
+    fun sleepMs(now: Long, t0: Long, k: Int): Long
+    fun endAt(t0: Long, n: Int, endWaitMs: Long): Long
+    fun prefDue(thin: Boolean, counter: Int): Boolean
+}
+
+internal object RouteNative : RouteSchedule {
     private const val STRIDE = 6
     private const val CHUNK = 2000
 
@@ -42,15 +52,152 @@ internal object RouteNative {
     @JvmStatic
     private external fun nativeFormat(flat: DoubleArray, from: Int, count: Int): String?
 
-    fun build(
-        points: List<LatLng>, speedKmh: Float, varKmh: Float, elev: FloatArray?, manual: Float
-    ): List<RouteRunner.Tick>? {
-        if (!ready) return null
+    @JvmStatic
+    private external fun nativePolylineComplete(s: String): Boolean
+
+    @JvmStatic
+    private external fun nativePolylineDecode(s: String): DoubleArray?
+
+    @JvmStatic
+    private external fun nativePolylineEncode(pts: DoubleArray): String?
+
+    @JvmStatic
+    private external fun nativeAutoSpeed(mode: Int, distanceM: Double, durationS: Double): Float
+
+    @JvmStatic
+    private external fun nativeRouteLength(pts: DoubleArray): Double
+
+    @JvmStatic
+    private external fun nativeTooLong(pts: DoubleArray, speedKmh: Float): Boolean
+
+    @JvmStatic
+    private external fun nativeBearing(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Float
+
+    @JvmStatic
+    private external fun nativeAltitudeAt(elev: FloatArray?, manual: Float, fraction: Double): Float
+
+    @JvmStatic
+    private external fun nativeSample(pts: DoubleArray, n: Int, max: Int): DoubleArray?
+
+    @JvmStatic
+    private external fun nativePlan(waitStartMin: Float, waitEndMin: Float, n: Int, chars: Long): LongArray?
+
+    @JvmStatic
+    private external fun nativeTickAt(now: Long, t0: Long, n: Int): Int
+
+    @JvmStatic
+    private external fun nativeSleepMs(now: Long, t0: Long, k: Int): Long
+
+    @JvmStatic
+    private external fun nativeEndAt(t0: Long, n: Int, endWaitMs: Long): Long
+
+    @JvmStatic
+    private external fun nativePrefDue(thin: Boolean, counter: Int): Boolean
+
+    internal fun flatten(points: List<LatLng>): DoubleArray {
         val pts = DoubleArray(points.size * 2)
         for (i in points.indices) {
             pts[i * 2] = points[i].latitude
             pts[i * 2 + 1] = points[i].longitude
         }
+        return pts
+    }
+
+    fun routeLength(points: List<LatLng>): Double {
+        if (!ready) return 0.0
+        return try {
+            nativeRouteLength(flatten(points))
+        } catch (t: Throwable) {
+            0.0
+        }
+    }
+
+    fun tooLong(points: List<LatLng>, speedKmh: Float): Boolean {
+        if (!ready) return false
+        return try {
+            nativeTooLong(flatten(points), speedKmh)
+        } catch (t: Throwable) {
+            false
+        }
+    }
+
+    fun bearing(a: LatLng, b: LatLng): Float {
+        if (!ready) return -1f
+        return try {
+            nativeBearing(a.latitude, a.longitude, b.latitude, b.longitude)
+        } catch (t: Throwable) {
+            -1f
+        }
+    }
+
+    fun altitudeAt(elev: FloatArray?, manual: Float, fraction: Double): Float {
+        if (!ready) return manual
+        return try {
+            nativeAltitudeAt(elev, manual, fraction)
+        } catch (t: Throwable) {
+            manual
+        }
+    }
+
+    fun sample(points: List<LatLng>, n: Int, max: Int): List<LatLng> {
+        if (!ready) return emptyList()
+        val res: DoubleArray? = try {
+            nativeSample(flatten(points), n, max)
+        } catch (t: Throwable) {
+            null
+        }
+        val flat = res ?: return emptyList()
+        val out = ArrayList<LatLng>(flat.size / 2)
+        for (i in 0 until flat.size / 2) out.add(LatLng(flat[i * 2], flat[i * 2 + 1]))
+        return out
+    }
+
+    fun autoSpeed(mode: Int, distanceM: Double, durationS: Double?): Float {
+        if (!ready) return 0f
+        return try {
+            nativeAutoSpeed(mode, distanceM, durationS ?: Double.NaN)
+        } catch (t: Throwable) {
+            0f
+        }
+    }
+
+    fun polylineComplete(encoded: String): Boolean {
+        if (!ready) return false
+        return try {
+            nativePolylineComplete(encoded)
+        } catch (t: Throwable) {
+            false
+        }
+    }
+
+    fun polylineDecode(encoded: String): List<LatLng>? {
+        if (!ready) return null
+        val res: DoubleArray? = try {
+            nativePolylineDecode(encoded)
+        } catch (t: Throwable) {
+            null
+        }
+        val flat = res ?: return null
+        val out = ArrayList<LatLng>(flat.size / 2)
+        for (i in 0 until flat.size / 2) out.add(LatLng(flat[i * 2], flat[i * 2 + 1]))
+        return out
+    }
+
+    fun polylineEncode(points: List<LatLng>): String? {
+        if (!ready) return null
+        val pts = flatten(points)
+        return try {
+            nativePolylineEncode(pts)
+        } catch (t: Throwable) {
+            null
+        }
+    }
+
+    fun build(
+        points: List<LatLng>, speedKmh: Float, varKmh: Float, elev: FloatArray?, manual: Float
+    ): List<RouteRunner.Tick>? {
+        if (!ready) return null
+        val pts = flatten(points)
         val res: DoubleArray? = try {
             nativeBuild(pts, speedKmh, varKmh, elev, manual, System.nanoTime())
         } catch (t: Throwable) {
@@ -101,5 +248,52 @@ internal object RouteNative {
         }
         for (s in parts) w.append(s)
         return chars
+    }
+
+    override fun plan(waitStartMin: Float, waitEndMin: Float, n: Int, chars: Long): Plan? {
+        if (!ready) return null
+        val v = try {
+            nativePlan(waitStartMin, waitEndMin, n, chars)
+        } catch (t: Throwable) {
+            null
+        }
+        if (v == null || v.size < 5) return null
+        return Plan(v[0], v[1] != 0L, v[2], v[3].toInt(), v[4])
+    }
+
+    override fun tickAt(now: Long, t0: Long, n: Int): Int {
+        if (!ready) return -1
+        return try {
+            nativeTickAt(now, t0, n)
+        } catch (t: Throwable) {
+            -1
+        }
+    }
+
+    override fun sleepMs(now: Long, t0: Long, k: Int): Long {
+        if (!ready) return 500L
+        return try {
+            nativeSleepMs(now, t0, k)
+        } catch (t: Throwable) {
+            500L
+        }
+    }
+
+    override fun endAt(t0: Long, n: Int, endWaitMs: Long): Long {
+        if (!ready) return t0
+        return try {
+            nativeEndAt(t0, n, endWaitMs)
+        } catch (t: Throwable) {
+            t0
+        }
+    }
+
+    override fun prefDue(thin: Boolean, counter: Int): Boolean {
+        if (!ready) return true
+        return try {
+            nativePrefDue(thin, counter)
+        } catch (t: Throwable) {
+            true
+        }
     }
 }

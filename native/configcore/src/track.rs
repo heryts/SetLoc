@@ -15,6 +15,15 @@ impl Track {
     pub fn n(&self) -> usize {
         self.la.len()
     }
+
+    pub fn end_ms(&self) -> i64 {
+        self.end_with(self.wrote)
+    }
+
+    pub fn end_with(&self, wrote: i64) -> i64 {
+        let last = (self.n() as i64).wrapping_sub(1);
+        self.t0.wrapping_add(last.wrapping_mul(self.tk)).max(wrote)
+    }
 }
 
 pub fn parse_track(s: &str) -> Option<Track> {
@@ -150,9 +159,129 @@ pub fn stale_level(late_ms: i64) -> i32 {
     }
 }
 
+const GAP_MS: i64 = 3_000;
+
+pub struct Stale {
+    last_elapsed: i64,
+    last_uptime: i64,
+    resume_at: i64,
+    miss_at: i64,
+}
+
+impl Stale {
+    pub const fn new() -> Self {
+        Stale { last_elapsed: 0, last_uptime: 0, resume_at: 0, miss_at: 0 }
+    }
+
+    pub fn level(&mut self, now: i64, uptime: i64, end: Option<i64>) -> i32 {
+        if self.last_elapsed != 0 && (now - self.last_elapsed) - (uptime - self.last_uptime) > GAP_MS {
+            self.resume_at = now;
+        }
+        self.last_elapsed = now;
+        self.last_uptime = uptime;
+        let late = match end {
+            None => {
+                if self.miss_at == 0 {
+                    self.miss_at = now;
+                }
+                now - self.miss_at.max(self.resume_at)
+            }
+            Some(e) => {
+                self.miss_at = 0;
+                now - e.max(self.resume_at)
+            }
+        };
+        stale_level(late)
+    }
+
+    pub fn reset(&mut self, all: bool) {
+        if all {
+            *self = Stale::new();
+        } else {
+            self.miss_at = 0;
+        }
+    }
+}
+
+pub fn tk_on(s: &str) -> bool {
+    s.split(';').any(|kv| crate::num::jtrim(kv) == "tk=1")
+}
+
+pub const FLAG_SYSTEM: i32 = 1;
+pub const FLAG_HEARTBEAT: i32 = 2;
+pub const FLAG_HIDE_NET: i32 = 4;
+pub const FLAG_HIDE_BT: i32 = 8;
+
+pub fn flags(sys: Option<&str>, net: Option<&str>, bt: Option<&str>) -> i32 {
+    let mut f = 0;
+    if matches!(sys, Some("1") | Some("2")) {
+        f |= FLAG_SYSTEM;
+    }
+    if sys == Some("2") {
+        f |= FLAG_HEARTBEAT;
+    }
+    if net != Some("0") {
+        f |= FLAG_HIDE_NET;
+    }
+    if bt == Some("1") {
+        f |= FLAG_HIDE_BT;
+    }
+    f
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stale_without_track_counts_from_first_miss() {
+        let mut s = Stale::new();
+        assert_eq!(s.level(100_000, 100_000, None), 0);
+        assert_eq!(s.level(102_999, 102_999, None), 0);
+        assert_eq!(s.level(103_000, 103_000, None), 1);
+        assert_eq!(s.level(159_999, 159_999, None), 1);
+        assert_eq!(s.level(160_000, 160_000, None), 2);
+        s.reset(false);
+        assert_eq!(s.level(161_000, 161_000, None), 0);
+    }
+
+    #[test]
+    fn stale_with_track_uses_end_and_clears_miss() {
+        let mut s = Stale::new();
+        assert_eq!(s.level(10_000, 10_000, None), 0);
+        assert_eq!(s.level(20_000, 20_000, Some(19_000)), 0);
+        assert_eq!(s.level(30_000, 30_000, Some(19_000)), 1);
+        assert_eq!(s.level(79_000, 79_000, Some(19_000)), 2);
+        assert_eq!(s.level(80_000, 80_000, None), 0);
+    }
+
+    #[test]
+    fn stale_resume_after_suspend_shifts_baseline() {
+        let mut s = Stale::new();
+        assert_eq!(s.level(1_000, 1_000, Some(0)), 0);
+        assert_eq!(s.level(70_000, 5_000, Some(0)), 0);
+        assert_eq!(s.level(72_000, 7_000, Some(0)), 0);
+        assert_eq!(s.level(75_000, 10_000, Some(0)), 1);
+        s.reset(true);
+        assert_eq!(s.level(200_000, 200_000, Some(0)), 2);
+    }
+
+    #[test]
+    fn tk_on_matches_trimmed_pair() {
+        assert!(tk_on("enabled=1;tk=1;pl=1"));
+        assert!(tk_on(" tk=1 "));
+        assert!(tk_on("tk=1"));
+        assert!(!tk_on("tk=0;xtk=1;tk=10"));
+        assert!(!tk_on(""));
+    }
+
+    #[test]
+    fn flags_map() {
+        assert_eq!(flags(None, None, None), FLAG_HIDE_NET);
+        assert_eq!(flags(Some("1"), Some("0"), Some("1")), FLAG_SYSTEM | FLAG_HIDE_BT);
+        assert_eq!(flags(Some("2"), Some("1"), None), FLAG_SYSTEM | FLAG_HEARTBEAT | FLAG_HIDE_NET);
+        assert_eq!(flags(Some("0"), Some(""), Some("0")), FLAG_HIDE_NET);
+    }
 
     fn sample() -> Track {
         parse_track("t=1000;k=1000;d=1,2,3,4,5|6,7,8,9,10|11,12,13,14,15").unwrap()

@@ -25,6 +25,7 @@ import java.util.function.BooleanSupplier;
 final class GnssFake {
     static final int T_GPS = 1, T_GLO = 3, T_BDS = 5, T_GAL = 6;
     private static final int KIND_STATUS = 0, KIND_NMEA = 1, KIND_MEAS = 2, KIND_ANT = 3;
+    private static final int A_AGAIN = 1, A_OFF = 2, A_STOPPED = 4, A_STARTED = 8, A_FIRST_FIX = 16, A_STATUS = 32, A_FIXED = 64, A_SEND = 128;
     static final int STRIDE_IN = 7, STRIDE_OUT = 9;
     private static final int LEAP_S = 18;
 
@@ -160,6 +161,10 @@ final class GnssFake {
                 double base = ((s.svid[i] * 37 % 1600) - 800) * 0.9;
                 if (Double.isNaN(rate) || Math.abs(rate - base) > 3.0) return false;
             }
+            long[] plan = LocationNative.nativeFeedPlan(KIND_STATUS, 1_234L);
+            if (plan == null || plan.length != 3 || plan[0] < 150 || plan[0] >= 350 || plan[1] != 1000 || plan[2] < 700 || plan[2] >= 2200) return false;
+            if (LocationNative.nativeFeedStep(KIND_STATUS, true, 0, 0L, plan[2]) != ((1L << 8) | A_STARTED | A_AGAIN)) return false;
+            if (LocationNative.nativeFeedStep(KIND_ANT, true, 0, 0L, 0L) != A_SEND) return false;
             Snapshot a = snapshotNative(1_234_567L, true);
             Snapshot b = snapshotNative(1_234_567L, true);
             Snapshot idle = snapshotNative(86_400L, false);
@@ -475,62 +480,85 @@ final class GnssFake {
         }
     }
 
+    private static long[] plan(int kind) {
+        if (!NATIVE) return null;
+        try {
+            long[] p = LocationNative.nativeFeedPlan(kind, SystemClock.elapsedRealtime() / 60_000L);
+            return p != null && p.length == 3 ? p : null;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static int tick(int kind, boolean live, int[] state, long elapsedMs, long ttffMs) {
+        try {
+            long r = LocationNative.nativeFeedStep(kind, live, state[0], elapsedMs, ttffMs);
+            if (r < 0) return 0;
+            state[0] = (int) (r >> 8);
+            return (int) (r & 0xff);
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
     static void feedStatus(Object target, BooleanSupplier live, StatusSink sink, Runnable off) {
-        final long ttff = 700 + (int) (Config.hashUnit(71, SystemClock.elapsedRealtime() / 60_000L) * 1500);
+        final long[] p = plan(KIND_STATUS);
+        if (p == null) return;
         final long begin = SystemClock.elapsedRealtime();
-        final boolean[] flags = new boolean[2];
-        schedule(KIND_STATUS, target, 150 + (int) (Config.hashUnit(72, SystemClock.elapsedRealtime() / 60_000L) * 200), 1000, () -> {
-            if (!live.getAsBoolean()) {
-                sink.stopped();
-                if (off != null) off.run();
-                return false;
-            }
-            if (!flags[0]) {
-                flags[0] = true;
-                sink.started();
-                return true;
-            }
-            boolean fixed = SystemClock.elapsedRealtime() - begin >= ttff;
-            if (fixed && !flags[1]) {
-                flags[1] = true;
-                sink.firstFix((int) ttff);
-            }
-            sink.status(snapshot(fixed));
-            return true;
+        final int[] state = new int[1];
+        schedule(KIND_STATUS, target, p[0], p[1], () -> {
+            int acts = tick(KIND_STATUS, live.getAsBoolean(), state, SystemClock.elapsedRealtime() - begin, p[2]);
+            if ((acts & A_STOPPED) != 0) sink.stopped();
+            if ((acts & A_OFF) != 0 && off != null) off.run();
+            if ((acts & A_STARTED) != 0) sink.started();
+            if ((acts & A_FIRST_FIX) != 0) sink.firstFix((int) p[2]);
+            if ((acts & A_STATUS) != 0) sink.status(snapshot((acts & A_FIXED) != 0));
+            return (acts & A_AGAIN) != 0;
         });
     }
 
     static void feedNmea(Object target, BooleanSupplier live, NmeaSink sink, Runnable off) {
-        schedule(KIND_NMEA, target, 1000 + (int) (Config.hashUnit(73, SystemClock.elapsedRealtime() / 60_000L) * 200), 1000, () -> {
-            if (!live.getAsBoolean()) {
-                if (off != null) off.run();
-                return false;
+        final long[] p = plan(KIND_NMEA);
+        if (p == null) return;
+        final int[] state = new int[1];
+        schedule(KIND_NMEA, target, p[0], p[1], () -> {
+            int acts = tick(KIND_NMEA, live.getAsBoolean(), state, 0L, 0L);
+            if ((acts & A_OFF) != 0 && off != null) off.run();
+            if ((acts & A_SEND) != 0) {
+                long ts = System.currentTimeMillis();
+                for (String m : nmea(snapshot(true))) sink.nmea(m, ts);
             }
-            long ts = System.currentTimeMillis();
-            for (String m : nmea(snapshot(true))) sink.nmea(m, ts);
-            return true;
+            return (acts & A_AGAIN) != 0;
         });
     }
 
     static void feedMeasurements(Object target, BooleanSupplier live, MeasSink sink, Runnable off) {
-        schedule(KIND_MEAS, target, 1000 + (int) (Config.hashUnit(74, SystemClock.elapsedRealtime() / 60_000L) * 200), 1000, () -> {
-            if (!live.getAsBoolean()) {
-                if (off != null) off.run();
-                return false;
+        final long[] p = plan(KIND_MEAS);
+        if (p == null) return;
+        final int[] state = new int[1];
+        schedule(KIND_MEAS, target, p[0], p[1], () -> {
+            int acts = tick(KIND_MEAS, live.getAsBoolean(), state, 0L, 0L);
+            if ((acts & A_OFF) != 0 && off != null) off.run();
+            if ((acts & A_SEND) != 0) {
+                Object ev = measurementsEvent(snapshot(true));
+                if (ev == null) return false;
+                sink.event(ev);
             }
-            Object ev = measurementsEvent(snapshot(true));
-            if (ev == null) return false;
-            sink.event(ev);
-            return true;
+            return (acts & A_AGAIN) != 0;
         });
     }
 
     static void feedAntenna(Object target, BooleanSupplier live, AntSink sink) {
-        schedule(KIND_ANT, target, 200 + (int) (Config.hashUnit(75, SystemClock.elapsedRealtime() / 60_000L) * 200), 1000, () -> {
-            if (!live.getAsBoolean()) return false;
-            List<Object> info = antennaList();
-            if (info != null) sink.antenna(info);
-            return false;
+        final long[] p = plan(KIND_ANT);
+        if (p == null) return;
+        final int[] state = new int[1];
+        schedule(KIND_ANT, target, p[0], p[1], () -> {
+            int acts = tick(KIND_ANT, live.getAsBoolean(), state, 0L, 0L);
+            if ((acts & A_SEND) != 0) {
+                List<Object> info = antennaList();
+                if (info != null) sink.antenna(info);
+            }
+            return (acts & A_AGAIN) != 0;
         });
     }
 

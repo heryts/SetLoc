@@ -79,11 +79,11 @@ fn save(st: &State, core: &Core) {
     core.mirror_from_settings();
 }
 
-fn bootts() -> i64 {
+pub(crate) fn bootts() -> i64 {
     now_s() - uptime_s()
 }
 
-fn hook_confirmed() -> bool {
+pub(crate) fn hook_confirmed() -> bool {
     let boot = sget("boot_count");
     let boot = boot.trim();
     !boot.is_empty() && boot.bytes().all(|b| b.is_ascii_digit()) && csget(LIVEKEY).as_deref() == Some(boot)
@@ -101,7 +101,7 @@ fn touch_ref(target: &Path, reference: &Path) {
     }
 }
 
-fn names(dir: &Path) -> Vec<String> {
+pub(crate) fn names(dir: &Path) -> Vec<String> {
     let mut v: Vec<String> = fs::read_dir(dir)
         .map(|rd| rd.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect())
         .unwrap_or_default();
@@ -262,7 +262,7 @@ impl Ctx {
     }
 }
 
-fn module_prop(moddir: &Path, key: &str) -> String {
+pub(crate) fn module_prop(moddir: &Path, key: &str) -> String {
     let t = fs::read_to_string(moddir.join("module.prop")).unwrap_or_default();
     let pre = format!("{}=", key);
     t.lines().find_map(|l| l.strip_prefix(&pre)).unwrap_or("").to_string()

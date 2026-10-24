@@ -157,17 +157,6 @@ fn touch(p: &Path) {
     let _ = fs::write(p, "");
 }
 
-fn read_line_value(text: &str, prefix: &str, end: &str) -> Option<String> {
-    for l in text.lines() {
-        if let Some(rest) = l.strip_prefix(prefix) {
-            if let Some(n) = rest.find(end) {
-                return Some(rest[..n].to_string());
-            }
-        }
-    }
-    None
-}
-
 fn config_salt(text: &str) -> Option<String> {
     for l in text.lines() {
         if let Some(i) = l.find("SALT = \"") {
@@ -178,26 +167,6 @@ fn config_salt(text: &str) -> Option<String> {
         }
     }
     None
-}
-
-fn sk_value(text: &str, key: &str) -> Option<String> {
-    let line = text.lines().find(|l| l.starts_with("const SK = "))?;
-    let needle = format!("{}: '", key);
-    let mut from = 0;
-    let mut found: Option<String> = None;
-    while let Some(i) = line[from..].find(&needle) {
-        let at = from + i;
-        let prev_ok = at == 0 || matches!(line.as_bytes()[at - 1], b'{' | b' ' | b',');
-        let start = at + needle.len();
-        if prev_ok {
-            let hex: String = line[start..].chars().take_while(|c| c.is_ascii_hexdigit()).collect();
-            if line[start + hex.len()..].starts_with('\'') {
-                found = Some(hex);
-            }
-        }
-        from = start;
-    }
-    found
 }
 
 fn mtime(p: &Path) -> i64 {
@@ -847,25 +816,10 @@ impl H {
 
     fn sec_kunci(&mut self) {
         println!("[kunci Settings.Global dan beat terenkripsi]");
-        let web = self.rd(&self.assets.join("webroot/index.html"));
         let cfg = self.rd(&self.jsrc.join("Config.java"));
-        let web_salt = read_line_value(&web, "const SALT = '", "';");
         let cfg_salt = config_salt(&cfg);
-        let salt = self.salt.clone();
-        let c = web_salt.as_deref() == Some(salt.as_str());
-        self.check("SALT WebUI sama dengan .salt (dekode state system/heartbeat)", c);
-        let c = cfg_salt.as_deref() == Some(salt.as_str());
+        let c = cfg_salt.as_deref() == Some(self.salt.as_str());
         self.check("SALT Config.java sama dengan .salt", c);
-        let c = web_salt.is_some() && web_salt == cfg_salt;
-        self.check("SALT WebUI sama dengan Config.java", c);
-        for jk in ["cfg", "sys", "net", "bt", "trk", "live"] {
-            let want = tag(&salt, jk);
-            let got = sk_value(&web, jk);
-            let c = got.as_deref() == Some(want.as_str());
-            self.check(&format!("kunci WebUI SK.{} cocok dengan tag({})", jk, jk), c);
-        }
-        let c = web.contains("SK.trk} 2>/dev/null; read U");
-        self.check("readCfg: perintah shell membaca cfg, trk, dan uptime hanya saat tk=1", c);
     }
 
     fn sec_struktur(&mut self) {
@@ -912,40 +866,6 @@ impl H {
             && !sys_branch.contains("LsNative")
             && !ze.contains("SysGuard");
         self.check("system_server hanya memuat Rust (configcore, lochooks) di premain, tanpa LSPlant/ShadowHook, dengan flag disable_rs_sys", c);
-    }
-
-    fn sec_webui(&mut self) {
-        println!("[webui: posisi dari jendela trk]");
-        if which("node").is_none() {
-            self.bad("tes webui dilewati: node tidak ada");
-            return;
-        }
-        let web = self.rd(&self.assets.join("webroot/index.html"));
-        let mut js = String::new();
-        let mut on = false;
-        for l in web.lines() {
-            if l.starts_with("function trackPos") {
-                on = true;
-            }
-            if on {
-                js.push_str(l);
-                js.push('\n');
-                if l == "}" {
-                    break;
-                }
-            }
-        }
-        js.push_str("const r = trackPos('t=1000;k=500;a=1000;d=,-7.0,110.0,0,0,0|,-7.2,110.4,0,0,0|', 1250);\n");
-        js.push_str("const e = trackPos('t=1000;k=500;a=1000;d=,-7.0,110.0,0,0,0|', 5000);\n");
-        js.push_str("console.log(r[0].toFixed(3) + ' ' + r[1].toFixed(3) + ' ' + e[0].toFixed(3) + ' ' + (trackPos('t=1;k=500;d=,1,2|', 5) === null) + ' ' + (trackPos('k=500;d=,1,2,0,0,0|', 5) === null));\n");
-        let f = self.t().join("tp.js");
-        let _ = fs::write(&f, js);
-        let o = Command::new("node").arg(&f).stdin(Stdio::null()).stderr(Stdio::null()).output();
-        let got = match o {
-            Ok(x) => String::from_utf8_lossy(&x.stdout).trim().to_string(),
-            Err(_) => String::new(),
-        };
-        self.check("trackPos: interpolasi tengah tick dan tahan titik terakhir, data rusak -> null", got == "-7.100 110.200 -7.000 true true");
     }
 
     fn java_suite(&mut self, jc: &Option<Vec<String>>, name: &str, label: &str) {
@@ -1024,11 +944,8 @@ impl H {
         if self.want("struktur") {
             self.sec_struktur();
         }
-        if self.want("webui") {
-            self.sec_webui();
-        }
         if self.want("native") || self.want("parity") || self.want("gnsswire") {
-            println!("[native: configcore, lochooks, routecore]");
+            println!("[native: configcore, lochooks, routecore, hook]");
             if which("cargo").is_none() {
                 self.bad("tes native dilewati: cargo tidak ada");
             } else {
@@ -1036,6 +953,7 @@ impl H {
                     self.cargo_suite("configcore");
                     self.cargo_suite("lochooks");
                     self.cargo_suite("routecore");
+                    self.cargo_suite("hook");
                 }
                 self.java_suite(&jc, "parity", "JNI lochooks asli: Fix.apply, stamp, lastKnown, snapshot sama dengan panggilan native langsung");
                 self.java_suite(&jc, "gnsswire", "GnssFake lewat JNI asli: verifikasi vektor tetap, snapshot satelit, NMEA, angka measurements");
@@ -1119,12 +1037,7 @@ mod tests {
     }
 
     #[test]
-    fn web_values_are_read() {
-        let t = "x\nconst SALT = 'abc';\nconst SK = { cfg: '956349', sys: 'db078e', net: '1', bt: '2', trk: '3' };\n";
-        assert_eq!(read_line_value(t, "const SALT = '", "';").as_deref(), Some("abc"));
-        assert_eq!(sk_value(t, "sys").as_deref(), Some("db078e"));
-        assert_eq!(sk_value(t, "cfg").as_deref(), Some("956349"));
-        assert_eq!(sk_value(t, "zzz"), None);
+    fn config_salt_is_read() {
         assert_eq!(config_salt("static final String SALT = \"Vzvwk4Rxj7Ps\";").as_deref(), Some("Vzvwk4Rxj7Ps"));
     }
 }

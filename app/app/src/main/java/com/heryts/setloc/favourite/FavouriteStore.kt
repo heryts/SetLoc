@@ -4,8 +4,6 @@ import android.content.Context
 import com.heryts.setloc.gsApp
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import org.json.JSONArray
-import org.json.JSONObject
 
 object FavouriteStore {
     private const val FILE = "setloc_fav"
@@ -26,8 +24,10 @@ object FavouriteStore {
     fun load() {
         synchronized(lock) {
             if (loaded) return
+            if (!StoreNative.ready) return
             val raw = sp.getString(KEY, null)
-            val parsed = if (raw != null) parse(raw) else emptyList()
+            val parsed = if (raw != null) StoreNative.favourites(raw) else emptyList()
+            if (!StoreNative.ready) return
             if (parsed == null) stashBad(raw)
             val list = parsed ?: emptyList()
             nextId = maxOf((list.maxOfOrNull { it.id } ?: 0L) + 1, sp.getLong(KEY_NEXT, 1L))
@@ -69,35 +69,7 @@ object FavouriteStore {
     }
 
     private fun save(list: List<Favourite>, next: Long): Boolean {
-        val arr = JSONArray()
-        for (f in list) {
-            arr.put(
-                JSONObject()
-                    .put("id", f.id)
-                    .put("a", f.address ?: JSONObject.NULL)
-                    .put("la", f.lat ?: JSONObject.NULL)
-                    .put("ln", f.lng ?: JSONObject.NULL)
-            )
-        }
-        return sp.edit().putString(KEY, arr.toString()).putLong(KEY_NEXT, next).commit()
-    }
-
-    internal fun parse(raw: String): List<Favourite>? = try {
-        val arr = JSONArray(raw)
-        (0 until arr.length()).mapNotNull {
-            try {
-                val o = arr.getJSONObject(it)
-                Favourite(
-                    o.getLong("id"),
-                    if (o.isNull("a")) null else o.getString("a"),
-                    if (o.isNull("la")) null else o.getDouble("la"),
-                    if (o.isNull("ln")) null else o.getDouble("ln")
-                )
-            } catch (_: Exception) {
-                null
-            }
-        }.sortedByDescending { it.id }
-    } catch (_: Exception) {
-        null
+        val json = StoreNative.encodeFavourites(list) ?: return false
+        return sp.edit().putString(KEY, json).putLong(KEY_NEXT, next).commit()
     }
 }

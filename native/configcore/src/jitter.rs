@@ -21,6 +21,12 @@ pub fn seed(salt: &str) -> u64 {
     fnv64(salt)
 }
 
+pub fn generate_deterministic_seed(lat: f64, lon: f64) -> u64 {
+    let lat_bits = (lat * 1_000_000.0) as i64;
+    let lon_bits = (lon * 1_000_000.0) as i64;
+    (lat_bits as u64) ^ (lon_bits as u64).rotate_left(32)
+}
+
 pub fn hash_unit(seed: u64, a: i64, b: i64) -> f64 {
     let h = mix(seed ^ mix(a as u64) ^ (mix(b as u64) << 1));
     (h >> 11) as f64 * (1.0 / (1u64 << 53) as f64)
@@ -180,5 +186,33 @@ mod tests {
             assert!((22..=36).contains(&mean));
             assert!(third >= mean);
         }
+    }
+
+    #[test]
+    fn deterministic_seed_is_stable() {
+        assert_eq!(generate_deterministic_seed(-6.2088, 106.8456), generate_deterministic_seed(-6.2088, 106.8456));
+    }
+
+    #[test]
+    fn deterministic_seed_formula() {
+        let want = (1_500_000i64 as u64) ^ (2_250_000i64 as u64).rotate_left(32);
+        assert_eq!(generate_deterministic_seed(1.5, 2.25), want);
+        let neg = (-1_500_000i64 as u64) ^ (-2_250_000i64 as u64).rotate_left(32);
+        assert_eq!(generate_deterministic_seed(-1.5, -2.25), neg);
+        assert_eq!(generate_deterministic_seed(0.0, 0.0), 0);
+    }
+
+    #[test]
+    fn deterministic_seed_differs_by_place_and_axis() {
+        let a = generate_deterministic_seed(-6.2088, 106.8456);
+        assert_ne!(a, generate_deterministic_seed(-6.2089, 106.8456));
+        assert_ne!(a, generate_deterministic_seed(-6.2088, 106.8457));
+        assert_ne!(generate_deterministic_seed(1.0, 2.0), generate_deterministic_seed(2.0, 1.0));
+    }
+
+    #[test]
+    fn deterministic_seed_tolerates_non_finite() {
+        assert_eq!(generate_deterministic_seed(f64::NAN, f64::NAN), 0);
+        let _ = generate_deterministic_seed(f64::INFINITY, f64::NEG_INFINITY);
     }
 }

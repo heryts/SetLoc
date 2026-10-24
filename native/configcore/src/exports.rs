@@ -1,16 +1,56 @@
-use crate::parse::{self, BeatState, Prev};
+use crate::state::{self, Core, Inputs, OUT_LEN};
 use crate::track::{self, Track};
-use jni::objects::{JClass, JDoubleArray, JFloatArray, JLongArray, JString};
-use jni::sys::{jboolean, jdouble, jdoubleArray, jfloat, jint, jlong, jstring, JNI_FALSE, JNI_TRUE};
+use jni::objects::{JClass, JDoubleArray, JLongArray, JString};
+use jni::sys::{jboolean, jdouble, jdoubleArray, jfloat, jlong, jstring, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 use std::ptr::null_mut;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
+
+static CORE: Mutex<Core> = Mutex::new(Core::new());
+
+fn core() -> MutexGuard<'static, Core> {
+    CORE.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 fn out_string(env: &mut JNIEnv, v: Option<String>) -> jstring {
     v.and_then(|v| env.new_string(v).ok()).map_or(null_mut(), |s| s.into_raw())
 }
 
 fn in_string(env: &mut JNIEnv, s: &JString) -> String {
     env.get_string(s).map(Into::into).unwrap_or_default()
+}
+
+fn text(env: &mut JNIEnv, s: &JString) -> Option<String> {
+    if s.as_raw().is_null() {
+        return None;
+    }
+    env.get_string(s).ok().map(Into::into)
+}
+
+fn out_doubles(env: &mut JNIEnv, v: &[f64]) -> jdoubleArray {
+    let arr = match env.new_double_array(v.len() as i32) {
+        Ok(a) => a,
+        Err(_) => return null_mut(),
+    };
+    if env.set_double_array_region(&arr, 0, v).is_err() {
+        return null_mut();
+    }
+    arr.into_raw()
+}
+
+fn put(env: &mut JNIEnv, out: &JDoubleArray, v: &[f64; OUT_LEN]) -> jboolean {
+    if env.set_double_array_region(out, 0, v).is_ok() {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
+}
+
+fn put_opt(env: &mut JNIEnv, out: &JDoubleArray, v: Option<[f64; OUT_LEN]>) -> jboolean {
+    match v {
+        Some(v) => put(env, out, &v),
+        None => JNI_FALSE,
+    }
 }
 
 #[no_mangle]
@@ -31,80 +71,7 @@ pub extern "system" fn Java_io_gpsz_zygote_ConfigNative_nativeDec(mut env: JNIEn
     out_string(&mut env, crate::codec::dec(&h))
 }
 
-
-static BEAT: Mutex<BeatState> = Mutex::new(BeatState { seen: None, changed_at: 0, armed: false, last_poll_at: 0 });
-static TRACK: Mutex<Option<(i64, Track)>> = Mutex::new(None);
-
-fn text(env: &mut JNIEnv, s: &JString) -> Option<String> {
-    if s.as_raw().is_null() {
-        return None;
-    }
-    env.get_string(s).ok().map(Into::into)
-}
-
-fn out_doubles(env: &mut JNIEnv, v: &[f64]) -> jdoubleArray {
-    let arr = match env.new_double_array(v.len() as i32) {
-        Ok(a) => a,
-        Err(_) => return null_mut(),
-    };
-    if env.set_double_array_region(&arr, 0, v).is_err() {
-        return null_mut();
-    }
-    arr.into_raw()
-}
-
-fn flag(b: bool) -> f64 {
-    if b {
-        1.0
-    } else {
-        0.0
-    }
-}
-
-#[no_mangle]
-pub extern "system" fn Java_io_gpsz_zygote_ConfigNative_nativeParse(
-    mut env: JNIEnv,
-    _c: JClass,
-    s: JString,
-    prev_lat: jdouble,
-    prev_lng: jdouble,
-    prev_acc: jfloat,
-) -> jdoubleArray {
-    let t = match text(&mut env, &s) {
-        Some(t) => t,
-        None => return null_mut(),
-    };
-    let p = match parse::parse_strict(&t, &Prev { lat: prev_lat, lng: prev_lng, acc: prev_acc }) {
-        Some(p) => p,
-        None => return null_mut(),
-    };
-    let v = [
-        flag(p.enabled),
-        flag(p.jitter),
-        flag(p.playing),
-        flag(p.tk),
-        p.lat,
-        p.lng,
-        p.acc as f64,
-        p.spd as f64,
-        p.brg as f64,
-        p.alt,
-        p.altv as f64,
-        p.rr as f64,
-    ];
-    out_doubles(&mut env, &v)
-}
-
-#[no_mangle]
-pub extern "system" fn Java_io_gpsz_zygote_ConfigNative_nativeParseTrack(mut env: JNIEnv, _c: JClass, s: JString, hdr: JLongArray) -> jdoubleArray {
-    let t = match text(&mut env, &s) {
-        Some(t) => t,
-        None => return null_mut(),
-    };
-    let tr = match track::parse_track(&t) {
-        Some(tr) => tr,
-        None => return null_mut(),
-    };
+fn out_track(env: &mut JNIEnv, tr: Track, hdr: &JLongArray) -> jdoubleArray {
     let n = tr.n();
     if n > (i32::MAX as usize) / 5 {
         return null_mut();
@@ -114,87 +81,102 @@ pub extern "system" fn Java_io_gpsz_zygote_ConfigNative_nativeParseTrack(mut env
         flat.extend_from_slice(&[tr.la[i], tr.lo[i], tr.al[i], tr.sp[i] as f64, tr.br[i] as f64]);
     }
     let h = [tr.t0, tr.wrote, tr.tk, n as i64];
-    if env.set_long_array_region(&hdr, 0, &h).is_err() {
+    if env.set_long_array_region(hdr, 0, &h).is_err() {
         return null_mut();
     }
-    out_doubles(&mut env, &flat)
+    out_doubles(env, &flat)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_io_gpsz_zygote_ConfigNative_nativeParseTrack(mut env: JNIEnv, _c: JClass, s: JString, hdr: JLongArray) -> jdoubleArray {
+    let t = match text(&mut env, &s) {
+        Some(t) => t,
+        None => return null_mut(),
+    };
+    match track::parse_track(&t) {
+        Some(tr) => out_track(&mut env, tr, &hdr),
+        None => null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_io_gpsz_zygote_ConfigNative_nativeCoreSelfTest(_env: JNIEnv, _c: JClass) -> jboolean {
+    if state::self_test() {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_io_gpsz_zygote_ConfigNative_nativeParseCfg(
+    mut env: JNIEnv,
+    _c: JClass,
+    s: JString,
+    lat: jdouble,
+    lng: jdouble,
+    acc: jfloat,
+    out: JDoubleArray,
+) -> jboolean {
+    let t = text(&mut env, &s);
+    let r = core().parse_with(t.as_deref(), lat, lng, acc);
+    put(&mut env, &out, &r)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_io_gpsz_zygote_ConfigNative_nativeCheckBeat(mut env: JNIEnv, _c: JClass, beat: JString, now: jlong, out: JDoubleArray) -> jboolean {
+    let b = text(&mut env, &beat);
+    let r = core().beat_with(b.as_deref(), now);
+    put(&mut env, &out, &r)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_io_gpsz_zygote_ConfigNative_nativeTick(mut env: JNIEnv, _c: JClass, now: jlong, uptime: jlong, out: JDoubleArray) -> jboolean {
+    let r = core().tick(now, uptime);
+    put_opt(&mut env, &out, r)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_io_gpsz_zygote_ConfigNative_nativeLoadFile(mut env: JNIEnv, _c: JClass, out: JDoubleArray) -> jboolean {
+    let r = core().load_file();
+    put_opt(&mut env, &out, r)
 }
 
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
-pub extern "system" fn Java_io_gpsz_zygote_ConfigNative_nativeTrackSet(
-    env: JNIEnv,
+pub extern "system" fn Java_io_gpsz_zygote_ConfigNative_nativeRefresh(
+    mut env: JNIEnv,
     _c: JClass,
-    generation: jlong,
-    t0: jlong,
-    tk: jint,
-    n: jint,
-    la: JDoubleArray,
-    lo: JDoubleArray,
-    al: JDoubleArray,
-    sp: JFloatArray,
-    br: JFloatArray,
+    cfg: JString,
+    trk: JString,
+    beat: JString,
+    net: JString,
+    bt: JString,
+    sys: JString,
+    use_file: jboolean,
+    now: jlong,
+    uptime: jlong,
+    trk_path: JString,
+    out: JDoubleArray,
 ) -> jboolean {
-    if !(1..=4_000_000).contains(&n) || tk <= 0 {
-        return JNI_FALSE;
-    }
-    let n = n as usize;
-    let mut tr = Track { t0, wrote: t0, tk: tk as i64, la: vec![0.0; n], lo: vec![0.0; n], al: vec![0.0; n], sp: vec![0.0; n], br: vec![0.0; n] };
-    let ok = env.get_double_array_region(&la, 0, &mut tr.la).is_ok()
-        && env.get_double_array_region(&lo, 0, &mut tr.lo).is_ok()
-        && env.get_double_array_region(&al, 0, &mut tr.al).is_ok()
-        && env.get_float_array_region(&sp, 0, &mut tr.sp).is_ok()
-        && env.get_float_array_region(&br, 0, &mut tr.br).is_ok();
-    if !ok {
-        return JNI_FALSE;
-    }
-    *TRACK.lock().unwrap_or_else(|e| e.into_inner()) = Some((generation, tr));
-    JNI_TRUE
-}
-
-#[no_mangle]
-pub extern "system" fn Java_io_gpsz_zygote_ConfigNative_nativeTrackClear(_env: JNIEnv, _c: JClass) {
-    *TRACK.lock().unwrap_or_else(|e| e.into_inner()) = None;
-}
-
-#[no_mangle]
-pub extern "system" fn Java_io_gpsz_zygote_ConfigNative_nativeApplyTrack(mut env: JNIEnv, _c: JClass, generation: jlong, now_ms: jlong, stale: jint) -> jdoubleArray {
-    let a = {
-        let g = TRACK.lock().unwrap_or_else(|e| e.into_inner());
-        match g.as_ref() {
-            Some((gen, tr)) if *gen == generation => track::apply_track(tr, now_ms, stale),
-            _ => return null_mut(),
-        }
-    };
-    out_doubles(&mut env, &[a.lat, a.lng, a.alt, a.spd as f64, a.brg as f64])
-}
-
-#[no_mangle]
-pub extern "system" fn Java_io_gpsz_zygote_ConfigNative_nativeStaleLevel(_env: JNIEnv, _c: JClass, late_ms: jlong) -> jint {
-    track::stale_level(late_ms)
-}
-
-#[no_mangle]
-pub extern "system" fn Java_io_gpsz_zygote_ConfigNative_nativeBeatCheck(mut env: JNIEnv, _c: JClass, beat: JString, playing: jboolean, now: jlong) -> jint {
-    let b = if beat.as_raw().is_null() {
-        None
-    } else {
-        match env.get_string(&beat) {
-            Ok(s) => Some(String::from(s)),
-            Err(_) => return -1,
-        }
-    };
-    let mut st = BEAT.lock().unwrap_or_else(|e| e.into_inner());
-    let (level, freeze) = parse::check_beat(b.as_deref(), playing != JNI_FALSE, now, &mut st);
-    level | if freeze { 4 } else { 0 }
-}
-
-#[no_mangle]
-pub extern "system" fn Java_io_gpsz_zygote_ConfigNative_nativeBeatDisarm(_env: JNIEnv, _c: JClass) {
-    BEAT.lock().unwrap_or_else(|e| e.into_inner()).armed = false;
-}
-
-#[no_mangle]
-pub extern "system" fn Java_io_gpsz_zygote_ConfigNative_nativeBeatReset(_env: JNIEnv, _c: JClass) {
-    *BEAT.lock().unwrap_or_else(|e| e.into_inner()) = BeatState::default();
+    let cfg = text(&mut env, &cfg);
+    let trk = text(&mut env, &trk);
+    let beat = text(&mut env, &beat);
+    let net = text(&mut env, &net);
+    let bt = text(&mut env, &bt);
+    let sys = text(&mut env, &sys);
+    let path = text(&mut env, &trk_path).unwrap_or_default();
+    let r = core().refresh(&Inputs {
+        cfg: cfg.as_deref(),
+        trk: trk.as_deref(),
+        beat: beat.as_deref(),
+        net: net.as_deref(),
+        bt: bt.as_deref(),
+        sys: sys.as_deref(),
+        use_file: use_file != JNI_FALSE,
+        now,
+        uptime,
+        trk_path: &path,
+    });
+    put(&mut env, &out, &r)
 }

@@ -48,3 +48,95 @@ pub fn route_length(p: &[Pt]) -> f64 {
     }
     t
 }
+
+pub fn sample(points: &[Pt], n: i32, max: i32) -> Vec<Pt> {
+    if points.len() < 2 {
+        return points.to_vec();
+    }
+    let cnt = n.clamp(2, max.max(2)) as usize;
+    let mut cum = vec![0.0f64; points.len()];
+    for i in 1..points.len() {
+        cum[i] = cum[i - 1] + meters(points[i - 1], points[i]);
+    }
+    let total = cum[cum.len() - 1];
+    if total <= 0.0 {
+        return vec![points[0], points[points.len() - 1]];
+    }
+    let mut out = Vec::with_capacity(cnt);
+    let mut seg = 1usize;
+    for k in 0..cnt {
+        let d = total * k as f64 / (cnt - 1) as f64;
+        while seg < cum.len() - 1 && cum[seg] < d {
+            seg += 1;
+        }
+        let len = cum[seg] - cum[seg - 1];
+        let f = if len <= 0.0 { 1.0 } else { ((d - cum[seg - 1]) / len).clamp(0.0, 1.0) };
+        let a = points[seg - 1];
+        let b = points[seg];
+        out.push((a.0 + (b.0 - a.0) * f, lerp_lng(a.1, b.1, f)));
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const MAX: i32 = 100;
+
+    #[test]
+    fn fewer_than_two_points_returned_as_is() {
+        assert!(sample(&[], 10, MAX).is_empty());
+        assert_eq!(sample(&[(1.0, 2.0)], 10, MAX), vec![(1.0, 2.0)]);
+    }
+
+    #[test]
+    fn count_is_clamped() {
+        let line = [(0.0, 0.0), (0.0, 0.01)];
+        assert_eq!(sample(&line, 1, MAX).len(), 2);
+        assert_eq!(sample(&line, 0, MAX).len(), 2);
+        assert_eq!(sample(&line, -5, MAX).len(), 2);
+        assert_eq!(sample(&line, 1000, MAX).len(), 100);
+        assert_eq!(sample(&line, 7, MAX).len(), 7);
+    }
+
+    #[test]
+    fn endpoints_are_kept() {
+        let line = [(0.0, 0.0), (0.0, 0.005), (0.002, 0.01)];
+        let s = sample(&line, 9, MAX);
+        assert!((s[0].0 - line[0].0).abs() < 1e-9 && (s[0].1 - line[0].1).abs() < 1e-9);
+        let l = s[s.len() - 1];
+        assert!((l.0 - 0.002).abs() < 1e-6 && (l.1 - 0.01).abs() < 1e-6);
+    }
+
+    #[test]
+    fn straight_line_is_sampled_evenly() {
+        let s = sample(&[(0.0, 0.0), (0.0, 0.01)], 3, MAX);
+        assert!((s[1].1 - 0.005).abs() < 1e-6);
+        assert!(s[1].0.abs() < 1e-9);
+    }
+
+    #[test]
+    fn identical_points_give_two_points() {
+        let p = (-7.7, 110.4);
+        let s = sample(&[p, p, p], 10, MAX);
+        assert_eq!(s.len(), 2);
+        assert_eq!(s[0], p);
+        assert_eq!(s[1], p);
+    }
+
+    #[test]
+    fn crossing_antimeridian_stays_near_180() {
+        let s = sample(&[(0.0, 179.99), (0.0, -179.99)], 3, MAX);
+        assert!((s[1].1.abs() - 180.0).abs() < 1e-6);
+        assert!(s.iter().all(|p| (-180.0..=180.0).contains(&p.1)));
+    }
+
+    #[test]
+    fn route_length_sums_segments() {
+        let l = route_length(&[(0.0, 0.0), (1.0, 0.0), (2.0, 0.0)]);
+        assert!((l - 2.0 * 111195.0).abs() < 600.0);
+        assert_eq!(route_length(&[(1.0, 1.0)]), 0.0);
+        assert_eq!(route_length(&[]), 0.0);
+    }
+}

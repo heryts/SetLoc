@@ -83,6 +83,34 @@ public final class GnssWire {
         return true;
     }
 
+    private static void feedChecks() throws Exception {
+        final java.util.List<String> ev = java.util.Collections.synchronizedList(new java.util.ArrayList<String>());
+        final boolean[] live = {true};
+        final Object target = new Object();
+        SystemClock.fake = 123_456_000L;
+        GnssFake.feedStatus(target, () -> live[0], new GnssFake.StatusSink() {
+            public void started() { ev.add("started"); }
+            public void firstFix(int ttffMs) { ev.add("fix"); }
+            public void status(GnssFake.Snapshot s) { ev.add(s.usedCount() > 0 ? "status+" : "status-"); }
+            public void stopped() { ev.add("stopped"); }
+        }, () -> ev.add("off"));
+        Thread.sleep(700);
+        SystemClock.fake = 123_466_000L;
+        Thread.sleep(2300);
+        live[0] = false;
+        Thread.sleep(1500);
+        String log = String.join(",", ev);
+        expect("feedStatus: started, status tanpa fix, firstFix sekali, lalu stopped dan off (" + log + ")",
+                ev.size() >= 5 && ev.get(0).equals("started") && log.contains("status+")
+                        && java.util.Collections.frequency(ev, "fix") == 1
+                        && ev.get(ev.size() - 2).equals("stopped") && ev.get(ev.size() - 1).equals("off"));
+        final java.util.List<String> an = java.util.Collections.synchronizedList(new java.util.ArrayList<String>());
+        final Object t2 = new Object();
+        GnssFake.feedAntenna(t2, () -> true, info -> an.add("ant"));
+        Thread.sleep(1500);
+        expect("feedAntenna: dikirim paling banyak sekali", an.size() <= 1);
+    }
+
     public static void main(String[] args) throws Exception {
         expect("library configcore dan lochooks termuat", ConfigNative.ensureLoaded() && LocationNative.ensureLoaded());
         expect("Config.ready(): codec, cfg, dan loc lolos verifikasi", Config.ready());
@@ -162,6 +190,8 @@ public final class GnssWire {
         Config.parse("enabled=1;lat=-7.7;lng=110.4;acc=10;random=1;rr=8;spd=5;alt=100;altv=3;brg=45");
         List<String> v = GnssFake.nmea(s);
         expect("nmea(): kalimat valid (GGA ... RMC, checksum, CRLF)", valid(v));
+
+        feedChecks();
 
         System.out.println(fail == 0 ? "SEMUA LOLOS" : fail + " GAGAL");
         if (fail != 0) System.exit(1);

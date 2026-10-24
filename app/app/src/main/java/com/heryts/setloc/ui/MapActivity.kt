@@ -36,8 +36,8 @@ import com.heryts.setloc.databinding.ActivityMapBinding
 import com.heryts.setloc.favourite.SavedRoute
 import com.heryts.setloc.favourite.SavedRouteStore
 import com.heryts.setloc.route.ElevationClient
-import com.heryts.setloc.route.AutoSpeed
 import com.heryts.setloc.route.RouteClient
+import com.heryts.setloc.route.RouteNative
 import com.heryts.setloc.route.RouteRunner
 import com.heryts.setloc.route.RouteService
 import com.heryts.setloc.utils.PrefManager
@@ -614,10 +614,12 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     }
 
     private fun systemModeActive(): Boolean = try {
-        val v = PrefManager.dec(Settings.Global.getString(contentResolver, PrefManager.tag("sys")))
+        val sysKey = PrefManager.tag("sys") ?: return true
+        val liveKey = PrefManager.tag("live") ?: return true
+        val v = PrefManager.dec(Settings.Global.getString(contentResolver, sysKey))
         val enabled = v == "1" || v == "2"
         val boot = Settings.Global.getInt(contentResolver, Settings.Global.BOOT_COUNT, -1)
-        val live = PrefManager.dec(Settings.Global.getString(contentResolver, PrefManager.tag("live")))?.toIntOrNull()
+        val live = PrefManager.dec(Settings.Global.getString(contentResolver, liveKey))?.toIntOrNull()
         enabled && boot >= 0 && live == boot
     } catch (_: Exception) {
         true
@@ -635,8 +637,8 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     private fun startRoute() {
         if (!routeReady) return
         val speed = PrefManager.routeSpeed.takeIf { it > 0f }
-            ?: AutoSpeed.kmh(PrefManager.routeMode, RouteRunner.routeLength(routePoints), routeDurationS)
-        if (RouteRunner.tooLong(routePoints, speed)) {
+            ?: RouteNative.autoSpeed(PrefManager.routeMode, RouteNative.routeLength(routePoints), routeDurationS)
+        if (RouteNative.tooLong(routePoints, speed)) {
             showToast(getString(R.string.route_too_long))
             return
         }
@@ -732,7 +734,6 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
     }
 
     private fun setupSystemBars() {
-        window.statusBarColor = android.graphics.Color.TRANSPARENT
         WindowCompat.getInsetsController(window, binding.root).apply {
             isAppearanceLightStatusBars = true
             isAppearanceLightNavigationBars = true
@@ -966,7 +967,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
         val editText = view.findViewById<EditText>(R.id.search_edittxt)
         editText.hint = getString(R.string.route_name_hint)
         editText.setText(
-            getString(R.string.route_name_default, formatDistance(RouteRunner.routeLength(routePoints)))
+            getString(R.string.route_name_default, formatDistance(RouteNative.routeLength(routePoints)))
         )
         editText.selectAll()
         view.findViewById<TextView>(R.id.pin_info)?.text =
@@ -982,7 +983,7 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMapClic
 
         fun submit() {
             val name = editText.text.toString().trim().ifEmpty {
-                getString(R.string.route_name_default, formatDistance(RouteRunner.routeLength(routePoints)))
+                getString(R.string.route_name_default, formatDistance(RouteNative.routeLength(routePoints)))
             }
             val pts = routeWaypoints.map { it.latitude to it.longitude }
             viewModel.storeRoute(name, PrefManager.routeMode, pts) { ok ->

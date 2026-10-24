@@ -1,6 +1,8 @@
 package io.gpsz.zygote;
 
 final class ConfigNative {
+    static final int OUT_LEN = 10;
+
     private static volatile boolean loaded;
 
     static synchronized boolean ensureLoaded() {
@@ -24,23 +26,20 @@ final class ConfigNative {
 
     static native String nativeDec(String hex);
 
-    static native double[] nativeParse(String s, double prevLat, double prevLng, float prevAcc);
-
     static native double[] nativeParseTrack(String s, long[] hdr);
 
-    static native boolean nativeTrackSet(long gen, long t0, int tk, int n, double[] la, double[] lo, double[] al, float[] sp, float[] br);
+    static native boolean nativeCoreSelfTest();
 
-    static native void nativeTrackClear();
+    static native boolean nativeParseCfg(String s, double prevLat, double prevLng, float prevAcc, double[] out);
 
-    static native double[] nativeApplyTrack(long gen, long nowMs, int stale);
+    static native boolean nativeCheckBeat(String beat, long now, double[] out);
 
-    static native int nativeStaleLevel(long lateMs);
+    static native boolean nativeTick(long now, long uptime, double[] out);
 
-    static native int nativeBeatCheck(String beat, boolean playing, long now);
+    static native boolean nativeLoadFile(double[] out);
 
-    static native void nativeBeatDisarm();
-
-    static native void nativeBeatReset();
+    static native boolean nativeRefresh(String cfg, String trk, String beat, String net, String bt, String sys,
+                                        boolean useFile, long now, long uptime, String trkPath, double[] out);
 
     private ConfigNative() { }
 }

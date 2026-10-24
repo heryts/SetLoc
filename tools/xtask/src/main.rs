@@ -268,6 +268,36 @@ fn build_native(skip_tests: bool) -> R<()> {
     build_crates(&NATIVE_CRATES, "module/zygote/src/main/jniLibs", skip_tests)
 }
 
+fn build_hook(skip_tests: bool) -> R<()> {
+    if which("cargo").is_none() {
+        return Err("butuh cargo (https://rustup.rs)".into());
+    }
+    let dir = "native/hook";
+    let t = "aarch64-linux-android";
+    if !skip_tests {
+        status(Command::new("cargo").args(["test", "--release"]).env_remove("CARGO_TARGET_DIR")
+                .current_dir(dir), "cargo test hook")?;
+    }
+    if which("rustup").is_some() {
+        let have = out_of(Command::new("rustup").args(["target", "list", "--installed"])).unwrap_or_default();
+        if !have.lines().any(|l| l.trim() == t) {
+            status(Command::new("rustup").args(["target", "add", t]), "rustup target add")?;
+        }
+    }
+    status(
+        Command::new("cargo")
+            .args(["build", "--release", "--target", t])
+            .env_remove("CARGO_TARGET_DIR")
+            .current_dir(dir),
+        &format!("cargo build hook {}", t),
+    )?;
+    let lib = format!("{}/target/{}/release/libgpsz_hookrs.a", dir, t);
+    if !Path::new(&lib).is_file() {
+        return Err(format!("{} tidak ada", lib));
+    }
+    Ok(())
+}
+
 fn build_app_native(skip_tests: bool) -> R<()> {
     build_crates(&APP_NATIVE_CRATES, "app/app/src/main/jniLibs", skip_tests)
 }
@@ -373,6 +403,9 @@ fn build() -> R<()> {
 
     println!("== 2b/4 build native Rust (configcore, lochooks) ==");
     build_native(skip_tests).map_err(|e| format!("native Rust: {}", e))?;
+
+    println!("== 2c/4 build hook Rust (gpsz_hook) ==");
+    build_hook(skip_tests).map_err(|e| format!("hook Rust: {}", e))?;
 
     println!("== 3/4 siapkan AndroidVMTools ==");
     let msg = setup.join().map_err(|_| "thread setup panik".to_string())??;

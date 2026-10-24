@@ -1,4 +1,5 @@
-use crate::sys::{data, APP};
+use crate::sys::{data, quiet, APP};
+use routecore::appstate::{self, FILE};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -46,13 +47,10 @@ pub fn find_pref(current: &str, deep: bool) -> String {
         return current.to_string();
     }
     let d = data();
-    let name = format!("{}_prefs.xml", APP);
     let patterns = [
-        format!("data/{}/shared_prefs/{}", APP, name),
-        format!("user/*/{}/shared_prefs/{}", APP, name),
-        format!("user_de/*/{}/shared_prefs/{}", APP, name),
-        format!("misc/*/prefs/{}/{}", APP, name),
-        format!("misc/*/*/prefs/{}/{}", APP, name),
+        format!("data/{}/files/{}", APP, FILE),
+        format!("user/*/{}/files/{}", APP, FILE),
+        format!("user_de/*/{}/files/{}", APP, FILE),
     ];
     let mut found: Vec<(SystemTime, PathBuf)> = Vec::new();
     for pat in &patterns {
@@ -67,7 +65,7 @@ pub fn find_pref(current: &str, deep: bool) -> String {
     }
     if deep {
         for root in ["misc", "user", "user_de"] {
-            if let Some(p) = walk(&d.join(root), 1, &name) {
+            if let Some(p) = walk(&d.join(root), 1, FILE) {
                 return p.to_string_lossy().into_owned();
             }
         }
@@ -75,103 +73,56 @@ pub fn find_pref(current: &str, deep: bool) -> String {
     String::new()
 }
 
-pub fn pref_set(path: &Path, ty: &str, name: &str, val: &str) {
-    let txt = match fs::read_to_string(path) {
-        Ok(t) => t,
-        Err(_) => return,
-    };
-    let presence = format!("<{} name=\"{}\"", ty, name);
-    let new = match txt.find(&presence) {
-        Some(i) => {
-            let key = format!("{} value=\"", presence);
-            let s = match txt[i..].starts_with(&key) {
-                true => i + key.len(),
-                false => return,
-            };
-            match txt[s..].find('"') {
-                Some(e) => format!("{}{}{}", &txt[..s], val, &txt[s + e..]),
-                None => return,
-            }
-        }
-        None => txt.replacen("</map>", &format!("    <{} name=\"{}\" value=\"{}\" />\n</map>", ty, name, val), 1),
-    };
-    if new.contains(&format!("name=\"{}\" value=\"{}\"", name, val)) {
-        let _ = fs::write(path, new);
-    }
-}
-
-pub fn pref_str(path: &Path, name: &str, val: &str) {
-    let txt = match fs::read_to_string(path) {
-        Ok(t) => t,
-        Err(_) => return,
-    };
-    let open = format!("<string name=\"{}\">", name);
-    let new = match txt.find(&open) {
-        Some(i) => {
-            let s = i + open.len();
-            match txt[s..].find('<') {
-                Some(e) => format!("{}{}{}", &txt[..s], val, &txt[s + e..]),
-                None => return,
-            }
-        }
-        None => txt.replacen("</map>", &format!("    <string name=\"{}\">{}</string>\n</map>", name, val), 1),
-    };
-    if new.contains(&format!("{}{}</string>", open, val)) && new.contains("</map>") {
-        let _ = fs::write(path, new);
-    }
-}
-
-pub fn pref_del(path: &Path, name: &str) {
-    let txt = match fs::read_to_string(path) {
-        Ok(t) => t,
-        Err(_) => return,
-    };
-    let probe = format!("name=\"{}\"", name);
-    if !txt.contains(&probe) {
-        return;
-    }
-    let open = format!("<string name=\"{}\">", name);
-    let new: String = txt
-        .split_inclusive('\n')
-        .filter(|l| !(l.contains(&open) && l.contains("</string>")))
-        .collect();
-    if !new.is_empty() && !new.contains(&probe) {
-        let _ = fs::write(path, new);
-    }
+pub fn pref_update(path: &Path, patch: &str) -> bool {
+    appstate::update(path, patch, &|tmp| {
+        quiet("chcon", &["--reference", &path.to_string_lossy(), &tmp.to_string_lossy()]);
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
 
     fn sample(tag: &str) -> PathBuf {
-        let p = std::env::temp_dir().join(format!("setlocd-pref-{}-{}.xml", tag, std::process::id()));
-        fs::write(
-            &p,
-            "<map>\n    <float name=\"latitude\" value=\"1.0\" />\n    <string name=\"accuracy_settings\">10</string>\n</map>\n",
-        )
-        .unwrap();
+        let d = std::env::temp_dir().join(format!("setlocd-pref-{}-{}", tag, std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        let p = d.join(FILE);
+        fs::write(&p, "lat:1.0000000\nacc:10\n").unwrap();
         p
     }
 
     #[test]
-    fn set_existing_and_new() {
+    fn update_sets_existing_and_new_keys() {
         let p = sample("set");
-        pref_set(&p, "float", "latitude", "-7.5");
-        pref_set(&p, "float", "speed_ms", "0");
+        assert!(pref_update(&p, "lat:-7.5\nspd:0"));
         let t = fs::read_to_string(&p).unwrap();
-        assert!(t.contains("<float name=\"latitude\" value=\"-7.5\" />"));
-        assert!(t.contains("<float name=\"speed_ms\" value=\"0\" />\n</map>"));
-        let _ = fs::remove_file(&p);
+        assert_eq!(t, "lat:-7.5000000\nacc:10\nspd:0\n");
+        let _ = fs::remove_dir_all(p.parent().unwrap());
     }
 
     #[test]
-    fn str_and_del() {
-        let p = sample("str");
-        pref_str(&p, "accuracy_settings", "25");
-        assert!(fs::read_to_string(&p).unwrap().contains(">25</string>"));
-        pref_del(&p, "accuracy_settings");
-        assert!(!fs::read_to_string(&p).unwrap().contains("accuracy_settings"));
-        let _ = fs::remove_file(&p);
+    fn invalid_patch_leaves_file_untouched() {
+        let p = sample("bad");
+        assert!(!pref_update(&p, "lat:2\nacc:abc"));
+        assert_eq!(fs::read_to_string(&p).unwrap(), "lat:1.0000000\nacc:10\n");
+        let _ = fs::remove_dir_all(p.parent().unwrap());
+    }
+
+    #[test]
+    fn update_preserves_mode() {
+        let p = sample("mode");
+        fs::set_permissions(&p, fs::Permissions::from_mode(0o660)).unwrap();
+        assert!(pref_update(&p, "start:1"));
+        assert_eq!(fs::metadata(&p).unwrap().permissions().mode() & 0o777, 0o660);
+        let _ = fs::remove_dir_all(p.parent().unwrap());
+    }
+
+    #[test]
+    fn find_uses_override_and_walks_for_state_file() {
+        let p = sample("find");
+        assert_eq!(find_pref(&p.to_string_lossy(), false), p.to_string_lossy());
+        let _ = fs::remove_dir_all(p.parent().unwrap());
     }
 }

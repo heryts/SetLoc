@@ -1,6 +1,4 @@
-use crate::config::fval;
 use crate::sys::{self, mtime_s, now_s, quiet, quiet_bg, run, run_all, APP};
-use crate::codec::numok;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
@@ -52,9 +50,8 @@ pub fn keepalive(full: bool) {
 }
 
 pub fn poke_check(prefc: &str) {
-    let px = fs::read_to_string(prefc).unwrap_or_default();
-    let f = |ty: &str, n: &str| fval(&px, ty, n).filter(|v| numok(v)).and_then(|v| v.parse::<i64>().ok());
-    let (t0, tk, nn) = match (f("long", "route_t0"), f("long", "route_tick"), f("int", "route_n")) {
+    let st = routecore::appstate::load(Path::new(prefc));
+    let (t0, tk, nn) = match (st.int("route_t0"), st.int("route_tick"), st.int("route_n")) {
         (Some(a), Some(b), Some(c)) => (a, b, c),
         _ => return,
     };

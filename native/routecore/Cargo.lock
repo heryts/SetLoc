@@ -31,6 +31,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "configcore"
+version = "0.0.0"
+
+[[package]]
 name = "jni"
 version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -86,6 +90,7 @@ dependencies = [
 name = "routecore"
 version = "0.0.0"
 dependencies = [
+ "configcore",
  "jni",
 ]
 

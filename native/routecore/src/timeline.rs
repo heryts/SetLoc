@@ -1,5 +1,8 @@
 use crate::geo::{bearing, lerp_lng, meters, route_length, Pt};
 use std::fmt::Write;
+use std::fs::File;
+use std::io::{Read, Seek, SeekFrom};
+use std::path::Path;
 
 pub const TICK_MS: i64 = 500;
 pub const LINE_WIDTH: usize = 48;
@@ -198,9 +201,97 @@ pub fn uniform_width(ticks: &[Tick]) -> bool {
     })
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Cursor {
+    pub idx: i64,
+    pub ended: bool,
+    pub elapsed_ms: i64,
+}
+
+pub fn cursor(now_cs: i64, t0_cs: i64, tick_ms: i64, count: i64) -> Cursor {
+    let el = (now_cs - t0_cs) * 10;
+    let mut idx = if el < 0 { 1 } else { el / tick_ms.max(1) + 1 };
+    let ended = idx >= count;
+    if ended {
+        idx = count;
+    }
+    Cursor { idx, ended, elapsed_ms: el }
+}
+
+pub fn read_tokens(path: &Path, width: usize, idx: i64) -> Option<Vec<String>> {
+    if idx < 1 {
+        return None;
+    }
+    let mut f = File::open(path).ok()?;
+    let line = if width > 0 {
+        let mut buf = vec![0u8; width];
+        f.seek(SeekFrom::Start((idx as u64 - 1) * width as u64)).ok()?;
+        let n = f.read(&mut buf).ok()?;
+        String::from_utf8_lossy(&buf[..n]).into_owned()
+    } else {
+        let mut all = String::new();
+        f.read_to_string(&mut all).ok()?;
+        all.lines().nth(idx as usize - 1)?.to_string()
+    };
+    Some(line.split_whitespace().map(String::from).collect())
+}
+
+pub fn read_window(path: &Path, width: usize, start: i64, count: i64) -> Vec<u8> {
+    if start < 1 || count < 1 {
+        return Vec::new();
+    }
+    let mut f = match File::open(path) {
+        Ok(f) => f,
+        Err(_) => return Vec::new(),
+    };
+    if f.seek(SeekFrom::Start((start as u64 - 1) * width as u64)).is_err() {
+        return Vec::new();
+    }
+    let mut buf = Vec::new();
+    let _ = f.take(count as u64 * width as u64).read_to_end(&mut buf);
+    buf
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn temp_file(tag: &str, body: &str) -> std::path::PathBuf {
+        let p = std::env::temp_dir().join(format!("routecore-{}-{}", tag, std::process::id()));
+        std::fs::write(&p, body).unwrap();
+        p
+    }
+
+    #[test]
+    fn cursor_clamps_and_marks_end() {
+        assert_eq!(cursor(1000, 1000, 500, 4), Cursor { idx: 1, ended: false, elapsed_ms: 0 });
+        assert_eq!(cursor(900, 1000, 500, 4), Cursor { idx: 1, ended: false, elapsed_ms: -1000 });
+        assert_eq!(cursor(1100, 1000, 500, 4), Cursor { idx: 3, ended: false, elapsed_ms: 1000 });
+        assert_eq!(cursor(1150, 1000, 500, 4), Cursor { idx: 4, ended: true, elapsed_ms: 1500 });
+        assert_eq!(cursor(9000, 1000, 500, 4), Cursor { idx: 4, ended: true, elapsed_ms: 80000 });
+    }
+
+    #[test]
+    fn reader_matches_writer() {
+        let pts = [(-7.7, 110.4), (-7.69, 110.41), (-7.68, 110.40)];
+        let ticks = build(&pts, 40.0, -1.0, &[10.0, 20.0], 0.0, &mut Rng::new(5));
+        let p = temp_file("rw", &format(&ticks));
+        for k in [0usize, 1, ticks.len() / 2, ticks.len() - 1] {
+            let fixed = read_tokens(&p, LINE_WIDTH, k as i64 + 1).unwrap();
+            let lined = read_tokens(&p, 0, k as i64 + 1).unwrap();
+            assert_eq!(fixed, lined);
+            assert_eq!(fixed.len(), 5);
+            assert!((fixed[0].parse::<f64>().unwrap() - ticks[k].lat).abs() < 1e-6);
+        }
+        assert!(read_tokens(&p, LINE_WIDTH, 0).is_none());
+        assert!(read_tokens(&p, LINE_WIDTH, ticks.len() as i64 + 1).map_or(true, |t| t.is_empty()));
+        let w = read_window(&p, LINE_WIDTH, 2, 3);
+        assert_eq!(w.len(), 3 * LINE_WIDTH);
+        assert_eq!(w, format(&ticks[1..4]).into_bytes());
+        assert!(read_window(&p, LINE_WIDTH, 0, 3).is_empty());
+        let _ = std::fs::remove_file(&p);
+    }
+
 
     const ORIGIN: Pt = (-7.7, 110.4);
 

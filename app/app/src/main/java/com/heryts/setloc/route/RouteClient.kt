@@ -5,11 +5,10 @@ import android.content.pm.PackageManager
 import com.google.android.gms.maps.model.LatLng
 import com.heryts.setloc.R
 import com.heryts.setloc.utils.Http
+import com.heryts.setloc.utils.NetNative
 import com.heryts.setloc.utils.PrefManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
 import java.io.IOException
 import java.security.MessageDigest
 
@@ -20,9 +19,6 @@ object RouteClient {
 
     class Result(val points: List<LatLng>, val durationS: Double)
 
-    private val MODES = arrayOf("WALK", "BICYCLE", "DRIVE", "DRIVE")
-    private const val MODE_MOTOR = 2
-
     private const val ENDPOINT = "https://routes.googleapis.com/directions/v2:computeRoutes"
     private const val FIELD_MASK = "routes.duration,routes.polyline.encodedPolyline"
 
@@ -31,25 +27,17 @@ object RouteClient {
     suspend fun fetch(context: Context, stops: List<LatLng>, mode: Int): Result =
         withContext(Dispatchers.IO) {
             if (stops.size < 2) throw RouteException(R.string.route_err_min_points)
-            val idx = mode.coerceIn(0, MODES.size - 1)
-            request(context.applicationContext, stops, MODES[idx], idx == MODE_MOTOR)
+            request(context.applicationContext, stops, mode)
         }
 
-    private suspend fun request(context: Context, stops: List<LatLng>, travelMode: String, avoidTolls: Boolean): Result {
+    private suspend fun request(context: Context, stops: List<LatLng>, mode: Int): Result {
         val key = apiKey(context) ?: throw RouteException(R.string.route_err_no_key)
 
-        val body = JSONObject()
-            .put("origin", waypoint(stops.first()))
-            .put("destination", waypoint(stops.last()))
-            .put("travelMode", travelMode)
-            .put("polylineEncoding", "ENCODED_POLYLINE")
-        if (avoidTolls) body.put("routeModifiers", JSONObject().put("avoidTolls", true))
-        if (travelMode == "DRIVE" && PrefManager.trafficAware) body.put("routingPreference", "TRAFFIC_AWARE")
-        if (stops.size > 2) {
-            val mid = JSONArray()
-            for (i in 1 until stops.size - 1) mid.put(waypoint(stops[i]))
-            body.put("intermediates", mid)
-        }
+        val body = try {
+            NetNative.routeBody(stops, mode, PrefManager.trafficAware)
+        } catch (e: IOException) {
+            throw RouteException(R.string.route_err_process, e.message.orEmpty())
+        } ?: throw RouteException(R.string.route_err_process, "coordinates")
 
         val headers = HashMap<String, String>(6)
         headers["Content-Type"] = "application/json"
@@ -59,7 +47,7 @@ object RouteClient {
         certSha1(context)?.let { headers["X-Android-Cert"] = it }
 
         val res = try {
-            Http.call(ENDPOINT, body.toString().toByteArray(Charsets.UTF_8), headers, 10_000, 15_000)
+            Http.call(ENDPOINT, body.toByteArray(Charsets.UTF_8), headers, 10_000, 15_000)
         } catch (_: IOException) {
             throw RouteException(R.string.route_err_connect)
         }
@@ -74,29 +62,18 @@ object RouteClient {
         }
     }
 
+    internal class MalformedResponse : Exception("JSON")
+
     internal fun parse(text: String): Result {
-        val route = JSONObject(text).optJSONArray("routes")?.optJSONObject(0)
-            ?: throw RouteException(R.string.route_err_not_found)
-        val encoded = route.optJSONObject("polyline")?.optString("encodedPolyline").orEmpty()
-        if (!Polyline.isComplete(encoded)) throw RouteException(R.string.route_err_not_found)
-        val points = Polyline.decode(encoded)
+        val body = NetNative.route(text) ?: throw MalformedResponse()
+        if (!body.found || !Polyline.isComplete(body.encoded)) throw RouteException(R.string.route_err_not_found)
+        val points = Polyline.decode(body.encoded)
         if (points.size < 2) throw RouteException(R.string.route_err_not_found)
-        val seconds = route.optString("duration").removeSuffix("s").toDoubleOrNull() ?: 0.0
-        return Result(points, seconds)
+        return Result(points, body.durationS)
     }
 
-    private fun waypoint(p: LatLng) = JSONObject().put(
-        "location", JSONObject().put(
-            "latLng", JSONObject().put("latitude", p.latitude).put("longitude", p.longitude)
-        )
-    )
-
     private fun errorOf(code: Int, text: String): RouteException {
-        val msg = try {
-            JSONObject(text).optJSONObject("error")?.optString("message").orEmpty()
-        } catch (_: Exception) {
-            ""
-        }
+        val msg = NetNative.errorMessage(text)
         return if (msg.isNotEmpty()) RouteException(R.string.route_err_api, code, msg)
         else RouteException(R.string.route_err_http, code)
     }

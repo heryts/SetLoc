@@ -4,8 +4,6 @@ import android.content.Context
 import com.heryts.setloc.gsApp
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import org.json.JSONArray
-import org.json.JSONObject
 
 class SavedRoute(
     val id: Long,
@@ -33,8 +31,10 @@ object SavedRouteStore {
     fun load() {
         synchronized(lock) {
             if (loaded) return
+            if (!StoreNative.ready) return
             val raw = sp.getString(KEY, null)
-            val parsed = if (raw != null) parse(raw) else emptyList()
+            val parsed = if (raw != null) StoreNative.routes(raw) else emptyList()
+            if (!StoreNative.ready) return
             if (parsed == null) stashBad(raw)
             val list = parsed ?: emptyList()
             nextId = maxOf((list.maxOfOrNull { it.id } ?: 0L) + 1, sp.getLong(KEY_NEXT, 1L))
@@ -76,37 +76,7 @@ object SavedRouteStore {
     }
 
     private fun save(list: List<SavedRoute>, next: Long): Boolean {
-        val arr = JSONArray()
-        for (r in list) {
-            val pts = JSONArray()
-            r.points.forEach { pts.put(JSONArray().put(it.first).put(it.second)) }
-            arr.put(
-                JSONObject()
-                    .put("id", r.id)
-                    .put("n", r.name)
-                    .put("m", r.mode)
-                    .put("p", pts)
-            )
-        }
-        return sp.edit().putString(KEY, arr.toString()).putLong(KEY_NEXT, next).commit()
-    }
-
-    internal fun parse(raw: String): List<SavedRoute>? = try {
-        val arr = JSONArray(raw)
-        (0 until arr.length()).mapNotNull {
-            try {
-                val o = arr.getJSONObject(it)
-                val p = o.getJSONArray("p")
-                val pts = (0 until p.length()).map { i ->
-                    val a = p.getJSONArray(i)
-                    a.getDouble(0) to a.getDouble(1)
-                }
-                if (pts.size < 2) null else SavedRoute(o.getLong("id"), o.getString("n"), o.getInt("m"), pts)
-            } catch (_: Exception) {
-                null
-            }
-        }.sortedByDescending { it.id }
-    } catch (_: Exception) {
-        null
+        val json = StoreNative.encodeRoutes(list) ?: return false
+        return sp.edit().putString(KEY, json).putLong(KEY_NEXT, next).commit()
     }
 }

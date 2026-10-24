@@ -14,11 +14,14 @@ internal object FakeEngine {
     fun install(): () -> Unit {
         val ob = RouteRunner.builder
         val ow = RouteRunner.writer
+        val os = RouteRunner.schedule
         RouteRunner.builder = { p, s, v -> build(p, s, v) }
         RouteRunner.writer = { t, w -> write(t, w) }
+        RouteRunner.schedule = FakeSchedule
         return {
             RouteRunner.builder = ob
             RouteRunner.writer = ow
+            RouteRunner.schedule = os
         }
     }
 }

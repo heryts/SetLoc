@@ -24,9 +24,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.Locale;
-import java.util.Random;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 
@@ -598,10 +595,7 @@ final class LocationHooks {
     }
 
     private static final class EnvSim {
-        private static final ConcurrentHashMap<String, List<Ap>> CACHE = new ConcurrentHashMap<>();
-        private static final long TTL_MS = 30_000L;
-        private static final String[] PREFIXES = {"HOME-", "TP-LINK_", "IndiHome-", "MyRepublic-", "Biznet-", "AndroidAP_", "WARP-", "Xiaomi_", "Redmi_", "OPPO-", "vivo-", "realme-", "HUAWEI-", "Tenda_", "MERCURY_", "Cisco-", "DIRECT-"};
-        private static final String HEX = "0123456789ABCDEF";
+        private static final int MAX_APS = 8;
 
         static final class Ap {
             final String ssid, bssid;
@@ -612,40 +606,13 @@ final class LocationHooks {
         }
 
         static List<Ap> wifiFor(Location fix) {
-            if (fix == null) return Collections.emptyList();
-            long bucket = SystemClock.elapsedRealtime() / TTL_MS;
-            String k = String.format(Locale.US, "%.3f,%.3f,%d", fix.getLatitude(), fix.getLongitude(), bucket);
-            List<Ap> cached = CACHE.get(k);
-            if (cached != null) return jitter(cached);
-            if (CACHE.size() > 32) CACHE.clear();
-            long seed = Config.seed() ^ bucket;
-            for (byte b : ("wifi:" + k).getBytes(StandardCharsets.UTF_8)) seed = 31 * seed + b;
-            Random r = new Random(seed);
-            int n = 4 + r.nextInt(5);
-            List<Ap> out = new ArrayList<>(n);
-            for (int i = 0; i < n; i++) {
-                StringBuilder ssid = new StringBuilder(PREFIXES[r.nextInt(PREFIXES.length)]);
-                int len = 4 + r.nextInt(6);
-                for (int j = 0; j < len; j++) ssid.append(HEX.charAt(r.nextInt(HEX.length())));
-                StringBuilder bssid = new StringBuilder(17);
-                bssid.append(String.format(Locale.US, "%02X", (r.nextInt(256) | 0x02) & 0xFE));
-                for (int j = 1; j < 6; j++) bssid.append(':').append(String.format(Locale.US, "%02X", r.nextInt(256)));
-                int rssi = -40 - r.nextInt(40);
-                int freq = r.nextBoolean() ? 2412 + 5 * r.nextInt(13) : 5180 + 5 * r.nextInt(8);
-                out.add(new Ap(ssid.toString(), bssid.toString(), rssi, freq));
-            }
-            CACHE.put(k, out);
+            if (fix == null || !LocationNative.ready()) return Collections.emptyList();
+            int[] meta = new int[MAX_APS * 2];
+            String[] s = LocationNative.nativeWifi(fix.getLatitude(), fix.getLongitude(), SystemClock.elapsedRealtime(), meta);
+            if (s == null || (s.length & 1) != 0 || s.length > MAX_APS * 2) return Collections.emptyList();
+            List<Ap> out = new ArrayList<>(s.length / 2);
+            for (int i = 0; i < s.length / 2; i++) out.add(new Ap(s[2 * i], s[2 * i + 1], meta[2 * i], meta[2 * i + 1]));
             return out;
-        }
-
-        private static List<Ap> jitter(List<Ap> src) {
-            Random jr = new Random();
-            List<Ap> o = new ArrayList<>(src.size());
-            for (Ap a : src) {
-                int rssi = Math.max(-95, Math.min(-30, a.rssi + jr.nextInt(5) - 2));
-                o.add(new Ap(a.ssid, a.bssid, rssi, a.freq));
-            }
-            return o;
         }
     }
 

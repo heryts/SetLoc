@@ -97,7 +97,7 @@ impl Ino {
                 let len = u32::from_ne_bytes(buf[off + 12..off + 16].try_into().unwrap()) as usize;
                 let end = (off + 16 + len).min(n);
                 let name = buf[off + 16..end].split(|&b| b == 0).next().unwrap_or(&[]);
-                if mask & 0x188 != 0 && name.ends_with(b"_prefs.xml") {
+                if mask & 0x188 != 0 && name == routecore::appstate::FILE.as_bytes() {
                     hit = true;
                 }
                 if mask & 0x8c00 != 0 {

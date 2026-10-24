@@ -1,11 +1,10 @@
 package com.heryts.setloc.history
 
 import android.content.Context
+import com.heryts.setloc.favourite.StoreNative
 import com.heryts.setloc.gsApp
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import org.json.JSONArray
-import org.json.JSONObject
 
 data class HistoryItem(val label: String, val lat: Double, val lon: Double)
 
@@ -25,7 +24,11 @@ object SearchHistoryStore {
     fun load() {
         synchronized(lock) {
             if (loaded) return
-            state.value = parse(sp.getString(KEY, null))
+            if (!StoreNative.ready) return
+            val raw = sp.getString(KEY, null)
+            val items = if (raw != null) StoreNative.history(raw) else emptyList()
+            if (!StoreNative.ready) return
+            state.value = items ?: emptyList()
             loaded = true
         }
     }
@@ -59,25 +62,7 @@ object SearchHistoryStore {
     }
 
     private fun save(list: List<HistoryItem>) {
-        val arr = JSONArray()
-        for (h in list) arr.put(JSONObject().put("l", h.label).put("la", h.lat).put("ln", h.lon))
-        sp.edit().putString(KEY, arr.toString()).apply()
-    }
-
-    private fun parse(raw: String?): List<HistoryItem> {
-        if (raw == null) return emptyList()
-        return try {
-            val arr = JSONArray(raw)
-            (0 until arr.length()).mapNotNull {
-                try {
-                    val o = arr.getJSONObject(it)
-                    HistoryItem(o.getString("l"), o.getDouble("la"), o.getDouble("ln"))
-                } catch (_: Exception) {
-                    null
-                }
-            }
-        } catch (_: Exception) {
-            emptyList()
-        }
+        val json = StoreNative.encodeHistory(list) ?: return
+        sp.edit().putString(KEY, json).apply()
     }
 }

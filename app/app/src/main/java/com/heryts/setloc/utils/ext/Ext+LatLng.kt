@@ -3,6 +3,7 @@ package com.heryts.setloc.utils.ext
 import android.content.Context
 import android.location.Geocoder
 import com.google.android.gms.maps.model.LatLng
+import com.heryts.setloc.utils.NetNative
 import kotlinx.coroutines.CancellationException
 import java.util.Locale
 
@@ -14,7 +15,5 @@ suspend fun LatLng.address(context: Context): String {
     } catch (_: Exception) {
         null
     }
-    if (a.isNullOrEmpty()) return "%.5f, %.5f".format(Locale.US, latitude, longitude)
-    val rest = a.substringAfter(',', "").trimStart()
-    return if (rest.isEmpty()) a.substringBefore(',') else a.substringBefore(',') + "\n" + rest
+    return NetNative.address(a, latitude, longitude)
 }

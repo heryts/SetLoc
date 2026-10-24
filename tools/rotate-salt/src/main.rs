@@ -8,9 +8,7 @@ const ALPHABET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456
 const LEN: usize = 12;
 
 const CONFIG: &str = "module/zygote/src/main/java/io/gpsz/zygote/Config.java";
-const PREF: &str = "app/app/src/main/java/com/heryts/setloc/utils/PrefManager.kt";
 const OLDKEYS: &str = "daemon/oldkeys.txt";
-const WEB: &str = "module/zygote/src/main/assets/webroot/index.html";
 const SALT_FILE: &str = ".salt";
 
 fn tag(salt: &str, logical: &str) -> String {
@@ -83,40 +81,6 @@ fn set_salt(text: &str, salt: &str, file: &str) -> Result<String, String> {
     Ok(format!("{}{}{}", &text[..a], salt, &text[b..]))
 }
 
-fn line_sub<F: Fn(&str) -> Option<usize>>(text: &str, matcher: F, replacement: &str) -> Option<String> {
-    let mut pos = 0;
-    for line in text.split_inclusive('\n') {
-        if let Some(n) = matcher(line) {
-            let mut out = String::with_capacity(text.len() + replacement.len());
-            out.push_str(&text[..pos]);
-            out.push_str(replacement);
-            out.push_str(&text[pos + n..]);
-            return Some(out);
-        }
-        pos += line.len();
-    }
-    None
-}
-
-fn m_web_salt(line: &str) -> Option<usize> {
-    let p = "const SALT = '";
-    let rest = line.strip_prefix(p)?;
-    let n = rest.find('\'')?;
-    if rest[n + 1..].starts_with(';') {
-        Some(p.len() + n + 2)
-    } else {
-        None
-    }
-}
-
-fn m_web_sk(line: &str) -> Option<usize> {
-    let p = "const SK = {";
-    let rest = line.strip_prefix(p)?;
-    let body = rest.trim_end_matches(['\n', '\r']);
-    let n = body.rfind("};")?;
-    Some(p.len() + n + 2)
-}
-
 fn run(fresh: bool) -> Result<String, String> {
     let config_text = read(CONFIG)?;
     let old_salt = salt_of(&config_text).ok_or_else(|| missing(CONFIG, "SALT = \"([^\"]+)\""))?;
@@ -131,7 +95,6 @@ fn run(fresh: bool) -> Result<String, String> {
     write(SALT_FILE, &format!("{}\n", salt))?;
 
     let config = set_salt(&config_text, &salt, CONFIG)?;
-    let pref = set_salt(&read(PREF)?, &salt, PREF)?;
 
     let old_keys = if Path::new(OLDKEYS).exists() { read(OLDKEYS)? } else { String::new() };
     let mut legacy: Vec<String> = Vec::new();
@@ -151,27 +114,11 @@ fn run(fresh: bool) -> Result<String, String> {
     legacy.retain(|k| !current.contains(k));
     let legacy_line = format!("{}\n", legacy.join(" "));
 
-    let web_text = read(WEB)?;
-    let web = line_sub(&web_text, m_web_salt, &format!("const SALT = '{}';", salt))
-        .ok_or_else(|| missing(WEB, "^const SALT = '[^']*';"))?;
-    let sk = format!(
-        "const SK = {{ cfg: '{}', sys: '{}', net: '{}', bt: '{}', trk: '{}', live: '{}' }};",
-        tag(&salt, "cfg"),
-        tag(&salt, "sys"),
-        tag(&salt, "net"),
-        tag(&salt, "bt"),
-        tag(&salt, "trk"),
-        tag(&salt, "live")
-    );
-    let web = line_sub(&web, m_web_sk, &sk).ok_or_else(|| missing(WEB, "^const SK = \\{.*\\};"))?;
-
     write(CONFIG, &config)?;
-    write(PREF, &pref)?;
     if let Some(d) = Path::new(OLDKEYS).parent() {
         fs::create_dir_all(d).map_err(|e| format!("{}: {}", d.display(), e))?;
     }
     write(OLDKEYS, &legacy_line)?;
-    write(WEB, &web)?;
     Ok(format!(
         "salt {}, key: {}",
         if old_salt == salt { "tetap" } else { "diganti" },
@@ -207,14 +154,5 @@ mod tests {
         let t = "a SALT = \"OLD\";\nb SALT = \"OLD\";\n";
         assert_eq!(salt_of(t).as_deref(), Some("OLD"));
         assert_eq!(set_salt(t, "NEW", "x").unwrap(), "a SALT = \"NEW\";\nb SALT = \"OLD\";\n");
-    }
-
-    #[test]
-    fn web_lines_are_matched_whole() {
-        assert_eq!(m_web_salt("const SALT = 'abc';\n"), Some(19));
-        assert_eq!(m_web_salt("  const SALT = 'abc';\n"), None);
-        let t = "x\nconst SK = { cfg: '1' };\r\ny\n";
-        let out = line_sub(t, m_web_sk, "const SK = { };").unwrap();
-        assert_eq!(out, "x\nconst SK = { };\r\ny\n");
     }
 }

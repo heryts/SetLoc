@@ -14,3 +14,15 @@
 -keep class com.heryts.setloc.route.RouteNative {
     native <methods>;
 }
+-keep class com.heryts.setloc.favourite.StoreNative {
+    native <methods>;
+}
+-keep class com.heryts.setloc.utils.NetNative {
+    native <methods>;
+}
+-keep class com.heryts.setloc.utils.CodecNative {
+    native <methods>;
+}
+-keep class com.heryts.setloc.utils.PrefNative {
+    native <methods>;
+}
