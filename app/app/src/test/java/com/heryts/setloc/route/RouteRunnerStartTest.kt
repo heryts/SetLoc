@@ -29,6 +29,7 @@ class RouteRunnerStartTest {
         val oldSink = RouteRunner.sink
         val oldClock = RouteRunner.clock
         val oldElev = RouteRunner.elevations
+        val restoreEngine = FakeEngine.install()
         val fake = FakeSink()
         RouteRunner.sink = fake
         RouteRunner.clock = { System.nanoTime() / 1_000_000L }
@@ -36,7 +37,7 @@ class RouteRunnerStartTest {
         try {
             val big = (0 until 20000).map { LatLng(-7.7 + it * 0.00001, 110.4) }
             val small = listOf(LatLng(10.0, 10.0), LatLng(10.0002, 10.0), LatLng(10.0004, 10.0))
-            val smallN = RouteRunner.buildTimeline(small, 50f, 0f).size
+            val smallN = RouteRunner.buildTimeline(small, 50f, 0f)!!.size
             repeat(15) {
                 fake.begins.clear()
                 RouteRunner.start(big, 50f, 0f, -1f, 0f)
@@ -50,6 +51,7 @@ class RouteRunnerStartTest {
             RouteRunner.sink = oldSink
             RouteRunner.clock = oldClock
             RouteRunner.elevations = oldElev
+            restoreEngine()
         }
     }
 }

@@ -36,6 +36,7 @@ class RouteRunnerT0Test {
         val oldSink = RouteRunner.sink
         val oldClock = RouteRunner.clock
         val oldElev = RouteRunner.elevations
+        val restoreEngine = FakeEngine.install()
         val clock = { System.nanoTime() / 1_000_000L }
         val sink = SlowSink(300, clock)
         RouteRunner.sink = sink
@@ -51,6 +52,7 @@ class RouteRunnerT0Test {
             RouteRunner.sink = oldSink
             RouteRunner.clock = oldClock
             RouteRunner.elevations = oldElev
+            restoreEngine()
         }
     }
 }

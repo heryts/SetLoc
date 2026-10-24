@@ -387,4 +387,15 @@ mod tests {
     fn lerp_lng_crosses_antimeridian() {
         assert!((lerp_lng(179.0, -179.0, 0.5).abs() - 180.0).abs() < 1e-9);
     }
+
+    #[test]
+    fn route_across_antimeridian_does_not_jump_to_lng_zero() {
+        let pts = vec![(-17.0, 179.995), (-17.0, -179.995)];
+        let t = tl(&pts, 40.0, 0.0);
+        assert!(t.len() > 2);
+        assert!(t.iter().all(|x| x.lng.abs() > 179.9));
+        for w in t.windows(2) {
+            assert!(meters((w[0].lat, w[0].lng), (w[1].lat, w[1].lng)) < 20.0);
+        }
+    }
 }

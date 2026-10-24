@@ -18,7 +18,6 @@ import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -72,18 +71,6 @@ object RouteRunner {
     private const val PREF_EVERY = 10
     const val TIMELINE_LINE_WIDTH = 48
     const val MAX_TICKS = 250_000
-    private const val SPEED_VARIATION = 0.08
-    private const val SPEED_PULL = 0.1
-    private const val SPEED_STEP = 0.22
-    private const val MIN_SPEED_MS = 0.3
-    private const val ACCEL_WALK = 1.0
-    private const val ACCEL_VEHICLE = 1.8
-    private const val BRAKE_FACTOR = 1.4
-    private const val WALK_MAX_MS = 3.0
-    private const val CORNER_MIN_SEG_M = 2.0
-    private const val CORNER_FLOOR_MS = 1.5
-    private const val CORNER_LOOK_M = 20.0
-    private const val CORNER_SOFT = 0.95
 
     @Volatile var elevations: FloatArray? = null
 
@@ -126,109 +113,29 @@ object RouteRunner {
 
     internal class Tick(val lat: Double, val lng: Double, val spd: Float, val brg: Float, val alt: Float, val pct: Int)
 
-    private fun cornerCaps(points: List<LatLng>, cum: DoubleArray, speedMs: Double, brake: Double): DoubleArray {
-        val n = points.size
-        val cap = DoubleArray(n) { Double.MAX_VALUE }
-        cap[n - 1] = 0.0
-        for (i in 1 until n - 1) {
-            var j = i - 1
-            while (j > 0 && cum[i] - cum[j] < CORNER_LOOK_M) j--
-            var k = i + 1
-            while (k < n - 1 && cum[k] - cum[i] < CORNER_LOOK_M) k++
-            if (cum[i] - cum[j] < CORNER_MIN_SEG_M || cum[k] - cum[i] < CORNER_MIN_SEG_M) continue
-            var turn = abs(bearing(points[i], points[k]) - bearing(points[j], points[i])).toDouble()
-            if (turn > 180.0) turn = 360.0 - turn
-            val c = max(min(speedMs, CORNER_FLOOR_MS), speedMs * sqrt(1.0 - turn / 180.0))
-            if (c < speedMs * CORNER_SOFT) cap[i] = c
-        }
-        for (i in n - 2 downTo 0) {
-            val reach = sqrt(cap[i + 1] * cap[i + 1] + 2.0 * brake * (cum[i + 1] - cum[i]))
-            if (reach < cap[i]) cap[i] = reach
-        }
-        return cap
+    // Mesin timeline: Rust (routecore) lewat JNI. Tidak ada cadangan Kotlin; kalau library tidak
+    // termuat atau rute ditolak, hasilnya null dan rute dihentikan. Unit test JVM tidak bisa memuat
+    // library Android, jadi mengganti dua lambda ini dengan versi palsu.
+    @Volatile internal var builder: (List<LatLng>, Float, Float) -> List<Tick>? = { points, speedKmh, speedVarKmh ->
+        val e = elevations
+        val manual = if (e == null || e.isEmpty()) sink.altitudeManual else 0f
+        RouteNative.build(points, speedKmh, speedVarKmh, e, manual)
     }
 
-    internal fun buildTimeline(points: List<LatLng>, speedKmh: Float, speedVarKmh: Float): List<Tick> {
-        if (RouteNative.ready) {
-            val e = elevations
-            val manual = if (e == null || e.isEmpty()) sink.altitudeManual else 0f
-            val t = RouteNative.build(points, speedKmh, speedVarKmh, e, manual)
-            if (t != null) return t
-        }
-        return buildTimelineKt(points, speedKmh, speedVarKmh)
-    }
+    @Volatile internal var writer: (List<Tick>, java.io.Writer) -> Long? = { ticks, w -> RouteNative.write(ticks, w) }
 
-    private fun buildTimelineKt(points: List<LatLng>, speedKmh: Float, speedVarKmh: Float): List<Tick> {
-        val cum = DoubleArray(points.size)
-        for (i in 1 until points.size) cum[i] = cum[i - 1] + meters(points[i - 1], points[i])
-        val total = cum.last()
-        val speedMs = speedKmh / 3.6
-        val varMs = if (speedVarKmh < 0f) speedMs * SPEED_VARIATION else speedVarKmh / 3.6
-        val accel = if (speedMs < WALK_MAX_MS) ACCEL_WALK else ACCEL_VEHICLE
-        val brake = accel * BRAKE_FACTOR
-        val minMs = max(0.05, min(MIN_SPEED_MS, speedMs))
-        val caps = cornerCaps(points, cum, speedMs, brake)
-        val dt = TICK_MS / 1000.0
-        val rnd = java.util.Random()
-        val out = ArrayList<Tick>()
-        var brg = bearing(points[0], points[1])
-        out.add(Tick(points[0].latitude, points[0].longitude, 0f, brg, altitudeAt(0.0), 0))
-        var travelled = 0.0
-        var seg = 1
-        var dev = 0.0
-        var cur = 0.0
-        while (travelled < total) {
-            dev = dev * (1.0 - SPEED_PULL) + rnd.nextGaussian() * varMs * SPEED_STEP
-            dev = dev.coerceIn(-varMs, varMs)
-            val ahead = max(0.0, cum[seg] - travelled)
-            val ceiling = sqrt(brake * brake * dt * dt + caps[seg] * caps[seg] + 2.0 * brake * ahead) - brake * dt
-            val prev = cur
-            cur = (speedMs + dev).coerceAtMost(prev + accel * dt).coerceAtMost(ceiling)
-                .coerceAtLeast(minMs).coerceAtLeast(prev - brake * dt)
-            val before = travelled
-            travelled = min(total, travelled + cur * dt)
-            val shown = ((travelled - before) / dt).toFloat()
-            while (seg < cum.size - 1 && cum[seg] < travelled) seg++
-            val segLen = cum[seg] - cum[seg - 1]
-            val f = if (segLen <= 0.0) 1.0 else ((travelled - cum[seg - 1]) / segLen).coerceIn(0.0, 1.0)
-            val a = points[seg - 1]
-            val b = points[seg]
-            if (segLen > 0.5) brg = bearing(a, b)
-            val frac = if (total > 0) travelled / total else 1.0
-            out.add(
-                Tick(
-                    a.latitude + (b.latitude - a.latitude) * f,
-                    lerpLng(a.longitude, b.longitude, f),
-                    shown, brg, altitudeAt(frac), (frac * 100).toInt()
-                )
-            )
-        }
-        val end = points.last()
-        out.add(Tick(end.latitude, end.longitude, 0f, brg, altitudeAt(1.0), 100))
-        return out
-    }
-
-    internal fun writeTimeline(ticks: List<Tick>, w: java.io.Writer): Long =
-        RouteNative.write(ticks, w) ?: writeTimelineKt(ticks, w)
-
-    private fun writeTimelineKt(ticks: List<Tick>, w: java.io.Writer): Long {
-        val sb = StringBuilder(TIMELINE_LINE_WIDTH + 8)
-        val fmt = java.util.Formatter(sb, java.util.Locale.US)
-        var chars = 0L
-        for (t in ticks) {
-            sb.setLength(0)
-            fmt.format("%11.6f %11.6f %7.3f %6.2f %8.2f\n", t.lat, t.lng, t.spd, t.brg, t.alt)
-            chars += sb.length
-            w.append(sb)
-        }
-        return chars
-    }
+    internal fun buildTimeline(points: List<LatLng>, speedKmh: Float, speedVarKmh: Float): List<Tick>? =
+        builder(points, speedKmh, speedVarKmh)
 
     private suspend fun run(
         g: Int, points: List<LatLng>, speedKmh: Float, waitAtStartMin: Float, waitAtEndMin: Float, speedVarKmh: Float
     ) {
         val ticks = buildTimeline(points, speedKmh, speedVarKmh)
         if (g != gen) return
+        if (ticks == null) {
+            abort(g)
+            return
+        }
         val n = ticks.size
         val waitMs = (waitAtStartMin * 60_000f).toLong()
         val autoStop = waitAtEndMin < 0f
@@ -237,7 +144,11 @@ object RouteRunner {
         var chars = 0L
         val written = synchronized(fileLock) {
             if (g != gen) return
-            sink.writeRouteTimeline { chars = writeTimeline(ticks, it) }
+            sink.writeRouteTimeline { chars = writer(ticks, it) ?: -1L }
+        }
+        if (chars < 0L) {
+            abort(g)
+            return
         }
         val t0 = clock() + waitMs
         synchronized(lock) {
@@ -292,6 +203,14 @@ object RouteRunner {
             finish(g, points.last(), spoofOff = true)
         } else {
             finish(g, points.last(), spoofOff = false)
+        }
+    }
+
+    private fun abort(g: Int) = synchronized(lock) {
+        if (active && g == gen) {
+            active = false
+            job = null
+            _state.value = State()
         }
     }
 
