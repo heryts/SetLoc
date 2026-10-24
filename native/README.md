@@ -116,7 +116,7 @@ Uji mutasi (13 kasus: argumen tertukar, bit flag salah, indeks array salah, `Con
 - Penyalinan ke `jniLibs/` dan pengemasannya oleh plugin ZygoteLoader ke zip modul belum dibuktikan. Cek dengan `unzip -l SetLocZygisk-release.zip | grep -E 'configcore|lochooks'` sebelum flash.
 - `System.loadLibrary("configcore")` dan `("lochooks")` dari `premain()` bergantung pada jalur library dan namespace linker, sama seperti `gpsz_hook`. Kalau gagal, hasilnya jalur Java (aman).
 - Profil rilis Rust memakai `panic = "abort"`: panic di dalam fungsi JNI mematikan proses aplikasi target, tidak bisa ditangkap `try/catch` Java. Kalau ada gejala crash di aplikasi, buat `disable_rs` dulu.
-- Biaya per panggilan: `nativeApply` mengalokasikan `double[13]` dan `nativeStamp` `long[2]` per pemanggilan. Belum diukur; Java lama tanpa alokasi JNI.
+- Biaya per panggilan: `Fix` memakai `nativeApplyInto`, `nativeStampInto`, dan `nativeLastKnownInto`, yang mengisi array per thread (`ThreadLocal`) sehingga tidak ada alokasi array per pemanggilan. Versi lama (`nativeApply`, `nativeStamp`, `nativeLastKnown`) tetap diekspor dan dipakai tes paritas. Hasil `Into` sama bit-per-bit dengan versi lama dan menolak array null atau terlalu pendek (`false`, lalu `Fix` jatuh ke Java). Selisih kecepatan belum diukur di perangkat.
 - Kalau `nativeStamp`/`nativeLastKnown` mengembalikan `null` di tengah jalan (gagal alokasi array), pemanggilan itu jatuh ke jalur Java yang keadaan stempelnya terpisah; satu stempel bisa tidak monoton terhadap stempel Rust sebelumnya. Sangat jarang, dan tidak ada yang bergantung pada monoton lintas dua jalur.
 - RNG berbeda: Rust memakai xorshift yang diinisialisasi dari waktu, Java `java.util.Random`. Distribusinya sama, urutannya tidak.
 
